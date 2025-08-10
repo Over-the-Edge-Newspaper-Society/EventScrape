@@ -41,6 +41,13 @@ export class BrowserPool {
         '--disable-renderer-backgrounding',
         '--disable-features=TranslateUI',
         '--disable-ipc-flooding-protection',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-automation',
+        '--disable-plugins-discovery',
+        '--disable-web-security',
+        '--allow-running-insecure-content',
+        '--no-zygote',
+        '--memory-pressure-off',
       ],
     });
   }

@@ -25,6 +25,8 @@ export class EventMatcher {
     } = {}
   ): Promise<PotentialMatch[]> {
     const { windowDays = 7, minScore = this.reviewThreshold } = options;
+    
+    console.log(`Match options: windowDays=${windowDays}, minScore=${minScore}`);
     const matches: PotentialMatch[] = [];
     
     console.log(`Finding duplicates among ${events.length} events...`);
@@ -45,7 +47,8 @@ export class EventMatcher {
         }
         
         // Apply blocking filters first (performance optimization)
-        if (!this.passesBlockingFilters(eventA, eventB, windowDays)) {
+        const passesFilters = this.passesBlockingFilters(eventA, eventB, windowDays);
+        if (!passesFilters) {
           continue;
         }
         
@@ -77,8 +80,12 @@ export class EventMatcher {
    */
   private passesBlockingFilters(eventA: EventRaw, eventB: EventRaw, windowDays: number): boolean {
     // Date proximity check (within window)
-    const dateA = DateTime.fromJSDate(eventA.startDatetime);
-    const dateB = DateTime.fromJSDate(eventB.startDatetime);
+    const dateA = eventA.startDatetime instanceof Date 
+      ? DateTime.fromJSDate(eventA.startDatetime)
+      : DateTime.fromISO(eventA.startDatetime as string);
+    const dateB = eventB.startDatetime instanceof Date 
+      ? DateTime.fromJSDate(eventB.startDatetime)
+      : DateTime.fromISO(eventB.startDatetime as string);
     const daysDiff = Math.abs(dateA.diff(dateB, 'days').days);
     
     if (daysDiff > windowDays) {
@@ -181,9 +188,13 @@ export class EventMatcher {
   /**
    * Calculate time delta in minutes
    */
-  private calculateTimeDelta(dateA: Date, dateB: Date): number {
-    const dtA = DateTime.fromJSDate(dateA);
-    const dtB = DateTime.fromJSDate(dateB);
+  private calculateTimeDelta(dateA: Date | string, dateB: Date | string): number {
+    const dtA = dateA instanceof Date 
+      ? DateTime.fromJSDate(dateA)
+      : DateTime.fromISO(dateA);
+    const dtB = dateB instanceof Date 
+      ? DateTime.fromJSDate(dateB)
+      : DateTime.fromISO(dateB);
     return Math.abs(dtA.diff(dtB, 'minutes').minutes);
   }
 

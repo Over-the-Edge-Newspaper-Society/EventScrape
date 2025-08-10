@@ -5,10 +5,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { runsApi, sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Play, Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface RunDetailsProps {
@@ -197,6 +199,8 @@ export function Runs() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [selectedSourceForTrigger, setSelectedSourceForTrigger] = useState<string>('')
+  const [isTestMode, setIsTestMode] = useState(true)
 
   const { data: runs, isLoading: runsLoading } = useQuery({
     queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter }],
@@ -230,19 +234,24 @@ export function Runs() {
     },
   })
 
-  const handleTriggerScrape = async (sourceKey: string) => {
-    try {
-      await triggerScrapeMutation.mutateAsync(sourceKey)
-    } catch (error) {
-      console.error('Scrape trigger failed:', error)
-    }
-  }
 
-  const handleTriggerTest = async (sourceKey: string) => {
+  const handleTriggerRun = async () => {
+    if (!selectedSourceForTrigger) {
+      toast.error('Please select a source to scrape')
+      return
+    }
+    
     try {
-      await triggerTestMutation.mutateAsync(sourceKey)
+      if (isTestMode) {
+        await triggerTestMutation.mutateAsync(selectedSourceForTrigger)
+        toast.success('Test scrape started successfully')
+      } else {
+        await triggerScrapeMutation.mutateAsync(selectedSourceForTrigger)
+        toast.success('Full scrape started successfully')
+      }
     } catch (error) {
-      console.error('Test trigger failed:', error)
+      console.error('Trigger failed:', error)
+      toast.error('Failed to start scrape. Please try again.')
     }
   }
 
@@ -312,54 +321,65 @@ export function Runs() {
       {/* Quick Actions */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold">Trigger New Runs</h3>
+          <div>
+            <div className="mb-6">
+              <h3 className="font-semibold mb-2">Trigger New Runs</h3>
               <p className="text-sm text-muted-foreground">
                 Manually start scraping for active sources
               </p>
             </div>
-            <div className="flex flex-col gap-3">
-              <div>
-                <h4 className="font-medium mb-2">Full Scrape</h4>
-                <div className="flex gap-2 flex-wrap">
-                  {sources?.sources
-                    .filter(source => source.active)
-                    .map((source) => (
-                      <Button
-                        key={source.id}
-                        size="sm"
-                        variant="outline"
-                        disabled={triggerScrapeMutation.isPending}
-                        onClick={() => handleTriggerScrape(source?.moduleKey)}
-                        className="flex items-center gap-1"
-                      >
-                        <Zap className="h-3 w-3" />
-                        {source?.name}
-                      </Button>
-                    ))}
+            
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="source-select">Select Source</Label>
+                  <Select value={selectedSourceForTrigger} onValueChange={setSelectedSourceForTrigger}>
+                    <SelectTrigger id="source-select">
+                      <SelectValue placeholder="Choose a scraping source..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sources?.sources
+                        .filter(source => source.active)
+                        .map((source) => (
+                          <SelectItem key={source.id} value={source.moduleKey}>
+                            <div className="flex items-center gap-2">
+                              <Activity className="h-3 w-3" />
+                              {source.name}
+                            </div>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="test-mode">Scrape Mode</Label>
+                  <div className="flex items-center space-x-2 h-10 px-3 py-2 border rounded-md">
+                    <Switch
+                      id="test-mode"
+                      checked={isTestMode}
+                      onCheckedChange={setIsTestMode}
+                    />
+                    <Label htmlFor="test-mode" className="text-sm cursor-pointer">
+                      {isTestMode ? 'Test Mode (First Event Only)' : 'Full Mode (All Events)'}
+                    </Label>
+                  </div>
                 </div>
               </div>
               
-              <div>
-                <h4 className="font-medium mb-2">Test Scrape (First Event Only)</h4>
-                <div className="flex gap-2 flex-wrap">
-                  {sources?.sources
-                    .filter(source => source.active)
-                    .map((source) => (
-                      <Button
-                        key={`test-${source.id}`}
-                        size="sm"
-                        variant="secondary"
-                        disabled={triggerTestMutation.isPending}
-                        onClick={() => handleTriggerTest(source?.moduleKey)}
-                        className="flex items-center gap-1"
-                      >
-                        <Eye className="h-3 w-3" />
-                        Test {source?.name}
-                      </Button>
-                    ))}
-                </div>
+              <div className="flex justify-start">
+                <Button
+                  onClick={handleTriggerRun}
+                  disabled={!selectedSourceForTrigger || triggerScrapeMutation.isPending || triggerTestMutation.isPending}
+                  className="flex items-center gap-2"
+                  size="lg"
+                >
+                  {isTestMode ? <Eye className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+                  {triggerScrapeMutation.isPending || triggerTestMutation.isPending 
+                    ? 'Starting...' 
+                    : `Start ${isTestMode ? 'Test' : 'Full'} Scrape`
+                  }
+                </Button>
               </div>
             </div>
           </div>

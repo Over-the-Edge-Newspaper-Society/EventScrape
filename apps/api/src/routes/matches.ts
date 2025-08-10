@@ -247,12 +247,25 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Trigger recomputation of matches
   fastify.post('/recompute', async (request, reply) => {
-    // TODO: Implement when matching system is ready
-    // This will enqueue a job to recompute potential duplicates
-    
-    reply.status(202);
-    return {
-      message: 'Match recomputation queued',
-    };
+    try {
+      const { enqueueMatchJob } = await import('../queue/queue.js');
+      
+      // Enqueue a job to find matches among all events
+      const job = await enqueueMatchJob({
+        // No filters = process all events
+      });
+      
+      fastify.log.info(`Match recomputation job queued: ${job.id}`);
+      
+      reply.status(202);
+      return {
+        message: 'Match recomputation queued',
+        jobId: job.id,
+      };
+    } catch (error) {
+      fastify.log.error('Failed to queue match job:', error);
+      reply.status(500);
+      return { error: 'Failed to queue match recomputation' };
+    }
   });
 };

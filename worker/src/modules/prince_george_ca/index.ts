@@ -25,57 +25,170 @@ const princeGeorgeModule: ScraperModule = {
       logger.info('Page loaded, waiting for calendar to render...');
 
       // Wait for the calendar widget to load first
-      await page.waitForSelector('.fc-view-container', { timeout: 15000 });
-      
-      // Switch to list view first
-      const listButton = await page.$('.fc-listMonth-button');
-      if (listButton) {
-        const isActive = await page.evaluate(el => el.classList.contains('fc-button-active'), listButton);
-        if (!isActive) {
-          logger.info('Switching to list view...');
-          await listButton.click();
-          await page.waitForTimeout(3000); // Give it more time to load
-        }
+      try {
+        await page.waitForSelector('.fc-view-container', { timeout: 15000 });
+        logger.info('Calendar container found');
+      } catch (error) {
+        logger.error('Calendar container not found within timeout');
+        throw error;
       }
       
-      // Now wait for the list table to appear
-      await page.waitForSelector('.fc-list-table', { timeout: 10000 });
+      // Extract from month view first since it shows more events (35 vs 32)
+      logger.info('Checking month view for events...');
+      const monthViewEvents = await page.$$('.fc-event');
+      logger.info(`Found ${monthViewEvents.length} events in month view`);
+      
+      let useListView = false;
+      
+      if (monthViewEvents.length === 0) {
+        logger.info('No events in month view, trying list view...');
+        const listButton = await page.$('.fc-listMonth-button');
+        
+        if (listButton) {
+          logger.info('List button found, clicking to switch to list view...');
+          await listButton.click();
+          await page.waitForTimeout(5000); // Give it time to load
+          
+          try {
+            await page.waitForSelector('.fc-list-table', { timeout: 10000 });
+            useListView = true;
+            logger.info('Successfully switched to list view');
+          } catch (error) {
+            logger.warn('List view did not load either');
+            useListView = false;
+          }
+        }
+      } else {
+        logger.info(`Using month view with ${monthViewEvents.length} events`);
+        useListView = false;
+      }
 
       logger.info('Calendar loaded, extracting events...');
 
       // Extract all event links from the calendar
-      const eventLinks = await page.evaluate(() => {
+      const eventLinks = await page.evaluate((useListView) => {
         const links: Array<{url: string, title: string, time: string, date: string}> = [];
         
-        // Find all event rows in the calendar
-        const eventRows = document.querySelectorAll('.fc-list-item');
-        
-        eventRows.forEach(row => {
-          const linkEl = row.querySelector('.fc-list-item-title a') as HTMLAnchorElement;
-          const timeEl = row.querySelector('.fc-list-item-time');
+        if (useListView) {
+          // Extract from list view
+          const eventRows = document.querySelectorAll('.fc-list-item');
           
-          if (linkEl && timeEl) {
-            // Find the date heading for this event
-            let dateHeading = row.previousElementSibling;
-            while (dateHeading && !dateHeading.classList.contains('fc-list-heading')) {
-              dateHeading = dateHeading.previousElementSibling;
+          eventRows.forEach(row => {
+            const linkEl = row.querySelector('.fc-list-item-title a') as HTMLAnchorElement;
+            const timeEl = row.querySelector('.fc-list-item-time');
+            
+            if (linkEl && timeEl) {
+              // Find the date heading for this event
+              let dateHeading = row.previousElementSibling;
+              while (dateHeading && !dateHeading.classList.contains('fc-list-heading')) {
+                dateHeading = dateHeading.previousElementSibling;
+              }
+              
+              const dateText = dateHeading?.querySelector('.fc-list-heading-main')?.textContent?.trim() || '';
+              
+              links.push({
+                url: new URL(linkEl.href, window.location.origin).href,
+                title: linkEl.textContent?.trim() || '',
+                time: timeEl.textContent?.trim() || '',
+                date: dateText
+              });
+            }
+          });
+        } else {
+          // Extract from month view
+          const eventElements = document.querySelectorAll('.fc-event');
+          
+          eventElements.forEach((eventEl) => {
+            const linkEl = eventEl as HTMLAnchorElement;
+            
+            // Check if this element itself is a link or contains a link
+            let actualLink = linkEl;
+            if (!linkEl.href) {
+              const linkChild = linkEl.querySelector('a') as HTMLAnchorElement;
+              if (linkChild?.href) {
+                actualLink = linkChild;
+              } else {
+                return; // Skip if no href found
+              }
             }
             
-            const dateText = dateHeading?.querySelector('.fc-list-heading-main')?.textContent?.trim() || '';
+            // Get title and time from the fc-content div
+            const contentDiv = linkEl.querySelector('.fc-content');
+            const titleEl = contentDiv?.querySelector('.fc-title') || linkEl.querySelector('.fc-title');
+            const timeEl = contentDiv?.querySelector('.fc-time') || linkEl.querySelector('.fc-time');
             
-            links.push({
-              url: new URL(linkEl.href, window.location.origin).href,
-              title: linkEl.textContent?.trim() || '',
-              time: timeEl.textContent?.trim() || '',
-              date: dateText
-            });
-          }
-        });
+            if (titleEl && actualLink.href) {
+              // Get the date from the parent cell
+              let dayCell = linkEl.closest('td[data-date]');
+              if (!dayCell) {
+                // Try finding parent with data-date attribute
+                let parent = linkEl.parentElement;
+                while (parent && !dayCell) {
+                  if (parent.hasAttribute && parent.hasAttribute('data-date')) {
+                    dayCell = parent;
+                    break;
+                  }
+                  if (parent.tagName === 'TD' && parent.closest('[data-date]')) {
+                    dayCell = parent.closest('[data-date]');
+                    break;
+                  }
+                  parent = parent.parentElement;
+                }
+              }
+              
+              const dateAttr = dayCell?.getAttribute('data-date') || '';
+              
+              // Format the date nicely
+              let dateText = '';
+              if (dateAttr) {
+                const dateObj = new Date(dateAttr);
+                dateText = dateObj.toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                });
+              }
+              
+              links.push({
+                url: new URL(actualLink.href, window.location.origin).href,
+                title: titleEl.textContent?.trim() || '',
+                time: timeEl?.textContent?.trim() || '',
+                date: dateText
+              });
+            }
+          });
+        }
         
         return links;
-      });
+      }, useListView);
 
       logger.info(`Found ${eventLinks.length} event links`);
+      
+      if (eventLinks.length === 0) {
+        logger.warn('No events found on calendar page - this might indicate a scraping issue');
+        logger.info('Attempting to take screenshot for debugging...');
+        try {
+          await page.screenshot({ path: '/tmp/prince-george-debug.png', fullPage: true });
+          logger.info('Screenshot saved to /tmp/prince-george-debug.png');
+        } catch (screenshotError) {
+          logger.warn('Could not take screenshot:', screenshotError);
+        }
+        
+        // Let's also log what we can see on the page
+        const pageInfo = await page.evaluate(() => {
+          return {
+            url: window.location.href,
+            title: document.title,
+            calendarExists: !!document.querySelector('.fc-view-container'),
+            monthViewExists: !!document.querySelector('.fc-dayGridMonth-view'),
+            listViewExists: !!document.querySelector('.fc-list-table'),
+            eventCount: document.querySelectorAll('.fc-event').length,
+            listItemCount: document.querySelectorAll('.fc-list-item').length,
+          };
+        });
+        logger.info('Page debug info:', JSON.stringify(pageInfo, null, 2));
+      }
       
       // In test mode, only process the first event
       const eventsToProcess = isTestMode ? eventLinks.slice(0, 1) : eventLinks;
@@ -149,25 +262,48 @@ const princeGeorgeModule: ScraperModule = {
           }, eventLink);
 
           // Create events for each date (some events have multiple dates)
-          for (const dateInfo of eventDetails.dates) {
+          const validDates = eventDetails.dates.filter(d => d.start);
+          
+          if (validDates.length === 0) {
+            // Fallback: create event from calendar data if no valid dates found on detail page
+            let fallbackStart = '';
+            try {
+              // Try to construct date from calendar data
+              if (eventLink.date && eventLink.time) {
+                const dateObj = new Date(`${eventLink.date} ${eventLink.time}`);
+                if (!isNaN(dateObj.getTime())) {
+                  fallbackStart = dateObj.toISOString();
+                }
+              }
+              
+              // If still no valid date, use today as absolute fallback
+              if (!fallbackStart) {
+                fallbackStart = new Date().toISOString();
+                logger.warn(`Using current date as fallback for event: ${eventDetails.title}`);
+              }
+            } catch (dateError) {
+              fallbackStart = new Date().toISOString();
+              logger.warn(`Date parsing failed for ${eventDetails.title}, using current date`);
+            }
+            
+            validDates.push({ start: fallbackStart });
+          }
+          
+          for (const dateInfo of validDates) {
             // Determine category from event types
             const categories = [eventDetails.eventType, eventDetails.communityType]
               .filter(Boolean) as string[];
 
             const event: RawEvent = {
-              title: eventDetails.title,
-              descriptionHtml: eventDetails.description,
+              title: eventDetails.title || 'Untitled Event',
               start: dateInfo.start,
-              end: dateInfo.end,
-              venueName: eventDetails.location,
+              end: dateInfo.end || undefined,
               city: 'Prince George',
-              region: 'British Columbia',
+              region: 'British Columbia', 
               country: 'Canada',
               organizer: 'City of Prince George',
               category: categories[0] || 'Community Event',
-              tags: categories.length > 1 ? categories.slice(1) : undefined,
-              url: eventDetails.url,
-              imageUrl: eventDetails.imageUrl ? new URL(eventDetails.imageUrl, eventDetails.url).href : undefined,
+              url: eventDetails.url || eventLink.url,
               raw: {
                 calendarTime: eventDetails.rawCalendarTime,
                 calendarDate: eventDetails.rawCalendarDate,
@@ -175,8 +311,26 @@ const princeGeorgeModule: ScraperModule = {
                 communityType: eventDetails.communityType,
                 fullDescription: eventDetails.description,
                 extractedAt: new Date().toISOString(),
+                originalEventLink: eventLink,
               },
             };
+
+            // Only set optional fields if they have actual values
+            if (eventDetails.description) {
+              event.descriptionHtml = eventDetails.description;
+            }
+            
+            if (eventDetails.location) {
+              event.venueName = eventDetails.location;
+            }
+            
+            if (categories.length > 1) {
+              event.tags = categories.slice(1);
+            }
+            
+            if (eventDetails.imageUrl) {
+              event.imageUrl = new URL(eventDetails.imageUrl, eventDetails.url).href;
+            }
 
             events.push(event);
           }
@@ -187,9 +341,25 @@ const princeGeorgeModule: ScraperModule = {
           logger.warn(`Failed to scrape event ${eventLink.title}: ${eventError}`);
           
           // Create a basic event from calendar data if detail page fails
+          let fallbackStart = '';
+          try {
+            if (eventLink.date && eventLink.time) {
+              const dateObj = new Date(`${eventLink.date} ${eventLink.time}`);
+              if (!isNaN(dateObj.getTime())) {
+                fallbackStart = dateObj.toISOString();
+              }
+            }
+            // Fallback to current date if parsing fails
+            if (!fallbackStart) {
+              fallbackStart = new Date().toISOString();
+            }
+          } catch (dateError) {
+            fallbackStart = new Date().toISOString();
+          }
+          
           const fallbackEvent: RawEvent = {
-            title: eventLink.title,
-            start: `${eventLink.date} ${eventLink.time}`,
+            title: eventLink.title || 'Untitled Event',
+            start: fallbackStart,
             city: 'Prince George',
             region: 'British Columbia', 
             country: 'Canada',

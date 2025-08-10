@@ -10,11 +10,17 @@ class ApiError extends Error {
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   
+  const headers: Record<string, string> = {
+    ...options?.headers,
+  }
+  
+  // Only set Content-Type if we have a body
+  if (options?.body) {
+    headers['Content-Type'] = 'application/json'
+  }
+  
   const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
     ...options,
   })
 

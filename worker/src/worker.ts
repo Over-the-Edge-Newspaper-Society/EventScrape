@@ -181,6 +181,43 @@ class EventScraperWorker {
         let savedCount = 0;
         for (const event of processedEvents) {
           try {
+            // Debug logging: check for undefined values before database insertion
+            const fieldsToCheck = {
+              source_id: source.id,
+              run_id: jobData.runId,
+              source_event_id: event.sourceEventId,
+              title: event.title,
+              description_html: event.descriptionHtml,
+              start_datetime: event.startDatetime,
+              end_datetime: event.endDatetime,
+              timezone: event.timezone,
+              venue_name: event.venueName,
+              venue_address: event.venueAddress,
+              city: event.city,
+              region: event.region,
+              country: event.country,
+              lat: event.lat,
+              lon: event.lon,
+              organizer: event.organizer,
+              category: event.category,
+              price: event.price,
+              tags: event.tags,
+              url: event.url,
+              image_url: event.imageUrl,
+              scraped_at: event.scrapedAt,
+              raw: event.raw,
+              content_hash: event.contentHash
+            };
+
+            const undefinedFields = Object.entries(fieldsToCheck)
+              .filter(([key, value]) => value === undefined)
+              .map(([key]) => key);
+
+            if (undefinedFields.length > 0) {
+              logger.warn(`Event "${event.title}" has undefined fields: ${undefinedFields.join(', ')}`);
+              logger.debug('Full event object:', JSON.stringify(event, null, 2));
+            }
+
             await db`
               INSERT INTO events_raw (
                 source_id, run_id, source_event_id, title, description_html,
@@ -188,18 +225,19 @@ class EventScraperWorker {
                 city, region, country, lat, lon, organizer, category, price, tags,
                 url, image_url, scraped_at, raw, content_hash
               ) VALUES (
-                ${source.id}, ${jobData.runId}, ${event.sourceEventId}, ${event.title}, ${event.descriptionHtml},
-                ${event.startDatetime}, ${event.endDatetime}, ${event.timezone}, ${event.venueName}, ${event.venueAddress},
-                ${event.city}, ${event.region}, ${event.country}, ${event.lat}, ${event.lon}, ${event.organizer}, 
-                ${event.category}, ${event.price}, ${JSON.stringify(event.tags)},
-                ${event.url}, ${event.imageUrl}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}
+                ${source.id}, ${jobData.runId}, ${event.sourceEventId || null}, ${event.title}, ${event.descriptionHtml || null},
+                ${event.startDatetime}, ${event.endDatetime || null}, ${event.timezone}, ${event.venueName || null}, ${event.venueAddress || null},
+                ${event.city || null}, ${event.region || null}, ${event.country || null}, ${event.lat || null}, ${event.lon || null}, ${event.organizer || null}, 
+                ${event.category || null}, ${event.price || null}, ${event.tags ? JSON.stringify(event.tags) : null},
+                ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}
               ) ON CONFLICT (source_id, source_event_id) 
               WHERE source_event_id IS NOT NULL
               DO NOTHING
             `;
             savedCount++;
           } catch (dbError) {
-            logger.warn(`Failed to save event: ${dbError}`);
+            logger.warn(`Failed to save event "${event.title}": ${dbError}`);
+            logger.debug('Event that failed to save:', JSON.stringify(event, null, 2));
           }
         }
 
@@ -232,16 +270,20 @@ class EventScraperWorker {
 
   private async processMatchJob(job: any): Promise<void> {
     const jobData = job.data as MatchJobData;
-    logger.info('Processing match job for duplicate detection');
+    logger.info('Processing match job for duplicate detection', { jobData });
 
     try {
+      logger.info('Starting match job processing...');
+      
       // Get events to analyze
       let events;
       if (jobData.sourceIds && jobData.sourceIds.length > 0) {
         if (jobData.startDate && jobData.endDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime >= ${jobData.startDate} 
               AND start_datetime <= ${jobData.endDate}
@@ -250,8 +292,10 @@ class EventScraperWorker {
           `;
         } else if (jobData.startDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime >= ${jobData.startDate}
               AND source_id = ANY(${jobData.sourceIds})
@@ -259,8 +303,10 @@ class EventScraperWorker {
           `;
         } else if (jobData.endDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime <= ${jobData.endDate}
               AND source_id = ANY(${jobData.sourceIds})
@@ -268,8 +314,10 @@ class EventScraperWorker {
           `;
         } else {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE source_id = ANY(${jobData.sourceIds})
             ORDER BY start_datetime
@@ -278,8 +326,10 @@ class EventScraperWorker {
       } else {
         if (jobData.startDate && jobData.endDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime >= ${jobData.startDate} 
               AND start_datetime <= ${jobData.endDate}
@@ -287,43 +337,60 @@ class EventScraperWorker {
           `;
         } else if (jobData.startDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime >= ${jobData.startDate}
             ORDER BY start_datetime
           `;
         } else if (jobData.endDate) {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             WHERE start_datetime <= ${jobData.endDate}
             ORDER BY start_datetime
           `;
         } else {
           events = await db`
-            SELECT id, source_id, source_event_id, title, start_datetime, end_datetime,
-                   venue_name, venue_address, city, lat, lon, organizer
+            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
+                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
+                   venue_name as "venueName", venue_address as "venueAddress", 
+                   city, lat, lon, organizer
             FROM events_raw 
             ORDER BY start_datetime
           `;
         }
       }
 
+      logger.info(`Found ${events.length} events to analyze for duplicates`);
+      
+      
       // Find potential duplicates
       const matches = await this.matcher.findPotentialDuplicates(events);
+      
+      logger.info(`Matcher found ${matches.length} potential duplicates`);
 
       // Save matches to database
+      let savedMatches = 0;
       for (const match of matches) {
-        await db`
-          INSERT INTO matches (raw_id_a, raw_id_b, score, reason, status, created_by)
-          VALUES (${match.eventA}, ${match.eventB}, ${match.score}, ${JSON.stringify(match.features)}, 'open', 'system')
-          ON CONFLICT DO NOTHING
-        `;
+        try {
+          await db`
+            INSERT INTO matches (raw_id_a, raw_id_b, score, reason, status, created_by)
+            VALUES (${match.eventA}, ${match.eventB}, ${match.score}, ${JSON.stringify(match.features)}, 'open', 'system')
+            ON CONFLICT DO NOTHING
+          `;
+          savedMatches++;
+        } catch (dbError) {
+          logger.error(`Failed to save match: ${dbError}`, { match });
+        }
       }
 
-      logger.info(`✅ Match job completed: ${matches.length} potential duplicates found`);
+      logger.info(`✅ Match job completed: ${matches.length} potential duplicates found, ${savedMatches} saved to database`);
 
     } catch (error) {
       logger.error(`❌ Match job failed:`, error);
