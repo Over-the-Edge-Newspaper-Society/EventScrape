@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Build outputs
+dist/
+build/
+.next/
+
+# Logs
+*.log
+logs/
+pino-*
+
+# Temporary files
+*.tmp
+.cache/
+.temp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Exports
+exports/
+*.csv
+*.json
+*.ics
+
+# Database
+*.db
+*.sqlite
+
+# Coverage
+coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo

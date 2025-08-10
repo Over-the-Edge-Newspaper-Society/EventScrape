@@ -1,0 +1,98 @@
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: eventscrape-postgres
+    environment:
+      POSTGRES_DB: eventscrape
+      POSTGRES_USER: eventscrape
+      POSTGRES_PASSWORD: eventscrape_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventscrape -d eventscrape"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: eventscrape-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: eventscrape-api
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+      - export_data:/data/exports
+    profiles:
+      - full
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: eventscrape-worker
+    environment:
+      DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      PLAYWRIGHT_HEADLESS: "true"
+      EXPORT_DIR: /data/exports
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./worker:/app/worker
+      - ./packages:/app/packages
+      - export_data:/data/exports
+    profiles:
+      - full
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    container_name: eventscrape-admin
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:3001/api
+    volumes:
+      - ./apps/admin:/app/apps/admin
+      - ./packages:/app/packages
+    profiles:
+      - full
+
+volumes:
+  postgres_data:
+  redis_data:
+  export_data:
