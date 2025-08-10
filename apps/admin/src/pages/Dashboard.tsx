@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { runsApi, sourcesApi, eventsApi } from '@/lib/api'
+import { runsApi, sourcesApi, eventsApi, matchesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Activity, Calendar, Database, GitMerge, Play, AlertTriangle } from 'lucide-react'
 
@@ -21,10 +21,16 @@ export function Dashboard() {
     queryFn: () => eventsApi.getRaw({ limit: 1 }),
   })
 
+  const { data: pendingMatches } = useQuery({
+    queryKey: ['matches', { status: 'open', limit: 1 }],
+    queryFn: () => matchesApi.getAll({ status: 'open', limit: 1 }),
+  })
+
   const activeSources = sources?.sources.filter(s => s.active).length || 0
   const totalSources = sources?.sources.length || 0
   const recentRuns = runs?.runs.slice(0, 5) || []
   const totalEvents = rawEvents?.pagination.total || 0
+  const pendingMatchesCount = pendingMatches?.matches.length || 0
 
   const stats = [
     {
@@ -50,7 +56,7 @@ export function Dashboard() {
     },
     {
       title: 'Pending Review',
-      value: '0', // TODO: Add matches count
+      value: pendingMatchesCount.toString(),
       description: 'Duplicates to review',
       icon: GitMerge,
       color: 'text-orange-600',

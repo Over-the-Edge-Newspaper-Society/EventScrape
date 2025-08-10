@@ -60,7 +60,6 @@ if (!connectionString) {
 }
 
 const queryClient = postgres(connectionString);
-const db = drizzle(queryClient);
 
-export { db, queryClient };
+export { queryClient };
 export type { Source, Run, EventRaw };
