@@ -9,10 +9,11 @@ const princeGeorgeModule: ScraperModule = {
   ],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
-    const { page, logger } = ctx;
+    const { page, logger, jobData } = ctx;
     const events: RawEvent[] = [];
+    const isTestMode = jobData?.testMode === true;
 
-    logger.info(`Starting scrape of ${this.label}`);
+    logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
 
     try {
       // Navigate to the events calendar page
@@ -23,18 +24,22 @@ const princeGeorgeModule: ScraperModule = {
 
       logger.info('Page loaded, waiting for calendar to render...');
 
-      // Wait for the FullCalendar to load
-      await page.waitForSelector('.fc-list-table', { timeout: 15000 });
+      // Wait for the calendar widget to load first
+      await page.waitForSelector('.fc-view-container', { timeout: 15000 });
       
-      // Switch to list view if not already active (the button might already be active)
+      // Switch to list view first
       const listButton = await page.$('.fc-listMonth-button');
       if (listButton) {
         const isActive = await page.evaluate(el => el.classList.contains('fc-button-active'), listButton);
         if (!isActive) {
+          logger.info('Switching to list view...');
           await listButton.click();
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(3000); // Give it more time to load
         }
       }
+      
+      // Now wait for the list table to appear
+      await page.waitForSelector('.fc-list-table', { timeout: 10000 });
 
       logger.info('Calendar loaded, extracting events...');
 
@@ -71,11 +76,15 @@ const princeGeorgeModule: ScraperModule = {
       });
 
       logger.info(`Found ${eventLinks.length} event links`);
+      
+      // In test mode, only process the first event
+      const eventsToProcess = isTestMode ? eventLinks.slice(0, 1) : eventLinks;
+      logger.info(`Processing ${eventsToProcess.length} event${eventsToProcess.length === 1 ? '' : 's'}${isTestMode ? ' (test mode)' : ''}`);
 
       // Visit each event detail page
-      for (const [index, eventLink] of eventLinks.entries()) {
+      for (const [index, eventLink] of eventsToProcess.entries()) {
         try {
-          logger.info(`Scraping event ${index + 1}/${eventLinks.length}: ${eventLink.title}`);
+          logger.info(`Scraping event ${index + 1}/${eventsToProcess.length}: ${eventLink.title}`);
           
           // Rate limiting
           await delay(addJitter(2000, 50));

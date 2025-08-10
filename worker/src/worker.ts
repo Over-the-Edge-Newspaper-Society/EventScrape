@@ -163,6 +163,9 @@ class EventScraperWorker {
             source: source.module_key, 
             runId: jobData.runId 
           }),
+          jobData: {
+            testMode: jobData.testMode,
+          },
         };
 
         // Run the scraper

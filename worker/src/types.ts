@@ -36,6 +36,9 @@ export interface RunContext {
     rateLimitPerMin: number;
   };
   logger: any; // pino logger
+  jobData?: {
+    testMode?: boolean;
+  };
 }
 
 export interface ScraperModule {
@@ -57,6 +60,7 @@ export interface ProcessedEvent extends RawEvent {
 export interface ScrapeJobData {
   sourceId: string;
   runId: string;
+  testMode?: boolean;
 }
 
 export interface MatchJobData {

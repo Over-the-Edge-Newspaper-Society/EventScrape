@@ -76,6 +76,12 @@ export const runsApi = {
   triggerScrape: (sourceKey: string) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
     method: 'POST',
   }),
+  triggerTest: (sourceKey: string) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/test/${sourceKey}`, {
+    method: 'POST',
+  }),
+  cancel: (runId: string) => fetchApi<{ message: string }>(`/runs/${runId}/cancel`, {
+    method: 'POST',
+  }),
 }
 
 // Matches API

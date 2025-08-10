@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { runsApi, sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Play, Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface RunDetailsProps {
   runId: string
@@ -35,10 +36,15 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
     )
   }
 
-  const { run, source } = data
-  const duration = run.finishedAt 
-    ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
-    : Date.now() - new Date(run.startedAt).getTime()
+  const { run, source } = data.run
+  const startDate = new Date(run.startedAt)
+  const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
+  
+  const duration = finishDate && !isNaN(finishDate.getTime()) && !isNaN(startDate.getTime())
+    ? finishDate.getTime() - startDate.getTime()
+    : !isNaN(startDate.getTime())
+    ? Date.now() - startDate.getTime()
+    : 0
   
   const durationFormatted = `${Math.floor(duration / 1000)}s`
 
@@ -50,7 +56,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
           Run Details
         </DialogTitle>
         <DialogDescription>
-          {source.name} • {formatRelativeTime(run.startedAt)}
+          {source?.name} • {formatRelativeTime(run.startedAt)}
         </DialogDescription>
       </DialogHeader>
 
@@ -100,22 +106,22 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
             <CardContent className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Source:</span>
-                <span className="font-medium">{source.name}</span>
+                <span className="font-medium">{source?.name}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Module:</span>
                 <Badge variant="outline" className="font-mono text-xs">
-                  {source.moduleKey}
+                  {source?.moduleKey}
                 </Badge>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Started:</span>
-                <span>{new Date(run.startedAt).toLocaleString()}</span>
+                <span>{!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}</span>
               </div>
-              {run.finishedAt && (
+              {run.finishedAt && finishDate && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Finished:</span>
-                  <span>{new Date(run.finishedAt).toLocaleString()}</span>
+                  <span>{!isNaN(finishDate.getTime()) ? finishDate.toLocaleString() : 'Invalid date'}</span>
                 </div>
               )}
             </CardContent>
@@ -153,16 +159,16 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                 <span className="text-sm">
-                  <strong>Started:</strong> {new Date(run.startedAt).toLocaleString()}
+                  <strong>Started:</strong> {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
                 </span>
               </div>
-              {run.finishedAt && (
+              {run.finishedAt && finishDate && !isNaN(finishDate.getTime()) && (
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
                     run.status === 'success' ? 'bg-green-500' : 'bg-red-500'
                   }`}></div>
                   <span className="text-sm">
-                    <strong>Finished:</strong> {new Date(run.finishedAt).toLocaleString()}
+                    <strong>Finished:</strong> {finishDate.toLocaleString()}
                   </span>
                 </div>
               )}
@@ -195,6 +201,7 @@ export function Runs() {
   const { data: runs, isLoading: runsLoading } = useQuery({
     queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter }],
     queryFn: () => runsApi.getAll({ sourceId: sourceFilter === 'all' ? undefined : sourceFilter }),
+    refetchInterval: 5000, // Refresh every 5 seconds to get real-time updates
   })
 
   const { data: sources } = useQuery({
@@ -209,11 +216,50 @@ export function Runs() {
     },
   })
 
+  const triggerTestMutation = useMutation({
+    mutationFn: (sourceKey: string) => runsApi.triggerTest(sourceKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+
+  const cancelRunMutation = useMutation({
+    mutationFn: (runId: string) => runsApi.cancel(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+
   const handleTriggerScrape = async (sourceKey: string) => {
     try {
       await triggerScrapeMutation.mutateAsync(sourceKey)
     } catch (error) {
       console.error('Scrape trigger failed:', error)
+    }
+  }
+
+  const handleTriggerTest = async (sourceKey: string) => {
+    try {
+      await triggerTestMutation.mutateAsync(sourceKey)
+    } catch (error) {
+      console.error('Test trigger failed:', error)
+    }
+  }
+
+  const handleCancelRun = async (runId: string) => {
+    try {
+      await cancelRunMutation.mutateAsync(runId)
+      toast.success('Run cancelled successfully')
+    } catch (error: any) {
+      console.error('Run cancellation failed:', error)
+      
+      // Check if it's a status-related error (run already completed/cancelled)
+      if (error?.message?.includes('status') || error?.status === 400) {
+        toast.info('This run has already completed or been cancelled')
+        queryClient.invalidateQueries({ queryKey: ['runs'] })
+      } else {
+        toast.error('Failed to cancel run. Please try again.')
+      }
     }
   }
 
@@ -273,22 +319,48 @@ export function Runs() {
                 Manually start scraping for active sources
               </p>
             </div>
-            <div className="flex gap-2">
-              {sources?.sources
-                .filter(source => source.active)
-                .map((source) => (
-                  <Button
-                    key={source.id}
-                    size="sm"
-                    variant="outline"
-                    disabled={triggerScrapeMutation.isPending}
-                    onClick={() => handleTriggerScrape(source.moduleKey)}
-                    className="flex items-center gap-1"
-                  >
-                    <Zap className="h-3 w-3" />
-                    {source.name}
-                  </Button>
-                ))}
+            <div className="flex flex-col gap-3">
+              <div>
+                <h4 className="font-medium mb-2">Full Scrape</h4>
+                <div className="flex gap-2 flex-wrap">
+                  {sources?.sources
+                    .filter(source => source.active)
+                    .map((source) => (
+                      <Button
+                        key={source.id}
+                        size="sm"
+                        variant="outline"
+                        disabled={triggerScrapeMutation.isPending}
+                        onClick={() => handleTriggerScrape(source?.moduleKey)}
+                        className="flex items-center gap-1"
+                      >
+                        <Zap className="h-3 w-3" />
+                        {source?.name}
+                      </Button>
+                    ))}
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="font-medium mb-2">Test Scrape (First Event Only)</h4>
+                <div className="flex gap-2 flex-wrap">
+                  {sources?.sources
+                    .filter(source => source.active)
+                    .map((source) => (
+                      <Button
+                        key={`test-${source.id}`}
+                        size="sm"
+                        variant="secondary"
+                        disabled={triggerTestMutation.isPending}
+                        onClick={() => handleTriggerTest(source?.moduleKey)}
+                        className="flex items-center gap-1"
+                      >
+                        <Eye className="h-3 w-3" />
+                        Test {source?.name}
+                      </Button>
+                    ))}
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -308,7 +380,7 @@ export function Runs() {
                   <SelectItem value="all">All sources</SelectItem>
                   {sources?.sources.map((source) => (
                     <SelectItem key={source.id} value={source.id}>
-                      {source.name}
+                      {source?.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -374,9 +446,14 @@ export function Runs() {
               </TableHeader>
               <TableBody>
                 {filteredRuns.map(({ run, source }) => {
-                  const duration = run.finishedAt 
-                    ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
-                    : Date.now() - new Date(run.startedAt).getTime()
+                  const startDate = new Date(run.startedAt)
+                  const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
+                  
+                  const duration = finishDate && !isNaN(finishDate.getTime()) && !isNaN(startDate.getTime())
+                    ? finishDate.getTime() - startDate.getTime()
+                    : !isNaN(startDate.getTime())
+                    ? Date.now() - startDate.getTime()
+                    : 0
                   
                   const durationFormatted = `${Math.floor(duration / 1000)}s`
                   
@@ -390,9 +467,9 @@ export function Runs() {
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <p className="font-medium text-sm">{source.name}</p>
+                          <p className="font-medium text-sm">{source?.name}</p>
                           <Badge variant="outline" className="text-xs font-mono">
-                            {source.moduleKey}
+                            {source?.moduleKey}
                           </Badge>
                         </div>
                       </TableCell>
@@ -400,7 +477,7 @@ export function Runs() {
                         <div className="space-y-1">
                           <p className="text-sm">{formatRelativeTime(run.startedAt)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(run.startedAt).toLocaleString()}
+                            {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
                           </p>
                         </div>
                       </TableCell>
@@ -422,25 +499,40 @@ export function Runs() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Dialog>
-                          <DialogTrigger asChild>
+                        <div className="flex items-center gap-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSelectedRunId(run.id)}
+                                className="flex items-center gap-1"
+                              >
+                                <Eye className="h-3 w-3" />
+                                Details
+                              </Button>
+                            </DialogTrigger>
+                            {selectedRunId && (
+                              <RunDetails
+                                runId={selectedRunId}
+                                onClose={() => setSelectedRunId(null)}
+                              />
+                            )}
+                          </Dialog>
+                          
+                          {(run.status === 'running' || run.status === 'queued') && (
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedRunId(run.id)}
+                              variant="destructive"
+                              onClick={() => handleCancelRun(run.id)}
+                              disabled={cancelRunMutation.isPending}
                               className="flex items-center gap-1"
                             >
-                              <Eye className="h-3 w-3" />
-                              Details
+                              <XCircle className="h-3 w-3" />
+                              Cancel
                             </Button>
-                          </DialogTrigger>
-                          {selectedRunId && (
-                            <RunDetails
-                              runId={selectedRunId}
-                              onClose={() => setSelectedRunId(null)}
-                            />
                           )}
-                        </Dialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )

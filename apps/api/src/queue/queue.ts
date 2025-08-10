@@ -13,6 +13,7 @@ export const scrapeJobSchema = z.object({
   runId: z.string().uuid(),
   moduleKey: z.string(),
   sourceName: z.string(),
+  testMode: z.boolean().optional(),
 });
 
 export const matchJobSchema = z.object({
