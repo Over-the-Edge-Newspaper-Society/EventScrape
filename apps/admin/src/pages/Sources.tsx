@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { sourcesApi, runsApi, CreateSourceData, Source } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Plus, Settings, Play, Pause, ExternalLink, Globe, Clock, AlertTriangle, CheckCircle, Zap } from 'lucide-react'
+import { Plus, Settings, Play, Pause, ExternalLink, Globe, Clock, AlertTriangle, CheckCircle, Zap, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface SourceFormProps {
   source?: Source
@@ -165,6 +166,17 @@ export function Sources() {
     },
   })
 
+  const syncSourcesMutation = useMutation({
+    mutationFn: () => sourcesApi.sync(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['sources'] })
+      toast.success(`Sync completed: ${data.stats.created} created, ${data.stats.updated} updated, ${data.stats.deactivated} deactivated`)
+    },
+    onError: (error) => {
+      toast.error(`Sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    },
+  })
+
   const handleSave = async (data: CreateSourceData) => {
     try {
       if (selectedSource) {
@@ -194,6 +206,14 @@ export function Sources() {
   const handleAdd = () => {
     setSelectedSource(null)
     setShowForm(true)
+  }
+
+  const handleSync = async () => {
+    try {
+      await syncSourcesMutation.mutateAsync()
+    } catch (error) {
+      console.error('Sync failed:', error)
+    }
   }
 
   const getStatusBadge = (active: boolean) => {
@@ -233,19 +253,30 @@ export function Sources() {
                 Configure event sources and their scraping modules
               </p>
             </div>
-            <Dialog open={showForm} onOpenChange={setShowForm}>
-              <DialogTrigger asChild>
-                <Button onClick={handleAdd} className="flex items-center gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add Source
-                </Button>
-              </DialogTrigger>
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={handleSync} 
+                variant="outline"
+                disabled={syncSourcesMutation.isPending}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncSourcesMutation.isPending ? 'animate-spin' : ''}`} />
+                {syncSourcesMutation.isPending ? 'Syncing...' : 'Sync Modules'}
+              </Button>
+              <Dialog open={showForm} onOpenChange={setShowForm}>
+                <DialogTrigger asChild>
+                  <Button onClick={handleAdd} className="flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add Source
+                  </Button>
+                </DialogTrigger>
               <SourceForm
                 source={selectedSource || undefined}
                 onClose={() => setShowForm(false)}
                 onSave={handleSave}
               />
             </Dialog>
+            </div>
           </div>
         </CardContent>
       </Card>

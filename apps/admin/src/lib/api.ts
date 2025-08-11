@@ -46,6 +46,11 @@ export const sourcesApi = {
     body: JSON.stringify(data),
   }),
   delete: (id: string) => fetchApi<void>(`/sources/${id}`, { method: 'DELETE' }),
+  sync: () => fetchApi<{ 
+    message: string; 
+    stats: { availableModules: number; created: number; updated: number; deactivated: number }; 
+    availableModules: Array<{key: string, label: string, baseUrl: string}> 
+  }>('/sources/sync', { method: 'POST' }),
 }
 
 // Events API

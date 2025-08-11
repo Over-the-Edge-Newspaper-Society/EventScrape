@@ -1,9 +1,9 @@
 -- Create enums (skip if exists)
--- CREATE TYPE run_status AS ENUM ('queued', 'running', 'success', 'partial', 'error');
--- CREATE TYPE match_status AS ENUM ('open', 'confirmed', 'rejected');
--- CREATE TYPE canonical_status AS ENUM ('new', 'ready', 'exported', 'ignored');
--- CREATE TYPE export_status AS ENUM ('success', 'error');
--- CREATE TYPE export_format AS ENUM ('csv', 'json', 'ics', 'wp-rest');
+CREATE TYPE run_status AS ENUM ('queued', 'running', 'success', 'partial', 'error');
+CREATE TYPE match_status AS ENUM ('open', 'confirmed', 'rejected');
+CREATE TYPE canonical_status AS ENUM ('new', 'ready', 'exported', 'ignored');
+CREATE TYPE export_status AS ENUM ('success', 'error');
+CREATE TYPE export_format AS ENUM ('csv', 'json', 'ics', 'wp-rest');
 
 -- Create sources table
 CREATE TABLE sources (
