@@ -1,3 +1,4 @@
+version: '3.8'
 
 services:
   postgres:
@@ -11,7 +12,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U eventscrape -d eventscrape"]
       interval: 10s
@@ -36,51 +36,56 @@ services:
       - eventscrape
 
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: node:18-alpine
     container_name: eventscrape-api
+    working_dir: /app
     ports:
       - "3001:3001"
     environment:
       DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
       REDIS_URL: redis://redis:6379
-      NODE_ENV: production
+      NODE_ENV: development
       PORT: 3001
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    command: sh -c "npm install -g pnpm && pnpm install && cd apps/api && pnpm db:migrate && pnpm dev"
     networks:
       - eventscrape
-    restart: unless-stopped
 
   admin:
-    build:
-      context: .
-      dockerfile: apps/admin/Dockerfile
+    image: node:18-alpine
     container_name: eventscrape-admin
+    working_dir: /app
     ports:
       - "3000:3000"
     environment:
       VITE_API_URL: http://localhost:3001/api
-      NODE_ENV: production
+      NODE_ENV: development
     depends_on:
       - api
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/apps/admin/node_modules
+    command: sh -c "npm install -g pnpm && pnpm install && cd apps/admin && pnpm dev --host 0.0.0.0"
     networks:
       - eventscrape
-    restart: unless-stopped
 
   worker:
-    build:
-      context: .
-      dockerfile: worker/Dockerfile
+    image: mcr.microsoft.com/playwright:v1.54.0
     container_name: eventscrape-worker
+    working_dir: /app/worker
     environment:
       DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
       REDIS_URL: redis://redis:6379
-      NODE_ENV: production
+      NODE_ENV: development
       PLAYWRIGHT_HEADLESS: "true"
       EXPORT_DIR: /data/exports
     depends_on:
@@ -89,12 +94,13 @@ services:
       redis:
         condition: service_healthy
     volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/worker/node_modules
       - export_data:/data/exports
+    command: sh -c "npm install -g pnpm && cd /app && pnpm install && cd /app/worker && pnpm dev"
     networks:
       - eventscrape
-    restart: unless-stopped
-    profiles:
-      - with-worker
 
 networks:
   eventscrape:

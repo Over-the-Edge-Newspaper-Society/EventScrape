@@ -1,12 +1,36 @@
 -- Create enums (skip if exists)
-CREATE TYPE run_status AS ENUM ('queued', 'running', 'success', 'partial', 'error');
-CREATE TYPE match_status AS ENUM ('open', 'confirmed', 'rejected');
-CREATE TYPE canonical_status AS ENUM ('new', 'ready', 'exported', 'ignored');
-CREATE TYPE export_status AS ENUM ('success', 'error');
-CREATE TYPE export_format AS ENUM ('csv', 'json', 'ics', 'wp-rest');
+DO $$ BEGIN
+    CREATE TYPE run_status AS ENUM ('queued', 'running', 'success', 'partial', 'error');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE match_status AS ENUM ('open', 'confirmed', 'rejected');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE canonical_status AS ENUM ('new', 'ready', 'exported', 'ignored');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE export_status AS ENUM ('success', 'error');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE export_format AS ENUM ('csv', 'json', 'ics', 'wp-rest');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Create sources table
-CREATE TABLE sources (
+CREATE TABLE IF NOT EXISTS sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
@@ -20,7 +44,7 @@ CREATE TABLE sources (
 );
 
 -- Create runs table
-CREATE TABLE runs (
+CREATE TABLE IF NOT EXISTS runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_id UUID NOT NULL REFERENCES sources(id),
     started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
@@ -32,11 +56,11 @@ CREATE TABLE runs (
 );
 
 -- Create indexes for runs
-CREATE INDEX runs_source_id_idx ON runs(source_id);
-CREATE INDEX runs_started_at_idx ON runs(started_at);
+CREATE INDEX IF NOT EXISTS runs_source_id_idx ON runs(source_id);
+CREATE INDEX IF NOT EXISTS runs_started_at_idx ON runs(started_at);
 
 -- Create events_raw table
-CREATE TABLE events_raw (
+CREATE TABLE IF NOT EXISTS events_raw (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_id UUID NOT NULL REFERENCES sources(id),
     run_id UUID NOT NULL REFERENCES runs(id),
@@ -65,13 +89,13 @@ CREATE TABLE events_raw (
 );
 
 -- Create indexes for events_raw
-CREATE UNIQUE INDEX events_raw_source_event_id_idx ON events_raw(source_id, source_event_id) WHERE source_event_id IS NOT NULL;
-CREATE INDEX events_raw_start_datetime_city_idx ON events_raw(start_datetime, city);
-CREATE INDEX events_raw_raw_gin_idx ON events_raw USING gin(raw);
-CREATE INDEX events_raw_content_hash_idx ON events_raw(content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS events_raw_source_event_id_idx ON events_raw(source_id, source_event_id) WHERE source_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS events_raw_start_datetime_city_idx ON events_raw(start_datetime, city);
+CREATE INDEX IF NOT EXISTS events_raw_raw_gin_idx ON events_raw USING gin(raw);
+CREATE INDEX IF NOT EXISTS events_raw_content_hash_idx ON events_raw(content_hash);
 
 -- Create matches table
-CREATE TABLE matches (
+CREATE TABLE IF NOT EXISTS matches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     raw_id_a UUID NOT NULL REFERENCES events_raw(id),
     raw_id_b UUID NOT NULL REFERENCES events_raw(id),
@@ -83,13 +107,13 @@ CREATE TABLE matches (
 );
 
 -- Create indexes for matches
-CREATE INDEX matches_raw_id_a_idx ON matches(raw_id_a);
-CREATE INDEX matches_raw_id_b_idx ON matches(raw_id_b);
-CREATE INDEX matches_status_idx ON matches(status);
-CREATE INDEX matches_score_idx ON matches(score);
+CREATE INDEX IF NOT EXISTS matches_raw_id_a_idx ON matches(raw_id_a);
+CREATE INDEX IF NOT EXISTS matches_raw_id_b_idx ON matches(raw_id_b);
+CREATE INDEX IF NOT EXISTS matches_status_idx ON matches(status);
+CREATE INDEX IF NOT EXISTS matches_score_idx ON matches(score);
 
 -- Create events_canonical table
-CREATE TABLE events_canonical (
+CREATE TABLE IF NOT EXISTS events_canonical (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dedupe_key TEXT,
     title TEXT NOT NULL,
@@ -117,13 +141,13 @@ CREATE TABLE events_canonical (
 );
 
 -- Create indexes for events_canonical
-CREATE UNIQUE INDEX events_canonical_dedupe_key_idx ON events_canonical(dedupe_key) WHERE dedupe_key IS NOT NULL;
-CREATE INDEX events_canonical_start_datetime_idx ON events_canonical(start_datetime);
-CREATE INDEX events_canonical_status_idx ON events_canonical(status);
-CREATE INDEX events_canonical_city_idx ON events_canonical(city);
+CREATE UNIQUE INDEX IF NOT EXISTS events_canonical_dedupe_key_idx ON events_canonical(dedupe_key) WHERE dedupe_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS events_canonical_start_datetime_idx ON events_canonical(start_datetime);
+CREATE INDEX IF NOT EXISTS events_canonical_status_idx ON events_canonical(status);
+CREATE INDEX IF NOT EXISTS events_canonical_city_idx ON events_canonical(city);
 
 -- Create exports table
-CREATE TABLE exports (
+CREATE TABLE IF NOT EXISTS exports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     format export_format NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
@@ -135,12 +159,12 @@ CREATE TABLE exports (
 );
 
 -- Create indexes for exports
-CREATE INDEX exports_created_at_idx ON exports(created_at);
-CREATE INDEX exports_format_idx ON exports(format);
-CREATE INDEX exports_status_idx ON exports(status);
+CREATE INDEX IF NOT EXISTS exports_created_at_idx ON exports(created_at);
+CREATE INDEX IF NOT EXISTS exports_format_idx ON exports(format);
+CREATE INDEX IF NOT EXISTS exports_status_idx ON exports(status);
 
 -- Create users table (optional)
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -149,7 +173,7 @@ CREATE TABLE users (
 );
 
 -- Create audit_logs table (optional)
-CREATE TABLE audit_logs (
+CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id),
     action TEXT NOT NULL,
@@ -161,6 +185,6 @@ CREATE TABLE audit_logs (
 );
 
 -- Create indexes for audit_logs
-CREATE INDEX audit_logs_user_id_idx ON audit_logs(user_id);
-CREATE INDEX audit_logs_entity_idx ON audit_logs(entity_type, entity_id);
-CREATE INDEX audit_logs_created_at_idx ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS audit_logs_user_id_idx ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at);

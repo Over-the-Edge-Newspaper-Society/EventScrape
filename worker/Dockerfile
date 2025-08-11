@@ -14,7 +14,6 @@ COPY pnpm-lock.yaml ./
 
 # Copy package.json files
 COPY worker/package.json ./worker/
-COPY packages/config/package.json ./packages/config/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile

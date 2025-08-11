@@ -14,30 +14,41 @@ const createLogStream = (redis: IORedis, runId?: string) => {
   return pino.destination({
     write(chunk) {
       const logLine = chunk.toString();
+      const streamKey = `logs:${runId || 'global'}`;
+      
       try {
         const logData = JSON.parse(logLine);
         // Add to Redis stream for live viewing
         redis.xadd(
-          `logs:${runId || 'global'}`, 
+          streamKey, 
           '*', 
-          'timestamp', Date.now(),
-          'level', logData.level || 30,
+          'timestamp', Date.now().toString(),
+          'level', (logData.level || 30).toString(),
           'msg', logData.msg || '',
           'runId', runId || '',
           'source', logData.source || '',
           'raw', logLine
-        ).catch(console.error);
+        ).then(() => {
+          console.log(`✅ Log written to Redis stream: ${streamKey}`);
+        }).catch(err => {
+          console.error(`❌ Failed to write log to Redis stream ${streamKey}:`, err);
+        });
       } catch (e) {
         // If not JSON, just store the raw line
         redis.xadd(
-          `logs:${runId || 'global'}`, 
+          streamKey, 
           '*', 
-          'timestamp', Date.now(),
-          'level', 30,
+          'timestamp', Date.now().toString(),
+          'level', '30',
           'msg', logLine.trim(),
           'runId', runId || '',
+          'source', 'worker',
           'raw', logLine
-        ).catch(console.error);
+        ).then(() => {
+          console.log(`✅ Raw log written to Redis stream: ${streamKey}`);
+        }).catch(err => {
+          console.error(`❌ Failed to write raw log to Redis stream ${streamKey}:`, err);
+        });
       }
       // Still output to console
       process.stdout.write(chunk);
@@ -188,17 +199,54 @@ class EventScraperWorker {
       const { browser, page, release } = await this.browserPool.getPage();
 
       try {
-        // Create run-specific logger that streams to Redis
-        const runLogStream = createLogStream(this.redis, jobData.runId);
+        // Create Redis stream writer
+        const streamKey = `logs:${jobData.runId}`;
+        const writeToRedisStream = (level: number, msg: string, source: string = 'worker') => {
+          this.redis.xadd(
+            streamKey, 
+            '*', 
+            'timestamp', Date.now().toString(),
+            'level', level.toString(),
+            'msg', msg,
+            'runId', jobData.runId,
+            'source', source,
+            'raw', JSON.stringify({ level, msg, source, runId: jobData.runId })
+          ).then(() => {
+            console.log(`✅ Log written to Redis stream: ${streamKey} - ${msg}`);
+          }).catch(err => {
+            console.error(`❌ Failed to write log to Redis stream ${streamKey}:`, err);
+          });
+        };
+
+        // Create run-specific logger
         const runLogger = pino({
           level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-          // Don't use pino-pretty for run logger to ensure JSON format for Redis parsing
-        }, runLogStream);
+        });
         
-        const contextLogger = runLogger.child({ 
+        const baseContextLogger = runLogger.child({ 
           source: source.module_key, 
           runId: jobData.runId 
         });
+
+        // Create wrapper logger that also writes to Redis
+        const contextLogger = {
+          info: (msg: string) => {
+            baseContextLogger.info(msg);
+            writeToRedisStream(30, msg, source.module_key);
+          },
+          error: (msg: string) => {
+            baseContextLogger.error(msg);
+            writeToRedisStream(50, msg, source.module_key);
+          },
+          warn: (msg: string) => {
+            baseContextLogger.warn(msg);
+            writeToRedisStream(40, msg, source.module_key);
+          },
+          debug: (msg: string) => {
+            baseContextLogger.debug(msg);
+            writeToRedisStream(20, msg, source.module_key);
+          }
+        };
 
         // Create run context
         const ctx: RunContext = {

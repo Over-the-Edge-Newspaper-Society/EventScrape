@@ -24,7 +24,7 @@ export class BrowserPool {
   }
 
   private async createBrowser(): Promise<Browser> {
-    return await chromium.launch({
+    const launchOptions: any = {
       headless: this.headless,
       args: [
         '--no-sandbox',
@@ -36,7 +36,6 @@ export class BrowserPool {
         '--disable-extensions',
         '--disable-background-timer-throttling',
         '--disable-background-networking',
-        '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
         '--disable-features=TranslateUI',
@@ -49,7 +48,9 @@ export class BrowserPool {
         '--no-zygote',
         '--memory-pressure-off',
       ],
-    });
+    };
+
+    return await chromium.launch(launchOptions);
   }
 
   async getBrowser(): Promise<Browser> {
