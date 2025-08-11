@@ -13,6 +13,7 @@ import { matchesRoutes } from './routes/matches.js';
 import { exportsRoutes } from './routes/exports.js';
 import { healthRoutes } from './routes/health.js';
 import { queueRoutes } from './routes/queue.js';
+import { logsRoutes } from './routes/logs.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -98,6 +99,7 @@ await fastify.register(sourcesRoutes, { prefix: '/api/sources' });
 await fastify.register(matchesRoutes, { prefix: '/api/matches' });
 await fastify.register(exportsRoutes, { prefix: '/api/exports' });
 await fastify.register(queueRoutes, { prefix: '/api/queue' });
+await fastify.register(logsRoutes, { prefix: '/api/logs' });
 
 // Start server
 const start = async () => {

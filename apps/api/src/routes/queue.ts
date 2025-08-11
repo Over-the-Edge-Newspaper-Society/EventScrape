@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
-import { getQueueStatus, scrapeQueue, matchQueue } from '../queue/queue.js';
+import { z } from 'zod';
+import { getQueueStatus, scrapeQueue, matchQueue, enqueueMatchJob } from '../queue/queue.js';
 
 export const queueRoutes: FastifyPluginAsync = async (fastify) => {
   // Get queue status
@@ -121,6 +122,42 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.error('Failed to clean queues:', error);
       reply.status(500);
       return { error: 'Failed to clean queues' };
+    }
+  });
+
+  // Trigger manual match job
+  fastify.post('/match/trigger', async (request, reply) => {
+    try {
+      const matchJobSchema = z.object({
+        startDate: z.string().datetime().optional(),
+        endDate: z.string().datetime().optional(),
+        sourceIds: z.array(z.string().uuid()).optional(),
+      });
+
+      const body = matchJobSchema.parse(request.body);
+
+      // If no date range specified, use last 30 days
+      const matchJobData = {
+        ...body,
+        startDate: body.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+
+      const job = await enqueueMatchJob(matchJobData);
+
+      return {
+        message: 'Match job triggered successfully',
+        jobId: job.id,
+        data: matchJobData,
+      };
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { error: 'Validation error', details: error.errors };
+      }
+      
+      fastify.log.error('Failed to trigger match job:', error);
+      reply.status(500);
+      return { error: 'Failed to trigger match job' };
     }
   });
 };

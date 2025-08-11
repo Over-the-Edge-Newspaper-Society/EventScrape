@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
@@ -8,9 +8,10 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { eventsApi, EventsQueryParams } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, Package, Eye, FileText } from 'lucide-react'
+import { Search, Filter, Calendar, MapPin, ExternalLink, Package, Eye, FileText, Trash2 } from 'lucide-react'
 
 export function CanonicalEvents() {
+  const queryClient = useQueryClient()
   const [filters, setFilters] = useState<EventsQueryParams>({
     page: 1,
     limit: 20,
@@ -21,6 +22,14 @@ export function CanonicalEvents() {
   const { data: events, isLoading } = useQuery({
     queryKey: ['events', 'canonical', filters],
     queryFn: () => eventsApi.getCanonical(filters),
+  })
+
+  const deleteCanonicalMutation = useMutation({
+    mutationFn: (ids: string[]) => eventsApi.deleteCanonicalBulk(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events', 'canonical'] })
+      setSelectedEvents(new Set()) // Clear selection
+    },
   })
 
   const handleFilterChange = (key: keyof EventsQueryParams, value: any) => {
@@ -54,6 +63,14 @@ export function CanonicalEvents() {
       setSelectedEvents(new Set())
     } else {
       setSelectedEvents(new Set(events?.events.map(event => event.id) || []))
+    }
+  }
+
+  const handleDelete = () => {
+    if (selectedEvents.size === 0) return
+    
+    if (confirm(`Are you sure you want to delete ${selectedEvents.size} canonical event(s)? This action cannot be undone.`)) {
+      deleteCanonicalMutation.mutate(Array.from(selectedEvents))
     }
   }
 
@@ -107,6 +124,16 @@ export function CanonicalEvents() {
                 size="sm"
               >
                 Mark as Exported
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={selectedEvents.size === 0}
+                size="sm"
+                onClick={handleDelete}
+                className="flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Selected ({selectedEvents.size})
               </Button>
             </div>
             <div className="text-sm text-muted-foreground">

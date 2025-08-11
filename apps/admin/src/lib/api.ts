@@ -26,6 +26,7 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+    console.error('API Error:', response.status, errorData)
     throw new ApiError(response.status, errorData.error || `HTTP ${response.status}`)
   }
 
@@ -61,8 +62,18 @@ export const eventsApi = {
     return fetchApi<EventsResponse>(`/events/raw?${searchParams}`)
   },
   getRawById: (id: string) => fetchApi<{ event: EventWithSource }>(`/events/raw/${id}`),
+  deleteRaw: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/raw/${id}`, { method: 'DELETE' }),
+  deleteRawBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/raw', {
+    method: 'DELETE',
+    body: JSON.stringify({ ids }),
+  }),
   getCanonical: (params?: EventsQueryParams) => fetchApi<CanonicalEventsResponse>(`/events/canonical?${new URLSearchParams(params as any)}`),
   getCanonicalById: (id: string) => fetchApi<{ event: CanonicalEvent, rawEvents: EventWithSource[] }>(`/events/canonical/${id}`),
+  deleteCanonical: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/canonical/${id}`, { method: 'DELETE' }),
+  deleteCanonicalBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/canonical', {
+    method: 'DELETE',
+    body: JSON.stringify({ ids }),
+  }),
 }
 
 // Runs API
@@ -123,6 +134,15 @@ export const exportsApi = {
     body: JSON.stringify(data),
   }),
   download: (id: string) => fetchApi<Blob>(`/exports/${id}/download`),
+}
+
+// Queue API
+export const queueApi = {
+  triggerMatch: (data?: { startDate?: string; endDate?: string; sourceIds?: string[] }) =>
+    fetchApi<{ message: string; jobId: string }>('/queue/match/trigger', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
 }
 
 // Types

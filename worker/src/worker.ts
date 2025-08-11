@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq';
+import { Worker, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import pino from 'pino';
 import { queryClient as db } from './lib/database.js';
@@ -8,6 +8,43 @@ import { EventMatcher } from './lib/matcher.js';
 import { normalizeEvent, RateLimiter } from './lib/utils.js';
 import type { ScrapeJobData, MatchJobData, RunContext } from './types.js';
 import 'dotenv/config';
+
+// Redis stream for live logs
+const createLogStream = (redis: IORedis, runId?: string) => {
+  return pino.destination({
+    write(chunk) {
+      const logLine = chunk.toString();
+      try {
+        const logData = JSON.parse(logLine);
+        // Add to Redis stream for live viewing
+        redis.xadd(
+          `logs:${runId || 'global'}`, 
+          '*', 
+          'timestamp', Date.now(),
+          'level', logData.level || 30,
+          'msg', logData.msg || '',
+          'runId', runId || '',
+          'source', logData.source || '',
+          'raw', logLine
+        ).catch(console.error);
+      } catch (e) {
+        // If not JSON, just store the raw line
+        redis.xadd(
+          `logs:${runId || 'global'}`, 
+          '*', 
+          'timestamp', Date.now(),
+          'level', 30,
+          'msg', logLine.trim(),
+          'runId', runId || '',
+          'raw', logLine
+        ).catch(console.error);
+      }
+      // Still output to console
+      process.stdout.write(chunk);
+      return true;
+    }
+  });
+};
 
 const logger = pino({
   level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
@@ -25,6 +62,7 @@ class EventScraperWorker {
   private redis: IORedis;
   private scrapeWorker: Worker;
   private matchWorker: Worker;
+  private matchQueue: Queue;
   private moduleLoader: ModuleLoader;
   private browserPool: BrowserPool;
   private matcher: EventMatcher;
@@ -54,6 +92,11 @@ class EventScraperWorker {
     this.matchWorker = new Worker('match-queue', this.processMatchJob.bind(this), {
       connection: this.redis,
       concurrency: 1,
+    });
+
+    // Initialize match queue for enqueueing jobs
+    this.matchQueue = new Queue('match-queue', {
+      connection: this.redis,
     });
 
     this.setupEventHandlers();
@@ -145,6 +188,17 @@ class EventScraperWorker {
       const { browser, page, release } = await this.browserPool.getPage();
 
       try {
+        // Create run-specific logger that streams to Redis
+        const runLogStream = createLogStream(this.redis, jobData.runId);
+        const runLogger = pino({
+          level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
+        }, runLogStream);
+        
+        const contextLogger = runLogger.child({ 
+          source: source.module_key, 
+          runId: jobData.runId 
+        });
+
         // Create run context
         const ctx: RunContext = {
           browser,
@@ -159,25 +213,32 @@ class EventScraperWorker {
             defaultTimezone: source.default_timezone,
             rateLimitPerMin: source.rate_limit_per_min,
           },
-          logger: logger.child({ 
-            source: source.module_key, 
-            runId: jobData.runId 
-          }),
+          logger: contextLogger,
           jobData: {
             testMode: jobData.testMode,
           },
+          stats: {
+            pagesCrawled: 0,
+          },
         };
+
+        contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name}`);
 
         // Run the scraper
         await rateLimiter.waitForToken();
+        contextLogger.info('📝 Running scraper module...');
         const rawEvents = await module.run(ctx);
+        contextLogger.info(`📊 Found ${rawEvents.length} raw events`);
 
         // Process and normalize events
+        contextLogger.info('🔄 Processing and normalizing events...');
         const processedEvents = rawEvents.map(event => 
           normalizeEvent(event, source.default_timezone)
         );
+        contextLogger.info(`✅ Processed ${processedEvents.length} events`);
 
         // Save events to database
+        contextLogger.info('💾 Saving events to database...');
         let savedCount = 0;
         for (const event of processedEvents) {
           try {
@@ -242,13 +303,33 @@ class EventScraperWorker {
         }
 
         // Update run status
+        contextLogger.info('🎯 Updating run status...');
+        const pagesCrawled = ctx.stats?.pagesCrawled || 0;
         await db`
           UPDATE runs 
-          SET status = 'success', finished_at = NOW(), events_found = ${savedCount}
+          SET status = 'success', finished_at = NOW(), events_found = ${savedCount}, pages_crawled = ${pagesCrawled}
           WHERE id = ${jobData.runId}
         `;
 
+        contextLogger.info(`🎉 Scrape completed successfully! Saved ${savedCount}/${rawEvents.length} events`);
         logger.info(`✅ Scrape completed: ${savedCount}/${rawEvents.length} events saved`);
+
+        // Queue a match job to find duplicates for recently scraped events
+        if (savedCount > 0) {
+          contextLogger.info('🔍 Queuing duplicate detection job...');
+          const matchJobData: MatchJobData = {
+            sourceIds: [source.id],
+            // Only check events from the last 30 days to keep it manageable
+            startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+          };
+          
+          await this.matchQueue.add('match', matchJobData, {
+            jobId: `match-after-scrape-${jobData.runId}`,
+            delay: 5000, // Wait 5 seconds to let any database operations complete
+          });
+          
+          contextLogger.info('✅ Duplicate detection job queued');
+        }
 
       } finally {
         await release();
@@ -280,95 +361,133 @@ class EventScraperWorker {
       if (jobData.sourceIds && jobData.sourceIds.length > 0) {
         if (jobData.startDate && jobData.endDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime >= ${jobData.startDate} 
-              AND start_datetime <= ${jobData.endDate}
-              AND source_id = ANY(${jobData.sourceIds})
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime >= ${jobData.startDate} 
+              AND e.start_datetime <= ${jobData.endDate}
+              AND e.source_id = ANY(${jobData.sourceIds})
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else if (jobData.startDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime >= ${jobData.startDate}
-              AND source_id = ANY(${jobData.sourceIds})
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime >= ${jobData.startDate}
+              AND e.source_id = ANY(${jobData.sourceIds})
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else if (jobData.endDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime <= ${jobData.endDate}
-              AND source_id = ANY(${jobData.sourceIds})
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime <= ${jobData.endDate}
+              AND e.source_id = ANY(${jobData.sourceIds})
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE source_id = ANY(${jobData.sourceIds})
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.source_id = ANY(${jobData.sourceIds})
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         }
       } else {
         if (jobData.startDate && jobData.endDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime >= ${jobData.startDate} 
-              AND start_datetime <= ${jobData.endDate}
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime >= ${jobData.startDate} 
+              AND e.start_datetime <= ${jobData.endDate}
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else if (jobData.startDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime >= ${jobData.startDate}
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime >= ${jobData.startDate}
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else if (jobData.endDate) {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            WHERE start_datetime <= ${jobData.endDate}
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE e.start_datetime <= ${jobData.endDate}
+              AND NOT EXISTS (
+                SELECT 1 FROM events_canonical c 
+                WHERE e.id = ANY(c.merged_from_raw_ids)
+              )
+            ORDER BY e.start_datetime
           `;
         } else {
           events = await db`
-            SELECT id, source_id as "sourceId", source_event_id as "sourceEventId", 
-                   title, start_datetime as "startDatetime", end_datetime as "endDatetime",
-                   venue_name as "venueName", venue_address as "venueAddress", 
-                   city, lat, lon, organizer
-            FROM events_raw 
-            ORDER BY start_datetime
+            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
+                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
+                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
+                   e.city, e.lat, e.lon, e.organizer
+            FROM events_raw e
+            WHERE NOT EXISTS (
+              SELECT 1 FROM events_canonical c 
+              WHERE e.id = ANY(c.merged_from_raw_ids)
+            )
+            ORDER BY e.start_datetime
           `;
         }
       }
 
       logger.info(`Found ${events.length} events to analyze for duplicates`);
       
+      // Clear existing open matches to avoid accumulation
+      logger.info('Clearing existing open matches...');
+      const deletedCount = await db`
+        DELETE FROM matches WHERE status = 'open'
+      `;
+      logger.info(`Cleared ${deletedCount.count} existing open matches`);
       
       // Find potential duplicates
       const matches = await this.matcher.findPotentialDuplicates(events);
@@ -408,6 +527,7 @@ class EventScraperWorker {
       // Stop accepting new jobs
       await this.scrapeWorker.close();
       await this.matchWorker.close();
+      await this.matchQueue.close();
 
       // Close browser pool
       await this.browserPool.closeAll();

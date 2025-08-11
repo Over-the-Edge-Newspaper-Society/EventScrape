@@ -1,0 +1,263 @@
+import { useState, useEffect, useRef } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Terminal, Play, Square, Trash2, Download } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+interface LogEntry {
+  id: string
+  timestamp: number
+  level: number
+  msg: string
+  runId: string
+  source: string
+  raw: string
+}
+
+interface LogViewerProps {
+  runId: string
+  className?: string
+}
+
+const LOG_LEVELS = {
+  10: { name: 'trace', color: 'text-gray-500', bg: 'bg-gray-500/10' },
+  20: { name: 'debug', color: 'text-blue-500', bg: 'bg-blue-500/10' },
+  30: { name: 'info', color: 'text-green-500', bg: 'bg-green-500/10' },
+  40: { name: 'warn', color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
+  50: { name: 'error', color: 'text-red-500', bg: 'bg-red-500/10' },
+  60: { name: 'fatal', color: 'text-red-700', bg: 'bg-red-700/20' },
+}
+
+export function LogViewer({ runId, className }: LogViewerProps) {
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [isConnected, setIsConnected] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
+
+  const scrollToBottom = () => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [logs, autoScroll])
+
+  const connectToStream = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+    }
+
+    const eventSource = new EventSource(`http://localhost:3001/api/logs/stream/${runId}`)
+    eventSourceRef.current = eventSource
+
+    eventSource.onopen = () => {
+      setIsConnected(true)
+      setIsStreaming(true)
+    }
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'connected') {
+          console.log('Connected to log stream for run:', data.runId)
+        } else if (data.type === 'log') {
+          setLogs(prev => [...prev, data])
+        }
+      } catch (error) {
+        console.error('Error parsing log message:', error)
+      }
+    }
+
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error)
+      setIsConnected(false)
+      eventSource.close()
+    }
+  }
+
+  const disconnectFromStream = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
+    setIsConnected(false)
+    setIsStreaming(false)
+  }
+
+  const clearLogs = () => {
+    setLogs([])
+  }
+
+  const downloadLogs = () => {
+    const logText = logs.map(log => {
+      const date = new Date(log.timestamp).toISOString()
+      const level = LOG_LEVELS[log.level]?.name || 'info'
+      return `[${date}] ${level.toUpperCase()}: ${log.msg}`
+    }).join('\n')
+    
+    const blob = new Blob([logText], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `run-${runId}-logs.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+      }
+    }
+  }, [])
+
+  const formatTimestamp = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3
+    })
+  }
+
+  return (
+    <Card className={cn('flex flex-col h-full', className)}>
+      <CardHeader className="flex-shrink-0 pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            <CardTitle className="text-lg">Live Logs</CardTitle>
+            <Badge 
+              variant={isConnected ? 'success' : 'secondary'}
+              className="flex items-center gap-1"
+            >
+              <div className={cn(
+                'w-2 h-2 rounded-full',
+                isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
+              )} />
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </Badge>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={cn(
+                'text-xs',
+                autoScroll && 'bg-blue-50 text-blue-600 border-blue-200'
+              )}
+            >
+              Auto-scroll
+            </Button>
+            
+            {isStreaming ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={disconnectFromStream}
+                className="text-xs"
+              >
+                <Square className="h-3 w-3 mr-1" />
+                Stop
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={connectToStream}
+                className="text-xs"
+              >
+                <Play className="h-3 w-3 mr-1" />
+                Start
+              </Button>
+            )}
+            
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={clearLogs}
+              className="text-xs"
+            >
+              <Trash2 className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
+            
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={downloadLogs}
+              disabled={logs.length === 0}
+              className="text-xs"
+            >
+              <Download className="h-3 w-3 mr-1" />
+              Download
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      
+      <CardContent className="flex-1 p-0 min-h-0">
+        <div 
+          className="h-full w-full overflow-y-auto overflow-x-hidden" 
+          ref={scrollRef}
+        >
+          <div className="p-4 bg-gray-900 text-gray-100 font-mono text-sm min-h-full">
+            {logs.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <Terminal className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No logs available</p>
+                <p className="text-xs mt-1">
+                  {isStreaming ? 'Waiting for logs...' : 'Click "Start" to begin streaming'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {logs.map((log) => {
+                  const levelInfo = LOG_LEVELS[log.level] || LOG_LEVELS[30]
+                  
+                  return (
+                    <div key={log.id} className="flex items-start gap-3 py-1 hover:bg-gray-800/50 rounded px-2 -mx-2">
+                      <div className="text-gray-500 text-xs font-mono flex-shrink-0 w-12">
+                        {formatTimestamp(log.timestamp)}
+                      </div>
+                      
+                      <div className={cn(
+                        'text-xs px-2 py-0.5 rounded font-medium uppercase flex-shrink-0 w-12 text-center',
+                        levelInfo.bg,
+                        levelInfo.color
+                      )}>
+                        {levelInfo.name}
+                      </div>
+                      
+                      {log.source && (
+                        <div className="text-blue-400 text-xs flex-shrink-0 w-16 truncate">
+                          {log.source}
+                        </div>
+                      )}
+                      
+                      <div className="text-gray-100 flex-1 min-w-0">
+                        {log.msg}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

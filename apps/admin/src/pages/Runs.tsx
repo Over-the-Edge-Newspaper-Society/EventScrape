@@ -12,6 +12,7 @@ import { runsApi, sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity } from 'lucide-react'
 import { toast } from 'sonner'
+import { LogViewer } from '@/components/LogViewer'
 
 interface RunDetailsProps {
   runId: string
@@ -51,7 +52,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
   const durationFormatted = `${Math.floor(duration / 1000)}s`
 
   return (
-    <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+    <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Activity className="h-5 w-5" />
@@ -185,6 +186,11 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Live Logs */}
+        <div className="h-96">
+          <LogViewer runId={runId} />
+        </div>
 
         <div className="flex justify-end">
           <Button onClick={onClose}>Close</Button>

@@ -39,6 +39,9 @@ export interface RunContext {
   jobData?: {
     testMode?: boolean;
   };
+  stats?: {
+    pagesCrawled: number;
+  };
 }
 
 export interface ScraperModule {

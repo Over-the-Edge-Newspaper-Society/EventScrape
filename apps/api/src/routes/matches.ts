@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { matches, eventsRaw, sources, eventsCanonical } from '../db/schema.js';
 
@@ -184,9 +184,9 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
       const data = mergeSchema.parse(request.body);
 
       // Start a database transaction
-      await db.transaction(async (tx) => {
+      const canonical = await db.transaction(async (tx) => {
         // Create canonical event
-        const [canonical] = await tx
+        const [newCanonical] = await tx
           .insert(eventsCanonical)
           .values({
             title: data.title,
@@ -217,24 +217,22 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
           .update(matches)
           .set({ status: 'confirmed' })
           .where(
-            sql`(${matches.rawIdA} = ANY(${data.rawIds}) OR ${matches.rawIdB} = ANY(${data.rawIds})) AND ${matches.status} = 'open'`
+            and(
+              or(
+                inArray(matches.rawIdA, data.rawIds),
+                inArray(matches.rawIdB, data.rawIds)
+              ),
+              eq(matches.status, 'open')
+            )
           );
 
-        return canonical;
+        return newCanonical;
       });
 
       reply.status(201);
       return {
         message: 'Events merged successfully',
-        canonicalId: (await db.transaction(async (tx) => {
-          const [canonical] = await tx
-            .select({ id: eventsCanonical.id })
-            .from(eventsCanonical)
-            .where(sql`${eventsCanonical.mergedFromRawIds} @> ${JSON.stringify(data.rawIds)}`)
-            .orderBy(desc(eventsCanonical.createdAt))
-            .limit(1);
-          return canonical?.id;
-        })),
+        canonicalId: canonical.id,
       };
     } catch (error) {
       if (error instanceof z.ZodError) {

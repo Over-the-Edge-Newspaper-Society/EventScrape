@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { eventsApi, sourcesApi, EventsQueryParams } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle } from 'lucide-react'
+import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2 } from 'lucide-react'
 
 export function RawEvents() {
   const [filters, setFilters] = useState<EventsQueryParams>({
@@ -16,6 +17,8 @@ export function RawEvents() {
     limit: 20,
   })
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set())
+  const queryClient = useQueryClient()
 
   const { data: events, isLoading } = useQuery({
     queryKey: ['events', 'raw', filters],
@@ -25,6 +28,14 @@ export function RawEvents() {
   const { data: sources } = useQuery({
     queryKey: ['sources'],
     queryFn: () => sourcesApi.getAll(),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (ids: string[]) => eventsApi.deleteRawBulk(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events', 'raw'] })
+      setSelectedEvents(new Set())
+    },
   })
 
   const handleFilterChange = (key: keyof EventsQueryParams, value: any) => {
@@ -41,6 +52,34 @@ export function RawEvents() {
 
   const handlePageChange = (newPage: number) => {
     setFilters(prev => ({ ...prev, page: newPage }))
+    setSelectedEvents(new Set()) // Clear selection when changing pages
+  }
+
+  const handleSelectEvent = (eventId: string, checked: boolean) => {
+    setSelectedEvents(prev => {
+      const newSelection = new Set(prev)
+      if (checked) {
+        newSelection.add(eventId)
+      } else {
+        newSelection.delete(eventId)
+      }
+      return newSelection
+    })
+  }
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked && events?.events) {
+      const allEventIds = new Set(events.events.map(({ event }) => event.id))
+      setSelectedEvents(allEventIds)
+    } else {
+      setSelectedEvents(new Set())
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedEvents.size > 0 && confirm(`Are you sure you want to delete ${selectedEvents.size} events?`)) {
+      deleteMutation.mutate(Array.from(selectedEvents))
+    }
   }
 
   const getMissingFields = (event: any) => {
@@ -136,12 +175,32 @@ export function RawEvents() {
       {/* Events Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Raw Events</CardTitle>
-          <CardDescription>
-            {events?.pagination.total
-              ? `${events.pagination.total} total events • Page ${events.pagination.page} of ${events.pagination.totalPages}`
-              : 'Loading events...'}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Raw Events</CardTitle>
+              <CardDescription>
+                {events?.pagination.total
+                  ? `${events.pagination.total} total events • Page ${events.pagination.page} of ${events.pagination.totalPages}`
+                  : 'Loading events...'}
+              </CardDescription>
+            </div>
+            {selectedEvents.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {selectedEvents.size} selected
+                </span>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDeleteSelected}
+                  disabled={deleteMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Selected
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -157,6 +216,16 @@ export function RawEvents() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={
+                          events?.events.length > 0 &&
+                          events.events.every(({ event }) => selectedEvents.has(event.id))
+                        }
+                        onCheckedChange={handleSelectAll}
+                        aria-label="Select all events"
+                      />
+                    </TableHead>
                     <TableHead>Event</TableHead>
                     <TableHead>Date/Time</TableHead>
                     <TableHead>Location</TableHead>
@@ -172,6 +241,13 @@ export function RawEvents() {
                     
                     return (
                       <TableRow key={event.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedEvents.has(event.id)}
+                            onCheckedChange={(checked) => handleSelectEvent(event.id, checked as boolean)}
+                            aria-label={`Select event ${event.title}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div>
                             <p className="font-medium text-sm">{event.title}</p>

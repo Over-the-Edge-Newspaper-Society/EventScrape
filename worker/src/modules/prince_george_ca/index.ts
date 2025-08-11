@@ -21,6 +21,7 @@ const princeGeorgeModule: ScraperModule = {
         waitUntil: 'networkidle',
         timeout: 30000 
       });
+      if (ctx.stats) ctx.stats.pagesCrawled++; // Count the main calendar page
 
       logger.info('Page loaded, waiting for calendar to render...');
 
@@ -207,6 +208,7 @@ const princeGeorgeModule: ScraperModule = {
             waitUntil: 'networkidle',
             timeout: 20000 
           });
+          if (ctx.stats) ctx.stats.pagesCrawled++; // Count each event detail page
 
           // Extract detailed event information
           const eventDetails = await page.evaluate((linkData) => {
@@ -295,6 +297,7 @@ const princeGeorgeModule: ScraperModule = {
               .filter(Boolean) as string[];
 
             const event: RawEvent = {
+              sourceEventId: eventDetails.url || eventLink.url, // Use URL as unique source event ID
               title: eventDetails.title || 'Untitled Event',
               start: dateInfo.start,
               end: dateInfo.end || undefined,
@@ -312,6 +315,7 @@ const princeGeorgeModule: ScraperModule = {
                 fullDescription: eventDetails.description,
                 extractedAt: new Date().toISOString(),
                 originalEventLink: eventLink,
+                sourcePageUrl: eventDetails.url || eventLink.url,
               },
             };
 
@@ -321,7 +325,39 @@ const princeGeorgeModule: ScraperModule = {
             }
             
             if (eventDetails.location) {
-              event.venueName = eventDetails.location;
+              // Parse location to separate venue name and address
+              // Location comes as HTML with <br> tags, e.g.: "Studio 2880<br>2880 15th Avenue<br>Prince George, BC"
+              let locationText = eventDetails.location.trim();
+              
+              // Convert HTML breaks to newlines and strip other HTML
+              locationText = locationText
+                .replace(/<br\s*\/?>/gi, '\n')  // Replace <br> tags with newlines
+                .replace(/&nbsp;/gi, ' ')       // Replace &nbsp; with spaces
+                .replace(/<[^>]*>/g, '')        // Strip remaining HTML tags
+                .trim();
+              
+              const locationLines = locationText.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+              
+              if (locationLines.length >= 2) {
+                // Multi-line format: first line is venue, rest is address
+                event.venueName = locationLines[0];
+                event.venueAddress = locationLines.slice(1).join(', ').trim();
+              } else if (locationLines.length === 1) {
+                // Single line - try to separate venue name from address
+                const singleLine = locationLines[0];
+                
+                // Look for patterns like "VenueName123Address" where venue ends before a number
+                const match = singleLine.match(/^(.+?)(\d+.*)$/);
+                if (match) {
+                  event.venueName = match[1].trim();
+                  event.venueAddress = match[2].trim();
+                } else {
+                  // Can't separate, put entire text as venue name
+                  event.venueName = singleLine;
+                }
+              }
             }
             
             if (categories.length > 1) {
@@ -358,6 +394,7 @@ const princeGeorgeModule: ScraperModule = {
           }
           
           const fallbackEvent: RawEvent = {
+            sourceEventId: eventLink.url, // Use URL as unique source event ID
             title: eventLink.title || 'Untitled Event',
             start: fallbackStart,
             city: 'Prince George',
@@ -370,6 +407,7 @@ const princeGeorgeModule: ScraperModule = {
               calendarDate: eventLink.date,
               error: 'Failed to load detail page',
               extractedAt: new Date().toISOString(),
+              sourcePageUrl: eventLink.url,
             },
           };
           
@@ -377,7 +415,8 @@ const princeGeorgeModule: ScraperModule = {
         }
       }
 
-      logger.info(`Scrape completed. Total events found: ${events.length}`);
+      const pagesCrawledCount = ctx.stats?.pagesCrawled || 0;
+      logger.info(`Scrape completed. Total events found: ${events.length}, Pages crawled: ${pagesCrawledCount}`);
       return events;
 
     } catch (error) {
