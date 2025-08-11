@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Events - Downtown Prince George</title>
+</head>
+<body>
+    <div class="mec-events-calendar">
+        <div class="mec-calendar-events-container">
+            <article class="mec-event-article" data-event-id="123">
+                <h4 class="mec-event-title">
+                    <a href="https://downtownpg.com/events/summer-music-festival/">Summer Music Festival</a>
+                </h4>
+                <div class="mec-event-date">August 15, 2025</div>
+                <div class="mec-event-time">7:00 PM</div>
+                <div class="mec-event-location">Downtown Plaza</div>
+            </article>
+            
+            <article class="mec-event-article" data-event-id="124">
+                <h4 class="mec-event-title">
+                    <a href="https://downtownpg.com/events/art-walk/">Downtown Art Walk</a>
+                </h4>
+                <div class="mec-event-date">August 22, 2025</div>
+                <div class="mec-event-time">6:00 PM</div>
+                <div class="mec-event-location">Various Galleries</div>
+            </article>
+        </div>
+        
+        <div class="mec-load-more-button">
+            <button>Load More Events</button>
+        </div>
+    </div>
+    
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    [
+        {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            "name": "Summer Music Festival",
+            "startDate": "2025-08-15T19:00:00-07:00",
+            "endDate": "2025-08-15T23:00:00-07:00",
+            "location": {
+                "@type": "Place",
+                "name": "Downtown Plaza",
+                "address": {
+                    "@type": "PostalAddress",
+                    "streetAddress": "1234 George Street",
+                    "addressLocality": "Prince George",
+                    "addressRegion": "BC",
+                    "postalCode": "V2L 2X1",
+                    "addressCountry": "CA"
+                }
+            },
+            "organizer": {
+                "@type": "Organization",
+                "name": "Downtown Prince George",
+                "url": "https://downtownpg.com"
+            },
+            "description": "Annual summer music festival featuring local and touring artists.",
+            "url": "https://downtownpg.com/events/summer-music-festival/",
+            "eventStatus": "https://schema.org/EventScheduled",
+            "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode"
+        },
+        {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            "name": "Downtown Art Walk",
+            "startDate": "2025-08-22T18:00:00-07:00",
+            "endDate": "2025-08-22T21:00:00-07:00",
+            "location": {
+                "@type": "Place",
+                "name": "Various Galleries",
+                "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": "Prince George",
+                    "addressRegion": "BC",
+                    "addressCountry": "CA"
+                }
+            },
+            "organizer": {
+                "@type": "Organization", 
+                "name": "Downtown Prince George",
+                "url": "https://downtownpg.com"
+            },
+            "description": "Explore downtown galleries and meet local artists.",
+            "url": "https://downtownpg.com/events/art-walk/",
+            "eventStatus": "https://schema.org/EventScheduled",
+            "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode"
+        }
+    ]
+    </script>
+</body>
+</html>

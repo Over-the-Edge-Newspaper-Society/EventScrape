@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Summer Music Festival - Downtown Prince George</title>
+</head>
+<body>
+    <article class="mec-single-event">
+        <header>
+            <h1 class="mec-single-title">Summer Music Festival</h1>
+        </header>
+        
+        <div class="mec-single-event-details">
+            <div class="mec-single-event-date">
+                <div class="mec-start-date">August 15, 2025</div>
+                <div class="mec-start-time">7:00 PM</div>
+                <div class="mec-end-time">11:00 PM</div>
+            </div>
+            
+            <div class="mec-single-event-location">
+                <div class="mec-event-location">Downtown Plaza</div>
+                <div class="mec-event-address">1234 George Street, Prince George, BC V2L 2X1</div>
+            </div>
+            
+            <div class="mec-single-event-organizer">
+                <div class="mec-event-organizer">Downtown Prince George</div>
+            </div>
+            
+            <div class="mec-single-event-links">
+                <a href="https://tickets.example.com/summer-music-festival" class="mec-ticket-button">Buy Tickets</a>
+                <a href="https://downtownpg.com" class="mec-event-website">Visit Website</a>
+            </div>
+        </div>
+        
+        <div class="mec-single-event-description">
+            <h3>About the Event</h3>
+            <p>Join us for the annual Summer Music Festival in beautiful downtown Prince George! 
+            This year's lineup features amazing local bands and special guest performers from across BC.</p>
+            
+            <h4>Featured Acts:</h4>
+            <ul>
+                <li>Northern Lights Band</li>
+                <li>Prince George Symphony</li>
+                <li>Local Folk Trio</li>
+            </ul>
+            
+            <p>Food trucks and local vendors will be on site. Free admission for children under 12.</p>
+        </div>
+    </article>
+    
+    <!-- JSON-LD Structured Data for Event Detail Page -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Event",
+        "name": "Summer Music Festival",
+        "startDate": "2025-08-15T19:00:00-07:00",
+        "endDate": "2025-08-15T23:00:00-07:00",
+        "location": {
+            "@type": "Place",
+            "name": "Downtown Plaza",
+            "address": {
+                "@type": "PostalAddress",
+                "streetAddress": "1234 George Street",
+                "addressLocality": "Prince George",
+                "addressRegion": "BC",
+                "postalCode": "V2L 2X1",
+                "addressCountry": "CA"
+            }
+        },
+        "organizer": {
+            "@type": "Organization",
+            "name": "Downtown Prince George",
+            "url": "https://downtownpg.com"
+        },
+        "description": "Join us for the annual Summer Music Festival in beautiful downtown Prince George! This year's lineup features amazing local bands and special guest performers from across BC.",
+        "url": "https://downtownpg.com/events/summer-music-festival/",
+        "eventStatus": "https://schema.org/EventScheduled",
+        "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+        "offers": {
+            "@type": "Offer",
+            "url": "https://tickets.example.com/summer-music-festival",
+            "price": "25",
+            "priceCurrency": "CAD",
+            "availability": "https://schema.org/InStock"
+        },
+        "performer": [
+            {
+                "@type": "MusicGroup",
+                "name": "Northern Lights Band"
+            },
+            {
+                "@type": "MusicGroup", 
+                "name": "Prince George Symphony"
+            },
+            {
+                "@type": "MusicGroup",
+                "name": "Local Folk Trio"
+            }
+        ]
+    }
+    </script>
+</body>
+</html>

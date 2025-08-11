@@ -52,6 +52,9 @@ export function LogViewer({ runId, className }: LogViewerProps) {
       eventSourceRef.current.close()
     }
 
+    // First, try to load historical logs
+    loadHistoricalLogs()
+
     const eventSource = new EventSource(`http://localhost:3001/api/logs/stream/${runId}`)
     eventSourceRef.current = eventSource
 
@@ -78,6 +81,20 @@ export function LogViewer({ runId, className }: LogViewerProps) {
       console.error('EventSource error:', error)
       setIsConnected(false)
       eventSource.close()
+    }
+  }
+
+  const loadHistoricalLogs = async () => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/logs/history/${runId}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.logs && data.logs.length > 0) {
+          setLogs(data.logs)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading historical logs:', error)
     }
   }
 
@@ -113,12 +130,15 @@ export function LogViewer({ runId, className }: LogViewerProps) {
   }
 
   useEffect(() => {
+    // Auto-start streaming when component mounts
+    connectToStream()
+    
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
       }
     }
-  }, [])
+  }, [runId])
 
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
@@ -219,7 +239,9 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                 <Terminal className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No logs available</p>
                 <p className="text-xs mt-1">
-                  {isStreaming ? 'Waiting for logs...' : 'Click "Start" to begin streaming'}
+                  {isStreaming 
+                    ? 'Waiting for logs...' 
+                    : 'Logs are automatically streamed for active runs. For completed runs, logs may not be available if they were not captured during execution.'}
                 </p>
               </div>
             ) : (
