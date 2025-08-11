@@ -192,6 +192,7 @@ class EventScraperWorker {
         const runLogStream = createLogStream(this.redis, jobData.runId);
         const runLogger = pino({
           level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
+          // Don't use pino-pretty for run logger to ensure JSON format for Redis parsing
         }, runLogStream);
         
         const contextLogger = runLogger.child({ 
@@ -275,8 +276,8 @@ class EventScraperWorker {
               .map(([key]) => key);
 
             if (undefinedFields.length > 0) {
-              logger.warn(`Event "${event.title}" has undefined fields: ${undefinedFields.join(', ')}`);
-              logger.debug('Full event object:', JSON.stringify(event, null, 2));
+              contextLogger.warn(`Event "${event.title}" has undefined fields: ${undefinedFields.join(', ')}`);
+              contextLogger.debug('Full event object:', JSON.stringify(event, null, 2));
             }
 
             await db`
@@ -297,8 +298,8 @@ class EventScraperWorker {
             `;
             savedCount++;
           } catch (dbError) {
-            logger.warn(`Failed to save event "${event.title}": ${dbError}`);
-            logger.debug('Event that failed to save:', JSON.stringify(event, null, 2));
+            contextLogger.warn(`Failed to save event "${event.title}": ${dbError}`);
+            contextLogger.debug('Event that failed to save:', JSON.stringify(event, null, 2));
           }
         }
 
@@ -312,7 +313,7 @@ class EventScraperWorker {
         `;
 
         contextLogger.info(`🎉 Scrape completed successfully! Saved ${savedCount}/${rawEvents.length} events`);
-        logger.info(`✅ Scrape completed: ${savedCount}/${rawEvents.length} events saved`);
+        contextLogger.info(`✅ Scrape completed: ${savedCount}/${rawEvents.length} events saved`);
 
         // Queue a match job to find duplicates for recently scraped events
         if (savedCount > 0) {

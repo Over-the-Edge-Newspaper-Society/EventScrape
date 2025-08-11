@@ -139,16 +139,20 @@ const princeGeorgeModule: ScraperModule = {
               
               const dateAttr = dayCell?.getAttribute('data-date') || '';
               
-              // Format the date nicely
-              let dateText = '';
-              if (dateAttr) {
-                const dateObj = new Date(dateAttr);
-                dateText = dateObj.toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                });
+              // Use the raw date attribute instead of formatting it
+              // This will be something like "2025-08-10" which is easier to parse
+              let dateText = dateAttr;
+              if (!dateText) {
+                // Fallback to formatted date if data-date is not available
+                if (dateAttr) {
+                  const dateObj = new Date(dateAttr);
+                  dateText = dateObj.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  });
+                }
               }
               
               links.push({
@@ -195,197 +199,290 @@ const princeGeorgeModule: ScraperModule = {
       const eventsToProcess = isTestMode ? eventLinks.slice(0, 1) : eventLinks;
       logger.info(`Processing ${eventsToProcess.length} event${eventsToProcess.length === 1 ? '' : 's'}${isTestMode ? ' (test mode)' : ''}`);
 
-      // Visit each event detail page
+      // Visit each event detail page to enhance calendar events with additional details
+      const visitedUrls = new Set<string>(); // Track visited detail pages to avoid duplicates
+      
       for (const [index, eventLink] of eventsToProcess.entries()) {
         try {
-          logger.info(`Scraping event ${index + 1}/${eventsToProcess.length}: ${eventLink.title}`);
+          logger.info(`Processing calendar event ${index + 1}/${eventsToProcess.length}: ${eventLink.title}`);
           
-          // Rate limiting
-          await delay(addJitter(2000, 50));
-          
-          // Navigate to event detail page
-          await page.goto(eventLink.url, { 
-            waitUntil: 'networkidle',
-            timeout: 20000 
-          });
-          if (ctx.stats) ctx.stats.pagesCrawled++; // Count each event detail page
-
-          // Extract detailed event information
-          const eventDetails = await page.evaluate((linkData) => {
-            // Extract event dates and times
-            const dateTimeElements = document.querySelectorAll('.field--name-field-when .field__item');
-            const eventDates: Array<{start: string, end?: string}> = [];
-            
-            dateTimeElements.forEach(el => {
-              const timeElements = el.querySelectorAll('time[datetime]');
-              if (timeElements.length >= 1) {
-                const startTime = timeElements[0].getAttribute('datetime');
-                const endTime = timeElements[1]?.getAttribute('datetime');
-                
-                if (startTime) {
-                  eventDates.push({
-                    start: startTime,
-                    end: endTime || undefined
-                  });
-                }
-              }
-            });
-
-            // Extract event types
-            const eventTypeEl = document.querySelector('.field--name-field-types .field__item');
-            const communityTypeEl = document.querySelector('.field--name-field-types2 .field__item');
-            const eventType = eventTypeEl?.textContent?.trim();
-            const communityType = communityTypeEl?.textContent?.trim();
-
-            // Extract location
-            const locationEl = document.querySelector('.field--name-field-contact-information .field__item');
-            const location = locationEl?.textContent?.trim();
-
-            // Extract description
-            const descriptionEl = document.querySelector('.field--name-body .field__item');
-            const description = descriptionEl?.innerHTML?.trim();
-
-            // Extract image
-            const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
-            const imageUrl = imageEl?.src;
-
-            return {
-              title: linkData.title,
-              dates: eventDates,
-              eventType,
-              communityType,
-              location,
-              description,
-              imageUrl,
-              url: window.location.href,
-              rawCalendarTime: linkData.time,
-              rawCalendarDate: linkData.date
-            };
-          }, eventLink);
-
-          // Create events for each date (some events have multiple dates)
-          const validDates = eventDetails.dates.filter(d => d.start);
-          
-          if (validDates.length === 0) {
-            // Fallback: create event from calendar data if no valid dates found on detail page
-            let fallbackStart = '';
-            try {
-              // Try to construct date from calendar data
-              if (eventLink.date && eventLink.time) {
-                const dateObj = new Date(`${eventLink.date} ${eventLink.time}`);
-                if (!isNaN(dateObj.getTime())) {
-                  fallbackStart = dateObj.toISOString();
-                }
-              }
-              
-              // If still no valid date, use today as absolute fallback
-              if (!fallbackStart) {
-                fallbackStart = new Date().toISOString();
-                logger.warn(`Using current date as fallback for event: ${eventDetails.title}`);
-              }
-            } catch (dateError) {
-              fallbackStart = new Date().toISOString();
-              logger.warn(`Date parsing failed for ${eventDetails.title}, using current date`);
-            }
-            
-            validDates.push({ start: fallbackStart });
-          }
-          
-          for (const dateInfo of validDates) {
-            // Determine category from event types
-            const categories = [eventDetails.eventType, eventDetails.communityType]
-              .filter(Boolean) as string[];
-
-            const event: RawEvent = {
-              sourceEventId: eventDetails.url || eventLink.url, // Use URL as unique source event ID
-              title: eventDetails.title || 'Untitled Event',
-              start: dateInfo.start,
-              end: dateInfo.end || undefined,
-              city: 'Prince George',
-              region: 'British Columbia', 
-              country: 'Canada',
-              organizer: 'City of Prince George',
-              category: categories[0] || 'Community Event',
-              url: eventDetails.url || eventLink.url,
-              raw: {
-                calendarTime: eventDetails.rawCalendarTime,
-                calendarDate: eventDetails.rawCalendarDate,
-                eventType: eventDetails.eventType,
-                communityType: eventDetails.communityType,
-                fullDescription: eventDetails.description,
-                extractedAt: new Date().toISOString(),
-                originalEventLink: eventLink,
-                sourcePageUrl: eventDetails.url || eventLink.url,
-              },
-            };
-
-            // Only set optional fields if they have actual values
-            if (eventDetails.description) {
-              event.descriptionHtml = eventDetails.description;
-            }
-            
-            if (eventDetails.location) {
-              // Parse location to separate venue name and address
-              // Location comes as HTML with <br> tags, e.g.: "Studio 2880<br>2880 15th Avenue<br>Prince George, BC"
-              let locationText = eventDetails.location.trim();
-              
-              // Convert HTML breaks to newlines and strip other HTML
-              locationText = locationText
-                .replace(/<br\s*\/?>/gi, '\n')  // Replace <br> tags with newlines
-                .replace(/&nbsp;/gi, ' ')       // Replace &nbsp; with spaces
-                .replace(/<[^>]*>/g, '')        // Strip remaining HTML tags
-                .trim();
-              
-              const locationLines = locationText.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-              
-              if (locationLines.length >= 2) {
-                // Multi-line format: first line is venue, rest is address
-                event.venueName = locationLines[0];
-                event.venueAddress = locationLines.slice(1).join(', ').trim();
-              } else if (locationLines.length === 1) {
-                // Single line - try to separate venue name from address
-                const singleLine = locationLines[0];
-                
-                // Look for patterns like "VenueName123Address" where venue ends before a number
-                const match = singleLine.match(/^(.+?)(\d+.*)$/);
-                if (match) {
-                  event.venueName = match[1].trim();
-                  event.venueAddress = match[2].trim();
-                } else {
-                  // Can't separate, put entire text as venue name
-                  event.venueName = singleLine;
-                }
-              }
-            }
-            
-            if (categories.length > 1) {
-              event.tags = categories.slice(1);
-            }
-            
-            if (eventDetails.imageUrl) {
-              event.imageUrl = new URL(eventDetails.imageUrl, eventDetails.url).href;
-            }
-
-            events.push(event);
-          }
-
-          logger.info(`Extracted ${eventDetails.dates.length} event instance(s) for: ${eventLink.title}`);
-
-        } catch (eventError) {
-          logger.warn(`Failed to scrape event ${eventLink.title}: ${eventError}`);
-          
-          // Create a basic event from calendar data if detail page fails
-          let fallbackStart = '';
+          // Create base event from calendar data first
+          let eventStart = '';
           try {
             if (eventLink.date && eventLink.time) {
-              const dateObj = new Date(`${eventLink.date} ${eventLink.time}`);
+              // Parse the date and time properly
+              const dateStr = eventLink.date; // e.g., "Sunday, August 10, 2025" or "August 10, 2025"
+              const timeStr = eventLink.time; // e.g., "11a" or "4:00pm - 7:00pm"
+              
+              // Extract the start time from time ranges like "4:00pm - 7:00pm"
+              let startTime = timeStr;
+              if (timeStr.includes(' - ')) {
+                startTime = timeStr.split(' - ')[0].trim();
+              }
+              
+              // Normalize time format: "11a" -> "11:00 AM", "4:00pm" -> "4:00 PM"
+              let normalizedTime = startTime;
+              if (/^\d+[ap]$/.test(startTime)) {
+                // Handle "11a" format
+                const hour = startTime.slice(0, -1);
+                const ampm = startTime.slice(-1).toUpperCase();
+                normalizedTime = `${hour}:00 ${ampm}M`;
+              } else if (/^\d+:\d+[ap]m?$/i.test(startTime)) {
+                // Handle "4:00pm" format
+                normalizedTime = startTime.replace(/([ap])m?$/i, (match, ampm) => ` ${ampm.toUpperCase()}M`);
+              }
+              
+              // Try to parse the combined date and time
+              const combinedDateTime = `${dateStr} ${normalizedTime}`;
+              logger.info(`Attempting to parse: "${combinedDateTime}" from date: "${dateStr}" and time: "${timeStr}"`);
+              
+              const dateObj = new Date(combinedDateTime);
               if (!isNaN(dateObj.getTime())) {
-                fallbackStart = dateObj.toISOString();
+                eventStart = dateObj.toISOString();
+                logger.info(`Successfully parsed event time: ${eventStart}`);
+              } else {
+                // Try parsing just the date and use a default time
+                const dateOnly = new Date(dateStr);
+                if (!isNaN(dateOnly.getTime())) {
+                  // Set a default time if time parsing failed
+                  dateOnly.setHours(19, 0, 0, 0); // Default to 7 PM
+                  eventStart = dateOnly.toISOString();
+                  logger.warn(`Used date with default time for event: ${eventLink.title}`);
+                }
               }
             }
             // Fallback to current date if parsing fails
+            if (!eventStart) {
+              eventStart = new Date().toISOString();
+              logger.warn(`Using current date as fallback for event: ${eventLink.title}`);
+            }
+          } catch (dateError) {
+            eventStart = new Date().toISOString();
+            logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
+          }
+
+          // Create unique sourceEventId combining URL and calendar date
+          const calendarDateString = eventLink.date || new Date(eventStart).toDateString();
+          const sourceEventId = `${eventLink.url}#${calendarDateString}`;
+
+          // Base event from calendar data
+          const baseEvent: RawEvent = {
+            sourceEventId: sourceEventId,
+            title: eventLink.title || 'Untitled Event',
+            start: eventStart,
+            city: 'Prince George',
+            region: 'British Columbia', 
+            country: 'Canada',
+            organizer: 'City of Prince George',
+            category: 'Community Event',
+            url: eventLink.url,
+            raw: {
+              calendarTime: eventLink.time,
+              calendarDate: eventLink.date,
+              extractedAt: new Date().toISOString(),
+              originalEventLink: eventLink,
+              sourcePageUrl: eventLink.url,
+            },
+          };
+
+          // Only visit detail page if we haven't processed this URL before
+          if (!visitedUrls.has(eventLink.url)) {
+            logger.info(`Enhancing with details from: ${eventLink.url}`);
+            visitedUrls.add(eventLink.url);
+            
+            // Rate limiting
+            await delay(addJitter(2000, 50));
+            
+            try {
+              // Navigate to event detail page
+              await page.goto(eventLink.url, { 
+                waitUntil: 'networkidle',
+                timeout: 20000 
+              });
+              if (ctx.stats) ctx.stats.pagesCrawled++; // Count each event detail page
+
+              // Extract enhancement data from detail page
+              const enhancementData = await page.evaluate(() => {
+                // Extract event types
+                const eventTypeEl = document.querySelector('.field--name-field-types .field__item');
+                const communityTypeEl = document.querySelector('.field--name-field-types2 .field__item');
+                const eventType = eventTypeEl?.textContent?.trim();
+                const communityType = communityTypeEl?.textContent?.trim();
+
+                // Extract location
+                const locationEl = document.querySelector('.field--name-field-contact-information .field__item');
+                const location = locationEl?.textContent?.trim();
+
+                // Extract description
+                const descriptionEl = document.querySelector('.field--name-body .field__item');
+                const description = descriptionEl?.innerHTML?.trim();
+
+                // Extract image
+                const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
+                const imageUrl = imageEl?.src;
+
+                // Extract datetime information from the when field
+                const datetimeElements = document.querySelectorAll('.field--name-field-when .datetime');
+                let startDateTime = null;
+                let endDateTime = null;
+
+                if (datetimeElements.length >= 1) {
+                  // Get start time from first datetime element
+                  startDateTime = datetimeElements[0].getAttribute('datetime');
+                }
+
+                if (datetimeElements.length >= 2) {
+                  // Get end time from second datetime element
+                  endDateTime = datetimeElements[1].getAttribute('datetime');
+                }
+
+                return {
+                  eventType,
+                  communityType,
+                  location,
+                  description,
+                  imageUrl,
+                  startDateTime,
+                  endDateTime,
+                };
+              });
+
+              // Use the correct datetime from detail page if available
+              if (enhancementData.startDateTime) {
+                baseEvent.start = enhancementData.startDateTime;
+                logger.info(`Updated event start time from detail page: ${enhancementData.startDateTime}`);
+              }
+
+              if (enhancementData.endDateTime) {
+                baseEvent.end = enhancementData.endDateTime;
+                logger.info(`Set event end time from detail page: ${enhancementData.endDateTime}`);
+              }
+
+              // Enhance the base event with detail page data
+              const categories = [enhancementData.eventType, enhancementData.communityType]
+                .filter(Boolean) as string[];
+
+              if (categories.length > 0) {
+                baseEvent.category = categories[0];
+              }
+              
+              if (categories.length > 1) {
+                baseEvent.tags = categories.slice(1);
+              }
+
+              if (enhancementData.description) {
+                baseEvent.descriptionHtml = enhancementData.description;
+              }
+              
+              if (enhancementData.location) {
+                // Parse location to separate venue name and address
+                let locationText = enhancementData.location.trim();
+                
+                // Convert HTML breaks to newlines and strip other HTML
+                locationText = locationText
+                  .replace(/<br\s*\/?>/gi, '\n')  // Replace <br> tags with newlines
+                  .replace(/&nbsp;/gi, ' ')       // Replace &nbsp; with spaces
+                  .replace(/<[^>]*>/g, '')        // Strip remaining HTML tags
+                  .trim();
+                
+                const locationLines = locationText.split('\n')
+                  .map(line => line.trim())
+                  .filter(line => line.length > 0);
+                
+                if (locationLines.length >= 2) {
+                  // Multi-line format: first line is venue, rest is address
+                  baseEvent.venueName = locationLines[0];
+                  baseEvent.venueAddress = locationLines.slice(1).join(', ').trim();
+                } else if (locationLines.length === 1) {
+                  // Single line - try to separate venue name from address
+                  const singleLine = locationLines[0];
+                  
+                  // Look for patterns like "VenueName123Address" where venue ends before a number
+                  const match = singleLine.match(/^(.+?)(\d+.*)$/);
+                  if (match) {
+                    baseEvent.venueName = match[1].trim();
+                    baseEvent.venueAddress = match[2].trim();
+                  } else {
+                    // Can't separate, put entire text as venue name
+                    baseEvent.venueName = singleLine;
+                  }
+                }
+              }
+              
+              if (enhancementData.imageUrl) {
+                baseEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
+              }
+
+              // Add enhancement data to raw
+              baseEvent.raw = {
+                ...baseEvent.raw,
+                eventType: enhancementData.eventType,
+                communityType: enhancementData.communityType,
+                fullDescription: enhancementData.description,
+                detailPageStartDateTime: enhancementData.startDateTime,
+                detailPageEndDateTime: enhancementData.endDateTime,
+                enhancedFromDetailPage: true,
+              };
+
+              logger.info(`Enhanced event with details: ${eventLink.title}`);
+              
+            } catch (detailError) {
+              logger.warn(`Failed to load detail page for ${eventLink.title}: ${detailError}`);
+              baseEvent.raw = {
+                ...baseEvent.raw,
+                detailPageError: 'Failed to load detail page',
+                enhancedFromDetailPage: false,
+              };
+            }
+          } else {
+            logger.info(`Detail page already processed, using calendar data only: ${eventLink.url}`);
+            baseEvent.raw = {
+              ...baseEvent.raw,
+              enhancedFromDetailPage: false,
+              note: 'Detail page already processed for another calendar entry',
+            };
+          }
+
+          events.push(baseEvent);
+          logger.info(`Created calendar event: ${eventLink.title} on ${eventLink.date}`);
+
+        } catch (eventError) {
+          logger.warn(`Failed to process calendar event ${eventLink.title}: ${eventError}`);
+          
+          // Create minimal fallback event with proper date parsing
+          let fallbackStart = '';
+          try {
+            if (eventLink.date && eventLink.time) {
+              // Use the same parsing logic as above
+              const dateStr = eventLink.date;
+              const timeStr = eventLink.time;
+              
+              let startTime = timeStr;
+              if (timeStr.includes(' - ')) {
+                startTime = timeStr.split(' - ')[0].trim();
+              }
+              
+              let normalizedTime = startTime;
+              if (/^\d+[ap]$/.test(startTime)) {
+                const hour = startTime.slice(0, -1);
+                const ampm = startTime.slice(-1).toUpperCase();
+                normalizedTime = `${hour}:00 ${ampm}M`;
+              } else if (/^\d+:\d+[ap]m?$/i.test(startTime)) {
+                normalizedTime = startTime.replace(/([ap])m?$/i, (match, ampm) => ` ${ampm.toUpperCase()}M`);
+              }
+              
+              const combinedDateTime = `${dateStr} ${normalizedTime}`;
+              const dateObj = new Date(combinedDateTime);
+              if (!isNaN(dateObj.getTime())) {
+                fallbackStart = dateObj.toISOString();
+              } else {
+                const dateOnly = new Date(dateStr);
+                if (!isNaN(dateOnly.getTime())) {
+                  dateOnly.setHours(19, 0, 0, 0);
+                  fallbackStart = dateOnly.toISOString();
+                }
+              }
+            }
             if (!fallbackStart) {
               fallbackStart = new Date().toISOString();
             }
@@ -394,7 +491,7 @@ const princeGeorgeModule: ScraperModule = {
           }
           
           const fallbackEvent: RawEvent = {
-            sourceEventId: eventLink.url, // Use URL as unique source event ID
+            sourceEventId: `${eventLink.url}#${eventLink.date || new Date(fallbackStart).toDateString()}`,
             title: eventLink.title || 'Untitled Event',
             start: fallbackStart,
             city: 'Prince George',
@@ -405,7 +502,7 @@ const princeGeorgeModule: ScraperModule = {
             raw: {
               calendarTime: eventLink.time,
               calendarDate: eventLink.date,
-              error: 'Failed to load detail page',
+              error: 'Failed to process calendar event',
               extractedAt: new Date().toISOString(),
               sourcePageUrl: eventLink.url,
             },

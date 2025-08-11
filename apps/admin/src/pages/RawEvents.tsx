@@ -7,9 +7,179 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { eventsApi, sourcesApi, EventsQueryParams } from '@/lib/api'
-import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { eventsApi, sourcesApi, EventsQueryParams, EventRaw, EventWithSource } from '@/lib/api'
+import { formatRelativeTime, cn } from '@/lib/utils'
+import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code } from 'lucide-react'
+
+interface EventDetailViewProps {
+  event: EventWithSource
+  onClose?: () => void
+}
+
+function EventDetailView({ event }: EventDetailViewProps) {
+  const eventData = event.event
+  const sourceData = event.source
+
+  const formatFieldValue = (value: any, fieldName: string) => {
+    if (value === null || value === undefined) {
+      return <span className="text-gray-500 italic">Not provided</span>
+    }
+    
+    if (fieldName === 'startDatetime' || fieldName === 'endDatetime' || fieldName === 'scrapedAt') {
+      return new Date(value).toLocaleString()
+    }
+    
+    if (fieldName === 'tags' && Array.isArray(value)) {
+      return value.length > 0 ? value.join(', ') : <span className="text-gray-500 italic">None</span>
+    }
+    
+    if (fieldName === 'descriptionHtml' && value) {
+      return (
+        <div className="max-h-40 overflow-y-auto">
+          <div dangerouslySetInnerHTML={{ __html: value }} className="prose prose-sm max-w-none" />
+        </div>
+      )
+    }
+    
+    return String(value)
+  }
+
+  const structuredFields = [
+    { key: 'id', label: 'Event ID', value: eventData.id },
+    { key: 'sourceEventId', label: 'Source Event ID', value: eventData.sourceEventId },
+    { key: 'title', label: 'Title', value: eventData.title },
+    { key: 'descriptionHtml', label: 'Description', value: eventData.descriptionHtml },
+    { key: 'startDatetime', label: 'Start Date/Time', value: eventData.startDatetime },
+    { key: 'endDatetime', label: 'End Date/Time', value: eventData.endDatetime },
+    { key: 'timezone', label: 'Timezone', value: eventData.timezone },
+    { key: 'venueName', label: 'Venue Name', value: eventData.venueName },
+    { key: 'venueAddress', label: 'Venue Address', value: eventData.venueAddress },
+    { key: 'city', label: 'City', value: eventData.city },
+    { key: 'region', label: 'Region', value: eventData.region },
+    { key: 'country', label: 'Country', value: eventData.country },
+    { key: 'lat', label: 'Latitude', value: eventData.lat },
+    { key: 'lon', label: 'Longitude', value: eventData.lon },
+    { key: 'organizer', label: 'Organizer', value: eventData.organizer },
+    { key: 'category', label: 'Category', value: eventData.category },
+    { key: 'price', label: 'Price', value: eventData.price },
+    { key: 'tags', label: 'Tags', value: eventData.tags },
+    { key: 'url', label: 'URL', value: eventData.url },
+    { key: 'imageUrl', label: 'Image URL', value: eventData.imageUrl },
+    { key: 'scrapedAt', label: 'Scraped At', value: eventData.scrapedAt },
+    { key: 'contentHash', label: 'Content Hash', value: eventData.contentHash },
+  ]
+
+  return (
+    <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          Raw Event Details
+        </DialogTitle>
+        <DialogDescription>
+          Complete scraped data from {sourceData.name}
+        </DialogDescription>
+      </DialogHeader>
+
+      <Tabs defaultValue="structured" className="flex-1 overflow-hidden">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="structured" className="flex items-center gap-2">
+            <Eye className="h-4 w-4" />
+            Structured View
+          </TabsTrigger>
+          <TabsTrigger value="raw" className="flex items-center gap-2">
+            <Code className="h-4 w-4" />
+            Raw JSON
+          </TabsTrigger>
+          <TabsTrigger value="source" className="flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Source Info
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="structured" className="overflow-hidden">
+          <div className="h-[60vh] overflow-y-auto">
+            <div className="space-y-4 pr-4">
+              {structuredFields.map(({ key, label, value }) => (
+                <div key={key} className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                  <div className="font-medium text-gray-700">{label}:</div>
+                  <div className="col-span-3 break-words">
+                    {key === 'url' || key === 'imageUrl' ? (
+                      value ? (
+                        <a
+                          href={String(value)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline flex items-center gap-1"
+                        >
+                          {String(value)}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-500 italic">Not provided</span>
+                      )
+                    ) : (
+                      formatFieldValue(value, key)
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="raw" className="overflow-hidden">
+          <div className="h-[60vh] overflow-y-auto">
+            <pre className="bg-gray-50 p-4 rounded-md text-sm overflow-x-auto">
+              <code>{JSON.stringify(eventData.raw, null, 2)}</code>
+            </pre>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="source" className="overflow-hidden">
+          <div className="h-[60vh] overflow-y-auto">
+            <div className="space-y-4 pr-4">
+              <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                <div className="font-medium text-gray-700">Source ID:</div>
+                <div className="col-span-3">{sourceData.id}</div>
+              </div>
+              <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                <div className="font-medium text-gray-700">Source Name:</div>
+                <div className="col-span-3">{sourceData.name}</div>
+              </div>
+              <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                <div className="font-medium text-gray-700">Module Key:</div>
+                <div className="col-span-3 font-mono text-sm">{sourceData.moduleKey}</div>
+              </div>
+              {sourceData.baseUrl && (
+                <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                  <div className="font-medium text-gray-700">Base URL:</div>
+                  <div className="col-span-3">
+                    <a
+                      href={sourceData.baseUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      {sourceData.baseUrl}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                <div className="font-medium text-gray-700">Run ID:</div>
+                <div className="col-span-3 font-mono text-sm">{eventData.runId}</div>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </DialogContent>
+  )
+}
 
 export function RawEvents() {
   const [filters, setFilters] = useState<EventsQueryParams>({
@@ -314,6 +484,20 @@ export function RawEvents() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex items-center gap-1"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  Details
+                                </Button>
+                              </DialogTrigger>
+                              <EventDetailView event={{ event, source }} />
+                            </Dialog>
+                            
                             <Button
                               size="sm"
                               variant="outline"
@@ -326,7 +510,7 @@ export function RawEvents() {
                                 className="flex items-center gap-1"
                               >
                                 <ExternalLink className="h-3 w-3" />
-                                View
+                                Original
                               </a>
                             </Button>
                           </div>

@@ -61,6 +61,12 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
     // Set up interval to check for new logs
     const interval = setInterval(async () => {
       try {
+        // Check if stream exists first
+        const streamExists = await redis.exists(streamKey);
+        if (!streamExists) {
+          return; // Skip if stream doesn't exist yet
+        }
+
         const newLogs = await redis.xread('STREAMS', streamKey, lastId, 'COUNT', 10);
         
         if (newLogs && newLogs.length > 0) {
