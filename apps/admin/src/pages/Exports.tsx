@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { DatePicker } from '@/components/DatePicker'
 import { exportsApi, CreateExportData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle } from 'lucide-react'
@@ -116,29 +117,35 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
             <h3 className="text-lg font-semibold">Apply Filters</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium">Start Date</label>
-                <Input
-                  type="date"
-                  value={exportData.filters?.startDate || ''}
-                  onChange={(e) =>
+                <label className="text-sm font-medium mb-2 block">Start Date</label>
+                <DatePicker
+                  date={exportData.filters?.startDate ? new Date(exportData.filters.startDate) : undefined}
+                  onDateChange={(date) =>
                     setExportData(prev => ({
                       ...prev,
-                      filters: { ...prev.filters, startDate: e.target.value || undefined },
+                      filters: { 
+                        ...prev.filters, 
+                        startDate: date ? date.toISOString().split('T')[0] : undefined 
+                      },
                     }))
                   }
+                  placeholder="Select start date"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">End Date</label>
-                <Input
-                  type="date"
-                  value={exportData.filters?.endDate || ''}
-                  onChange={(e) =>
+                <label className="text-sm font-medium mb-2 block">End Date</label>
+                <DatePicker
+                  date={exportData.filters?.endDate ? new Date(exportData.filters.endDate) : undefined}
+                  onDateChange={(date) =>
                     setExportData(prev => ({
                       ...prev,
-                      filters: { ...prev.filters, endDate: e.target.value || undefined },
+                      filters: { 
+                        ...prev.filters, 
+                        endDate: date ? date.toISOString().split('T')[0] : undefined 
+                      },
                     }))
                   }
+                  placeholder="Select end date"
                 />
               </div>
               <div>
@@ -176,6 +183,7 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
                     <SelectItem value="ready">Ready</SelectItem>
                     <SelectItem value="new">New</SelectItem>
                     <SelectItem value="exported">Exported</SelectItem>
+                    <SelectItem value="ignored">Ignored</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -285,11 +293,35 @@ export function Exports() {
   }
 
   const getStatusBadge = (status: string) => {
+    const variant = status === 'success' ? 'default' : 'destructive';
+    const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+    
     return (
-      <Badge variant={status === 'success' ? 'success' : 'destructive'}>
-        {status}
+      <Badge variant={variant} className={status === 'success' ? 'bg-green-100 text-green-800 border-green-200' : ''}>
+        {statusText}
       </Badge>
     )
+  }
+
+  const getContentType = (format: string): string => {
+    switch (format) {
+      case 'csv': return 'text/csv';
+      case 'json':
+      case 'wp-rest': return 'application/json';
+      case 'ics': return 'text/calendar';
+      default: return 'application/octet-stream';
+    }
+  }
+
+  const getDownloadFilename = (id: string, format: string): string => {
+    const timestamp = new Date().toISOString().split('T')[0];
+    switch (format) {
+      case 'csv': return `events-export-${timestamp}.csv`;
+      case 'json': return `events-export-${timestamp}.json`;
+      case 'wp-rest': return `events-wp-export-${timestamp}.json`;
+      case 'ics': return `events-calendar-${timestamp}.ics`;
+      default: return `export-${id}`;
+    }
   }
 
   return (
@@ -371,10 +403,16 @@ export function Exports() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div>
-                        <p className="text-sm">{formatRelativeTime(exportRecord.createdAt)}</p>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{formatRelativeTime(exportRecord.createdAt)}</p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(exportRecord.createdAt).toLocaleDateString()}
+                          {new Date(exportRecord.createdAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit'
+                          })}
                         </p>
                       </div>
                     </TableCell>
@@ -392,16 +430,38 @@ export function Exports() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col gap-2">
                         {exportRecord.status === 'success' && exportRecord.filePath && (
-                          <Button size="sm" variant="outline" className="flex items-center gap-1">
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="flex items-center gap-1 h-8"
+                            onClick={() => {
+                              const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+                              const downloadUrl = `${apiUrl}/exports/${exportRecord.id}/download`;
+                              
+                              // Create temporary anchor element to trigger download with proper filename
+                              const link = document.createElement('a');
+                              link.href = downloadUrl;
+                              link.download = getDownloadFilename(exportRecord.id, exportRecord.format);
+                              link.target = '_blank';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
                             <Download className="h-3 w-3" />
                             Download
                           </Button>
                         )}
                         {exportRecord.format === 'wp-rest' && exportRecord.status === 'success' && (
-                          <Badge variant="success" className="text-xs">
-                            Uploaded to WordPress
+                          <Badge variant="default" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+                            Ready for WP
+                          </Badge>
+                        )}
+                        {exportRecord.status === 'error' && (
+                          <Badge variant="destructive" className="text-xs">
+                            Failed
                           </Badge>
                         )}
                       </div>

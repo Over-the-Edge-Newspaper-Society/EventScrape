@@ -78,6 +78,8 @@ export interface SimilarityFeatures {
   timeDelta: number; // minutes
   venueDistance?: number; // km
   organizerSimilarity: number;
+  citySimilarity?: number; // for same-time analysis
+  categoryMatch?: number; // for same-time analysis
 }
 
 export interface PotentialMatch {
