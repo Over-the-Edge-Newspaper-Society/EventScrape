@@ -1,11 +1,11 @@
 #!/usr/bin/env tsx
 
 import { chromium } from 'playwright';
-import unbcModule from '../worker/src/modules/unbc_ca/index.js';
+import unbcTimberwolvesModule from '../worker/src/modules/unbctimberwolves_com/index.js';
 import type { RunContext } from '../worker/src/types.js';
 
-async function testUnbcScraper() {
-  console.log('🚀 Testing UNBC scraper...\n');
+async function testUNBCScraper() {
+  console.log('🚀 Testing UNBC Timberwolves scraper...\n');
 
   const browser = await chromium.launch({ 
     headless: true,
@@ -35,13 +35,13 @@ async function testUnbcScraper() {
     };
 
     console.log('📊 Scraper Info:');
-    console.log(`   Key: ${unbcModule.key}`);
-    console.log(`   Label: ${unbcModule.label}`);
-    console.log(`   Start URLs: ${unbcModule.startUrls.join(', ')}`);
+    console.log(`   Key: ${unbcTimberwolvesModule.key}`);
+    console.log(`   Label: ${unbcTimberwolvesModule.label}`);
+    console.log(`   Start URLs: ${unbcTimberwolvesModule.startUrls.join(', ')}`);
     console.log('');
 
     const startTime = Date.now();
-    const events = await unbcModule.run(context);
+    const events = await unbcTimberwolvesModule.run(context);
     const endTime = Date.now();
     
     console.log('\n📈 Results:');
@@ -56,16 +56,20 @@ async function testUnbcScraper() {
       console.log(`   Title: ${event.title}`);
       console.log(`   Start: ${event.start}`);
       console.log(`   End: ${event.end || 'N/A'}`);
-      console.log(`   Location: ${event.venueName || 'N/A'}`);
+      console.log(`   Venue Name: ${event.venueName || 'N/A'}`);
+      console.log(`   Venue Address: ${event.venueAddress || 'N/A'}`);
       console.log(`   URL: ${event.url}`);
       console.log(`   Organizer: ${event.organizer}`);
       console.log(`   Category: ${event.category}`);
-      console.log(`   Tags: ${event.tags?.join(', ') || 'N/A'}`);
-      console.log(`   Image: ${event.imageUrl ? 'Yes' : 'No'}`);
-      console.log(`   Registration: ${event.ticketUrl ? 'Yes' : 'No'}`);
+      console.log(`   Ticket URL: ${event.ticketUrl || 'N/A'}`);
       
       if (event.raw) {
-        console.log(`   Enhanced from detail page: ${event.raw.enhancedFromDetailPage ? 'Yes' : 'No'}`);
+        console.log(`   Sport: ${event.raw.sport}`);
+        console.log(`   Opponent: ${event.raw.opponent}`);
+        console.log(`   At/Vs: ${event.raw.atVs}`);
+        console.log(`   Location: ${event.raw.location}`);
+        console.log(`   Time: ${event.raw.time}`);
+        console.log(`   Is Home: ${event.raw.isHome}`);
       }
       
       console.log('');
@@ -73,9 +77,11 @@ async function testUnbcScraper() {
 
     if (events.length === 0) {
       console.log('❌ No events found. This might indicate:');
-      console.log('   - The website structure has changed');
+      console.log('   - The Sidearm calendar structure has changed');
       console.log('   - The website is blocking scrapers');
       console.log('   - Network issues or timeouts');
+      console.log('   - No events currently scheduled');
+      console.log('   - Calendar is loading dynamically and needs more wait time');
       console.log('');
     }
 
@@ -90,7 +96,7 @@ async function testUnbcScraper() {
 }
 
 // Run the test
-testUnbcScraper()
+testUNBCScraper()
   .then(() => process.exit(0))
   .catch((error) => {
     console.error('Test failed:', error);

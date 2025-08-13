@@ -89,14 +89,40 @@ const tourismPgModule: ScraperModule = {
 
         // Navigate to next month if not the last iteration and not in test mode
         if (monthIndex < maxMonths - 1 && !isTestMode) {
-          const nextButton = await page.$('.nav-link-next');
-          if (nextButton) {
-            logger.info('Navigating to next month...');
-            await nextButton.click();
-            await page.waitForTimeout(3000); // Wait for calendar to update
-            if (ctx.stats) ctx.stats.pagesCrawled++;
-          } else {
-            logger.warn('No next month button found, stopping navigation');
+          try {
+            // Wait for the next button to be visible and clickable
+            await page.waitForSelector('.jet-calendar-nav__link.nav-link-next', { 
+              state: 'visible', 
+              timeout: 10000 
+            });
+            
+            const nextButton = await page.$('.jet-calendar-nav__link.nav-link-next');
+            if (nextButton) {
+              logger.info('Navigating to next month...');
+              
+              // Use page.click() instead of elementHandle.click() for better reliability
+              await page.click('.jet-calendar-nav__link.nav-link-next');
+              
+              // Wait for the calendar to update by checking month name changes
+              const currentMonthName = currentMonth;
+              await page.waitForFunction(
+                (expectedMonth) => {
+                  const monthEl = document.querySelector('.jet-calendar-caption__name');
+                  return monthEl && monthEl.textContent?.trim() !== expectedMonth;
+                },
+                currentMonthName,
+                { timeout: 10000 }
+              );
+              
+              // Additional wait for events to load
+              await page.waitForTimeout(2000);
+              if (ctx.stats) ctx.stats.pagesCrawled++;
+            } else {
+              logger.warn('Next month button found but not accessible, stopping navigation');
+              break;
+            }
+          } catch (navError) {
+            logger.warn(`Navigation to next month failed: ${navError}`);
             break;
           }
         }
@@ -142,9 +168,24 @@ const tourismPgModule: ScraperModule = {
 
           // Extract detailed event information
           const eventDetails = await page.evaluate(() => {
-            // Extract title
-            const titleEl = document.querySelector('.elementor-heading-title');
-            const title = titleEl?.textContent?.trim();
+            // Extract title - try multiple selectors for better coverage
+            let title = '';
+            const titleSelectors = [
+              '.elementor-heading-title',
+              'h1.elementor-heading-title',
+              '.elementor-widget-heading h1',
+              '.entry-title',
+              'h1'
+            ];
+            
+            for (const selector of titleSelectors) {
+              const titleEl = document.querySelector(selector);
+              const titleText = titleEl?.textContent?.trim();
+              if (titleText && titleText !== 'Events') {
+                title = titleText;
+                break;
+              }
+            }
 
             // Extract start date
             const startDateEl = document.querySelector('.event-start-date .jet-listing-dynamic-field__content');
@@ -154,7 +195,7 @@ const tourismPgModule: ScraperModule = {
             const endDateEl = document.querySelector('.event-end-date .jet-listing-dynamic-field__content');
             let endDateText = endDateEl?.textContent?.trim() || '';
 
-            // Extract start time
+            // Extract start and end times more specifically
             const startTimeElements = document.querySelectorAll('.jet-listing-dynamic-field__content');
             let startTime = '';
             let endTime = '';
@@ -162,16 +203,43 @@ const tourismPgModule: ScraperModule = {
             // Look for time patterns in the dynamic fields
             startTimeElements.forEach(el => {
               const text = el.textContent?.trim() || '';
+              
+              // Match time patterns like "7:30pm", "10:00pm"
               if (text.match(/^\d{1,2}:\d{2}[ap]m$/i)) {
                 if (!startTime) {
                   startTime = text;
                 } else if (!endTime && text !== startTime) {
                   endTime = text;
                 }
-              } else if (text.match(/^-\s*\d{1,2}:\d{2}[ap]m$/i)) {
+              } 
+              // Match patterns like "- 10:00pm" for end times
+              else if (text.match(/^-\s*\d{1,2}:\d{2}[ap]m$/i)) {
                 endTime = text.replace(/^-\s*/, '');
               }
             });
+            
+            // If we didn't find times in the dynamic fields, try alternative selectors
+            if (!startTime || !endTime) {
+              const allTimeElements = document.querySelectorAll('*');
+              const timeTexts: string[] = [];
+              
+              allTimeElements.forEach(el => {
+                const text = el.textContent?.trim() || '';
+                const timeMatch = text.match(/\b\d{1,2}:\d{2}[ap]m\b/gi);
+                if (timeMatch) {
+                  timeTexts.push(...timeMatch);
+                }
+              });
+              
+              // Remove duplicates and assign times
+              const uniqueTimes = [...new Set(timeTexts)];
+              if (!startTime && uniqueTimes.length > 0) {
+                startTime = uniqueTimes[0];
+              }
+              if (!endTime && uniqueTimes.length > 1) {
+                endTime = uniqueTimes[1];
+              }
+            }
 
             // Extract location information
             const locationElements = document.querySelectorAll('.elementor-widget-text-editor .elementor-widget-container');
@@ -215,13 +283,13 @@ const tourismPgModule: ScraperModule = {
           
           try {
             if (eventDetails.startDateText) {
-              // Parse "Happening July 27, 2025" format
-              const dateMatch = eventDetails.startDateText.match(/(\w+ \d+, \d+)/);
+              // Parse "Happening September 5, 2025" or "September 5, 2025" format
+              const dateMatch = eventDetails.startDateText.match(/(?:Happening\s+)?(\w+ \d+, \d+)/i);
               if (dateMatch) {
                 const dateStr = dateMatch[1];
                 
                 if (eventDetails.startTime) {
-                  // Normalize time format - "10:00am" to "10:00 AM"
+                  // Normalize time format - "7:30pm" to "7:30 PM"
                   const normalizedStartTime = eventDetails.startTime.replace(/([ap])m$/i, ' $1M').toUpperCase();
                   const combinedDateTime = `${dateStr} ${normalizedStartTime}`;
                   const dateObj = new Date(combinedDateTime);
@@ -330,8 +398,11 @@ const tourismPgModule: ScraperModule = {
             event.descriptionHtml = eventDetails.description;
           }
 
+          // Store venue website in raw data for now since ticketUrl is not in RawEvent type
           if (eventDetails.venueWebsite && eventDetails.venueWebsite !== eventLink.url) {
-            event.ticketUrl = eventDetails.venueWebsite;
+            if (typeof event.raw === 'object' && event.raw !== null) {
+              (event.raw as any).venueWebsite = eventDetails.venueWebsite;
+            }
           }
 
           events.push(event);
