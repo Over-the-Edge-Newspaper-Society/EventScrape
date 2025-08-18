@@ -1,12 +1,13 @@
 import { FastifyPluginAsync } from 'fastify';
 import { db } from '../db/connection.js';
+import { sql } from 'drizzle-orm';
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   // Health check endpoint
   fastify.get('/health', async (request, reply) => {
     try {
       // Test database connection
-      await db.execute('SELECT 1');
+      await db.execute(sql`SELECT 1`);
       
       return {
         status: 'healthy',
@@ -16,7 +17,7 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
           api: 'running',
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Health check failed:', error);
       reply.status(503);
       return {

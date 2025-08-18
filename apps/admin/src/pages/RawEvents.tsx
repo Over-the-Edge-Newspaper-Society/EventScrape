@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { eventsApi, sourcesApi, EventsQueryParams, EventRaw, EventWithSource } from '@/lib/api'
-import { formatRelativeTime, cn } from '@/lib/utils'
+import { eventsApi, sourcesApi, EventsQueryParams, EventWithSource } from '@/lib/api'
+import { formatRelativeTime } from '@/lib/utils'
 import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code } from 'lucide-react'
 
 interface EventDetailViewProps {

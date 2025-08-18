@@ -8,9 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { DatePicker } from '@/components/ui/date-picker'
+import { Textarea } from '@/components/ui/textarea'
 import { runsApi, sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity, Calendar, Layers, FileSpreadsheet, Upload, Download, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { LogViewer } from '@/components/LogViewer'
 
@@ -206,7 +210,14 @@ export function Runs() {
   const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [selectedSourceForTrigger, setSelectedSourceForTrigger] = useState<string>('')
-  const [isTestMode, setIsTestMode] = useState(true)
+  const [scrapeMode, setScrapeMode] = useState<'full' | 'incremental'>('full')
+  const [scrapeAllPages, setScrapeAllPages] = useState(true)
+  const [maxPages, setMaxPages] = useState<number>(10)
+  const [startDate, setStartDate] = useState<Date | undefined>()
+  const [endDate, setEndDate] = useState<Date | undefined>()
+  const [runMode, setRunMode] = useState<'scrape' | 'upload'>('scrape')
+  const [csvContent, setCsvContent] = useState<string>('')
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
 
   const { data: runs, isLoading: runsLoading } = useQuery({
     queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter }],
@@ -219,8 +230,106 @@ export function Runs() {
     queryFn: () => sourcesApi.getAll(),
   })
 
+  // Auto-detect pagination type based on selected source
+  const getSourcePaginationType = (moduleKey: string): 'page' | 'calendar' | 'none' => {
+    // Map module keys to their pagination types
+    const paginationMap: Record<string, 'page' | 'calendar' | 'none'> = {
+      'tourismpg_com': 'calendar',
+      'unbctimberwolves_com': 'calendar',
+      'unbc_ca': 'page',
+      'prince_george_ca': 'calendar',
+      'downtownpg_com': 'calendar',
+      // Add more modules as needed
+    }
+    return paginationMap[moduleKey] || 'none'
+  }
+
+  // Get integration tags for a module
+  const getModuleIntegrationTags = (moduleKey: string): string[] => {
+    const integrationTagsMap: Record<string, string[]> = {
+      'tourismpg_com': ['calendar'],
+      'unbctimberwolves_com': ['calendar', 'csv'],
+      'unbc_ca': ['page-navigation'],
+      'prince_george_ca': ['calendar'],
+      'downtownpg_com': ['calendar'],
+      // Add more modules as needed
+    }
+    return integrationTagsMap[moduleKey] || []
+  }
+
+  // Check if module supports uploads
+  const moduleSupportsUpload = (moduleKey: string): boolean => {
+    const uploadSupportMap: Record<string, boolean> = {
+      'unbctimberwolves_com': true,
+      // Add other modules that support upload
+    }
+    return uploadSupportMap[moduleKey] || false
+  }
+
+  // Get upload instructions for a module
+  const getUploadInstructions = (moduleKey: string): string => {
+    const instructionsMap: Record<string, string> = {
+      'unbctimberwolves_com': `To download events manually:
+1. Go to https://unbctimberwolves.com/calendar
+2. Click the "Sync/Download" button (calendar icon)
+3. Select "Excel" as the export format
+4. Click "Download Now"
+5. Upload the downloaded CSV file below`,
+    }
+    return instructionsMap[moduleKey] || 'Upload instructions not available'
+  }
+
+  // Render integration tag badges
+  const renderIntegrationTags = (tags: string[]) => {
+    return tags.map((tag) => {
+      switch (tag) {
+        case 'calendar':
+          return (
+            <Badge key={tag} variant="secondary" className="text-xs bg-green-100 text-green-800 border-green-200">
+              <Calendar className="h-3 w-3 mr-1" />
+              Calendar
+            </Badge>
+          )
+        case 'csv':
+          return (
+            <Badge key={tag} variant="secondary" className="text-xs bg-orange-100 text-orange-800 border-orange-200">
+              <FileSpreadsheet className="h-3 w-3 mr-1" />
+              CSV
+            </Badge>
+          )
+        case 'page-navigation':
+          return (
+            <Badge key={tag} variant="secondary" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+              <Layers className="h-3 w-3 mr-1" />
+              Page Nav
+            </Badge>
+          )
+        default:
+          return null
+      }
+    })
+  }
+
+  const selectedSource = sources?.sources.find(s => s.moduleKey === selectedSourceForTrigger)
+  const currentPaginationType = selectedSource ? getSourcePaginationType(selectedSource.moduleKey) : 'none'
+  const currentModuleSupportsUpload = selectedSource ? moduleSupportsUpload(selectedSource.moduleKey) : false
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setUploadFile(file)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const content = e.target?.result as string
+        setCsvContent(content)
+      }
+      reader.readAsText(file)
+    }
+  }
+
   const triggerScrapeMutation = useMutation({
-    mutationFn: (sourceKey: string) => runsApi.triggerScrape(sourceKey),
+    mutationFn: (params: { sourceKey: string; options?: any }) => 
+      runsApi.triggerScrape(params.sourceKey, params.options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
     },
@@ -247,17 +356,52 @@ export function Runs() {
       return
     }
     
+    // Validation for upload mode
+    if (runMode === 'upload' && !csvContent) {
+      toast.error('Please upload a CSV file or paste content')
+      return
+    }
+    
     try {
-      if (isTestMode) {
+      if (scrapeMode === 'incremental') {
         await triggerTestMutation.mutateAsync(selectedSourceForTrigger)
         toast.success('Test scrape started successfully')
       } else {
-        await triggerScrapeMutation.mutateAsync(selectedSourceForTrigger)
-        toast.success('Full scrape started successfully')
+        const options: any = {
+          scrapeMode,
+        }
+        
+        // Add upload data if in upload mode
+        if (runMode === 'upload' && csvContent) {
+          options.uploadedFile = {
+            format: 'csv',
+            content: csvContent,
+            path: uploadFile?.name || 'uploaded.csv'
+          }
+        } else if (runMode === 'scrape' && currentPaginationType !== 'none') {
+          // Only add pagination options for scrape mode
+          options.paginationOptions = {
+            type: currentPaginationType,
+          }
+          
+          if (currentPaginationType === 'page') {
+            options.paginationOptions.scrapeAllPages = scrapeAllPages
+            if (!scrapeAllPages && maxPages > 0) {
+              options.paginationOptions.maxPages = maxPages
+            }
+          } else if (currentPaginationType === 'calendar') {
+            if (startDate) options.paginationOptions.startDate = startDate.toISOString().split('T')[0]
+            if (endDate) options.paginationOptions.endDate = endDate.toISOString().split('T')[0]
+          }
+        }
+        
+        await triggerScrapeMutation.mutateAsync({ sourceKey: selectedSourceForTrigger, options })
+        const modeText = runMode === 'upload' ? 'File upload processing' : 'Full scrape'
+        toast.success(`${modeText} started successfully`)
       }
     } catch (error) {
       console.error('Trigger failed:', error)
-      toast.error('Failed to start scrape. Please try again.')
+      toast.error('Failed to start processing. Please try again.')
     }
   }
 
@@ -339,6 +483,11 @@ export function Runs() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="source-select">Select Source</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Integration types: <span className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-1 py-0.5 rounded text-xs"><Calendar className="h-3 w-3" />Calendar</span> (date ranges), 
+                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-xs ml-1"><Layers className="h-3 w-3" />Page Nav</span> (pagination), 
+                    <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 px-1 py-0.5 rounded text-xs ml-1"><FileSpreadsheet className="h-3 w-3" />CSV</span> (data files)
+                  </p>
                   <Select value={selectedSourceForTrigger} onValueChange={setSelectedSourceForTrigger}>
                     <SelectTrigger id="source-select">
                       <SelectValue placeholder="Choose a scraping source..." />
@@ -346,32 +495,350 @@ export function Runs() {
                     <SelectContent>
                       {sources?.sources
                         .filter(source => source.active)
-                        .map((source) => (
-                          <SelectItem key={source.id} value={source.moduleKey}>
-                            <div className="flex items-center gap-2">
-                              <Activity className="h-3 w-3" />
-                              {source.name}
-                            </div>
-                          </SelectItem>
-                        ))}
+                        .map((source) => {
+                          const integrationTags = getModuleIntegrationTags(source.moduleKey)
+                          return (
+                            <SelectItem key={source.id} value={source.moduleKey}>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Activity className="h-3 w-3" />
+                                <span>{source.name}</span>
+                                <div className="flex gap-1">
+                                  {renderIntegrationTags(integrationTags)}
+                                </div>
+                              </div>
+                            </SelectItem>
+                          )
+                        })}
                     </SelectContent>
                   </Select>
                 </div>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="test-mode">Scrape Mode</Label>
-                  <div className="flex items-center space-x-2 h-10 px-3 py-2 border rounded-md">
-                    <Switch
-                      id="test-mode"
-                      checked={isTestMode}
-                      onCheckedChange={setIsTestMode}
-                    />
-                    <Label htmlFor="test-mode" className="text-sm cursor-pointer">
-                      {isTestMode ? 'Test Mode (First Event Only)' : 'Full Mode (All Events)'}
-                    </Label>
+                {/* Run Mode Selection - only show for modules that support upload */}
+                {currentModuleSupportsUpload && (
+                  <div className="space-y-2">
+                    <Label>Run Mode</Label>
+                    <RadioGroup value={runMode} onValueChange={(value) => setRunMode(value as 'scrape' | 'upload')}>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="scrape" id="scrape-mode" />
+                        <Label htmlFor="scrape-mode" className="text-sm cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-3 w-3" />
+                            Scrape from Website
+                          </div>
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="upload" id="upload-mode" />
+                        <Label htmlFor="upload-mode" className="text-sm cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            <Upload className="h-3 w-3" />
+                            Upload CSV File
+                          </div>
+                        </Label>
+                      </div>
+                    </RadioGroup>
                   </div>
+                )}
+                
+                <div className="space-y-2">
+                  <Label>Scrape Mode</Label>
+                  <RadioGroup value={scrapeMode} onValueChange={(value) => setScrapeMode(value as 'full' | 'incremental')}>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="full" id="full-mode" />
+                      <Label htmlFor="full-mode" className="text-sm cursor-pointer">
+                        Full Mode (Default - All Events)
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="incremental" id="test-mode" />
+                      <Label htmlFor="test-mode" className="text-sm cursor-pointer">
+                        Test Mode (First Event Only)
+                      </Label>
+                    </div>
+                  </RadioGroup>
                 </div>
               </div>
+              
+              {scrapeMode === 'full' && selectedSourceForTrigger && runMode === 'scrape' && (
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <div className="space-y-2">
+                    <Label>Pagination Type (Auto-detected)</Label>
+                    <div className="flex items-center gap-2 p-3 bg-background border rounded-lg">
+                      {currentPaginationType === 'page' && (
+                        <>
+                          <Layers className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium">Page Navigation Support</span>
+                          <Badge variant="secondary" className="ml-auto bg-blue-100 text-blue-800 border-blue-200">Auto-detected</Badge>
+                        </>
+                      )}
+                      {currentPaginationType === 'calendar' && (
+                        <>
+                          <Calendar className="h-4 w-4 text-green-600" />
+                          <span className="text-sm font-medium">Calendar Integration Support</span>
+                          <Badge variant="secondary" className="ml-auto bg-green-100 text-green-800 border-green-200">Auto-detected</Badge>
+                        </>
+                      )}
+                      {currentPaginationType === 'none' && (
+                        <>
+                          <span className="text-sm font-medium text-muted-foreground">No pagination support</span>
+                          <Badge variant="outline" className="ml-auto">Standard scraping</Badge>
+                        </>
+                      )}
+                    </div>
+                    {currentPaginationType === 'page' && (
+                      <p className="text-xs text-muted-foreground">
+                        This source supports navigating through multiple pages of events. You can scrape all pages or limit the number of pages.
+                      </p>
+                    )}
+                    {currentPaginationType === 'calendar' && (
+                      <p className="text-xs text-muted-foreground">
+                        This source has calendar integration. You can specify date ranges to scrape events from specific time periods.
+                      </p>
+                    )}
+                    {currentPaginationType === 'none' && (
+                      <p className="text-xs text-muted-foreground">
+                        This source uses standard scraping without pagination or calendar features.
+                      </p>
+                    )}
+                  </div>
+                  
+                  {currentPaginationType === 'page' && (
+                    <div className="space-y-3 pl-6">
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id="scrape-all"
+                          checked={scrapeAllPages}
+                          onCheckedChange={setScrapeAllPages}
+                        />
+                        <Label htmlFor="scrape-all" className="text-sm cursor-pointer">
+                          Scrape all pages until the end
+                        </Label>
+                      </div>
+                      
+                      {!scrapeAllPages && (
+                        <div className="space-y-2">
+                          <Label htmlFor="max-pages">Maximum pages to scrape</Label>
+                          <Input
+                            id="max-pages"
+                            type="number"
+                            min="1"
+                            value={maxPages}
+                            onChange={(e) => setMaxPages(parseInt(e.target.value) || 1)}
+                            className="w-32"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {currentPaginationType === 'calendar' && (
+                    <div className="space-y-4 pl-6">
+                      <div className="space-y-3">
+                        <Label>Quick Date Range Presets</Label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const oneWeekAgo = new Date(now)
+                              oneWeekAgo.setDate(now.getDate() - 7)
+                              setStartDate(oneWeekAgo)
+                              setEndDate(now)
+                            }}
+                          >
+                            Last Week
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const oneMonthAgo = new Date(now)
+                              oneMonthAgo.setMonth(now.getMonth() - 1)
+                              setStartDate(oneMonthAgo)
+                              setEndDate(now)
+                            }}
+                          >
+                            Last Month
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const threeMonthsAgo = new Date(now)
+                              threeMonthsAgo.setMonth(now.getMonth() - 3)
+                              setStartDate(threeMonthsAgo)
+                              setEndDate(now)
+                            }}
+                          >
+                            Last 3 Months
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const oneYearAgo = new Date(now)
+                              oneYearAgo.setFullYear(now.getFullYear() - 1)
+                              setStartDate(oneYearAgo)
+                              setEndDate(now)
+                            }}
+                          >
+                            Last Year
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const oneMonthForward = new Date(now)
+                              oneMonthForward.setMonth(now.getMonth() + 1)
+                              setStartDate(now)
+                              setEndDate(oneMonthForward)
+                            }}
+                          >
+                            Next Month
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const threeMonthsForward = new Date(now)
+                              threeMonthsForward.setMonth(now.getMonth() + 3)
+                              setStartDate(now)
+                              setEndDate(threeMonthsForward)
+                            }}
+                          >
+                            Next 3 Months
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const now = new Date()
+                              const oneYearForward = new Date(now)
+                              oneYearForward.setFullYear(now.getFullYear() + 1)
+                              setStartDate(now)
+                              setEndDate(oneYearForward)
+                            }}
+                          >
+                            Next Year
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              setStartDate(undefined)
+                              setEndDate(undefined)
+                            }}
+                          >
+                            Clear Dates
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Start Date</Label>
+                          <DatePicker
+                            date={startDate}
+                            onSelect={setStartDate}
+                            placeholder="Select start date"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>End Date</Label>
+                          <DatePicker
+                            date={endDate}
+                            onSelect={setEndDate}
+                            placeholder="Select end date"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Use the preset buttons above for quick date range selection, or manually select specific dates. Leave dates empty to scrape all available events.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Upload Section */}
+              {scrapeMode === 'full' && selectedSourceForTrigger && runMode === 'upload' && currentModuleSupportsUpload && (
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Upload className="h-4 w-4 text-orange-600" />
+                      CSV File Upload
+                      <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-orange-200">
+                        File Processing Mode
+                      </Badge>
+                    </Label>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Download className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-800">Download Instructions</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => window.open('https://unbctimberwolves.com/calendar', '_blank')}
+                          className="ml-auto text-blue-600 hover:text-blue-700"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" />
+                          Open Site
+                        </Button>
+                      </div>
+                      <div className="text-xs text-blue-700 whitespace-pre-line">
+                        {getUploadInstructions(selectedSourceForTrigger)}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="csv-upload">Upload CSV File</Label>
+                      <Input
+                        id="csv-upload"
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        onChange={handleFileUpload}
+                        className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/80"
+                      />
+                      {uploadFile && (
+                        <p className="text-xs text-green-600">
+                          ✓ File loaded: {uploadFile.name}
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="csv-content">Or Paste CSV Content</Label>
+                      <Textarea
+                        id="csv-content"
+                        placeholder="Paste your CSV content here..."
+                        value={csvContent}
+                        onChange={(e) => setCsvContent(e.target.value)}
+                        rows={6}
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        You can either upload a file above or paste the CSV content directly here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <div className="flex justify-start">
                 <Button
@@ -380,10 +847,10 @@ export function Runs() {
                   className="flex items-center gap-2"
                   size="lg"
                 >
-                  {isTestMode ? <Eye className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+                  {scrapeMode === 'incremental' ? <Eye className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
                   {triggerScrapeMutation.isPending || triggerTestMutation.isPending 
                     ? 'Starting...' 
-                    : `Start ${isTestMode ? 'Test' : 'Full'} Scrape`
+                    : `Start ${scrapeMode === 'incremental' ? 'Test' : 'Full'} Scrape`
                   }
                 </Button>
               </div>

@@ -86,7 +86,7 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(query.limit);
 
       return { matches: matchesWithEvents };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -234,7 +234,7 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
         message: 'Events merged successfully',
         canonicalId: canonical.id,
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -260,7 +260,7 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
         message: 'Match recomputation queued',
         jobId: job.id,
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to queue match job:', error);
       reply.status(500);
       return { error: 'Failed to queue match recomputation' };

@@ -58,11 +58,11 @@ async function loadAvailableModules(): Promise<Array<{key: string, label: string
           
           modules.push({ key, label, baseUrl });
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(`Failed to load module info for ${dir.name}:`, error);
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to read modules directory:', error);
   }
   
@@ -144,7 +144,7 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
         },
         availableModules
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to sync sources:', error);
       reply.status(500);
       return { error: 'Failed to sync sources', details: error instanceof Error ? error.message : String(error) };
@@ -184,7 +184,7 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
       
       reply.status(201);
       return { source: created };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -217,7 +217,7 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       return { source: updated };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };

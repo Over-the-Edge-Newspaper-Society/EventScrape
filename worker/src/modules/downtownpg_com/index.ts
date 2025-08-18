@@ -7,6 +7,8 @@ const downtownPgModule: ScraperModule = {
   startUrls: [
     'https://downtownpg.com/events/',
   ],
+  paginationType: 'calendar',
+  integrationTags: ['calendar'],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;

@@ -27,9 +27,9 @@ async function runMigrations() {
     await migrationClient.unsafe(sql);
     
     console.log('✅ Migrations completed successfully');
-  } catch (error) {
+  } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
-    if (error.code === '42P07' || error.code === '42710' || error.code === '42501') {
+    if (error?.code === '42P07' || error?.code === '42710' || error?.code === '42501') {
       console.log('✅ Database schema already exists, skipping migration');
     } else {
       console.error('❌ Migration failed:', error);

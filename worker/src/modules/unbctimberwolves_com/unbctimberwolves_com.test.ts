@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { chromium, Browser, Page } from 'playwright';
 import unbcTimberwolvesModule from './index.js';
 import type { RunContext } from '../../types.js';
@@ -28,9 +28,10 @@ describe('UNBC Timberwolves Scraper', () => {
     const context: RunContext = {
       page,
       logger: {
-        info: jest.fn(),
-        warn: jest.fn(),
-        error: jest.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
       },
       jobData: { testMode: true }, // Test mode
       stats,
@@ -67,21 +68,23 @@ describe('UNBC Timberwolves Scraper', () => {
   it('should handle empty calendar gracefully', async () => {
     // Mock page with no events
     const mockPage = {
-      goto: jest.fn(),
-      waitForSelector: jest.fn(),
-      waitForTimeout: jest.fn(),
-      $eval: jest.fn().mockResolvedValue('August 2025'),
-      evaluate: jest.fn().mockResolvedValue([]),
-      $: jest.fn().mockResolvedValue(null),
-      screenshot: jest.fn(),
+      goto: vi.fn(),
+      waitForSelector: vi.fn(),
+      waitForTimeout: vi.fn(),
+      $eval: vi.fn().mockResolvedValue('August 2025'),
+      evaluate: vi.fn().mockResolvedValue([]),
+      $: vi.fn().mockResolvedValue(null),
+      screenshot: vi.fn(),
+      waitForEvent: vi.fn(),
     } as any;
 
     const context: RunContext = {
       page: mockPage,
       logger: {
-        info: jest.fn(),
-        warn: jest.fn(),
-        error: jest.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
       },
       jobData: { testMode: true },
       stats: { pagesCrawled: 0 },

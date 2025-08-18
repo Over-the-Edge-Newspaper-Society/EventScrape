@@ -14,6 +14,7 @@ import { exportsRoutes } from './routes/exports.js';
 import { healthRoutes } from './routes/health.js';
 import { queueRoutes } from './routes/queue.js';
 import { logsRoutes } from './routes/logs.js';
+import { uploadsRoutes } from './routes/uploads.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -37,7 +38,17 @@ const logger = pino({
 });
 
 const fastify = Fastify({
-  logger,
+  logger: env.NODE_ENV === 'development' ? {
+    level: 'debug',
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss Z',
+        ignore: 'pid,hostname',
+      }
+    }
+  } : true,
   disableRequestLogging: env.NODE_ENV === 'production',
 });
 
@@ -100,6 +111,7 @@ await fastify.register(matchesRoutes, { prefix: '/api/matches' });
 await fastify.register(exportsRoutes, { prefix: '/api/exports' });
 await fastify.register(queueRoutes, { prefix: '/api/queue' });
 await fastify.register(logsRoutes, { prefix: '/api/logs' });
+await fastify.register(uploadsRoutes, { prefix: '/api/uploads' });
 
 // Start server
 const start = async () => {

@@ -146,7 +146,7 @@ function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, t
             {selectedFields[fieldName] === 'custom' && (
               <div className="mt-2">
                 <Input
-                  value={mergeData[fieldName] || ''}
+                  value={(mergeData as any)[fieldName] || ''}
                   onChange={(e) => setMergeData(prev => ({ ...prev, [fieldName]: e.target.value }))}
                   placeholder="Enter custom value"
                   className="w-full"
@@ -206,7 +206,7 @@ function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, t
       const fields = Object.keys(initialData)
       const defaultSelections: Record<string, 'A' | 'B'> = {}
       fields.forEach(field => {
-        defaultSelections[field] = eventAData?.[field] ? 'A' : 'B'
+        defaultSelections[field] = (eventAData as any)?.[field] ? 'A' : 'B'
       })
       setSelectedFields(defaultSelections)
     } else {
@@ -223,8 +223,8 @@ function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, t
       
       // Remove undefined values
       Object.keys(formattedMergeData).forEach(key => {
-        if (formattedMergeData[key] === undefined || formattedMergeData[key] === '') {
-          delete formattedMergeData[key]
+        if ((formattedMergeData as any)[key] === undefined || (formattedMergeData as any)[key] === '') {
+          delete (formattedMergeData as any)[key]
         }
       })
       

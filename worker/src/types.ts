@@ -38,6 +38,19 @@ export interface RunContext {
   logger: any; // pino logger
   jobData?: {
     testMode?: boolean;
+    uploadedFile?: {
+      path: string;
+      format: 'csv' | 'json' | 'xlsx';
+      content?: string;
+    };
+    scrapeMode?: 'full' | 'incremental';
+    paginationOptions?: {
+      type: 'page' | 'calendar';
+      scrapeAllPages?: boolean;
+      maxPages?: number;
+      startDate?: string;
+      endDate?: string;
+    };
   };
   stats?: {
     pagesCrawled: number;
@@ -48,7 +61,16 @@ export interface ScraperModule {
   key: string;               // e.g. "example_com"
   label: string;             // Human-friendly
   startUrls: string[];       // entry points
+  mode?: 'scrape' | 'upload' | 'hybrid'; // Default: 'scrape'
+  paginationType?: 'page' | 'calendar' | 'none'; // Type of pagination support
+  integrationTags?: ('calendar' | 'csv' | 'page-navigation' | 'api' | 'rss')[]; // Integration method tags
+  uploadConfig?: {
+    supportedFormats: ('csv' | 'json' | 'xlsx')[];
+    instructions?: string;    // Instructions for manual download
+    downloadUrl?: string;      // Direct link to download page
+  };
   run(ctx: RunContext): Promise<RawEvent[]>; // uses Playwright page/browser
+  processUpload?(content: string, format: 'csv' | 'json' | 'xlsx', logger: any): Promise<RawEvent[]>;
 }
 
 export interface ProcessedEvent extends RawEvent {
@@ -64,6 +86,14 @@ export interface ScrapeJobData {
   sourceId: string;
   runId: string;
   testMode?: boolean;
+  scrapeMode?: 'full' | 'incremental';
+  paginationOptions?: {
+    type: 'page' | 'calendar';
+    scrapeAllPages?: boolean;
+    maxPages?: number;
+    startDate?: string;
+    endDate?: string;
+  };
 }
 
 export interface MatchJobData {

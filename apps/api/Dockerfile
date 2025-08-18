@@ -35,21 +35,30 @@ RUN pnpm --filter @eventscrape/api build
 FROM base AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 eventscrape
 
+# Install pnpm for production dependencies
+RUN npm install -g pnpm
+
+# Copy root dependencies and workspace config
+COPY --from=builder --chown=eventscrape:nodejs /app/package.json ./
+COPY --from=builder --chown=eventscrape:nodejs /app/pnpm-workspace.yaml ./
+COPY --from=builder --chown=eventscrape:nodejs /app/pnpm-lock.yaml ./
+
 # Copy the built application
 COPY --from=builder --chown=eventscrape:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=eventscrape:nodejs /app/apps/api/package.json ./apps/api/
-COPY --from=builder --chown=eventscrape:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=eventscrape:nodejs /app/package.json ./
+
+# Install production dependencies
+RUN pnpm install --frozen-lockfile --prod
 
 USER eventscrape
 
 EXPOSE 3001
 
-ENV PORT 3001
+ENV PORT=3001
 
 CMD ["node", "apps/api/dist/server.js"]

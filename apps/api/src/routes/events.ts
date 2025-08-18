@@ -88,7 +88,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           hasPrev: query.page > 1,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -184,7 +184,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           hasPrev: query.page > 1,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -265,7 +265,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(inArray(eventsRaw.id, ids));
 
       return { message: `Deleted ${ids.length} events`, deletedIds: ids };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete events error:', error);
       reply.status(500);
       return { error: 'Failed to delete events', details: error instanceof Error ? error.message : String(error) };
@@ -298,7 +298,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(eventsRaw.id, id));
 
       return { message: 'Event deleted successfully', deletedId: id };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete event error:', error);
       reply.status(500);
       return { error: 'Failed to delete event', details: error instanceof Error ? error.message : String(error) };
@@ -329,7 +329,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(inArray(eventsCanonical.id, ids));
 
       return { message: `Deleted ${ids.length} canonical events`, deletedIds: ids };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete canonical events error:', error);
       reply.status(500);
       return { error: 'Failed to delete canonical events', details: error instanceof Error ? error.message : String(error) };
@@ -352,7 +352,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(eventsCanonical.id, id));
 
       return { message: 'Canonical event deleted successfully', deletedId: id };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete canonical event error:', error);
       reply.status(500);
       return { error: 'Failed to delete canonical event', details: error instanceof Error ? error.message : String(error) };

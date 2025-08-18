@@ -11,7 +11,7 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
   const url = `${API_BASE_URL}${endpoint}`
   
   const headers: Record<string, string> = {
-    ...options?.headers,
+    ...(options?.headers as Record<string, string> || {}),
   }
   
   // Only set Content-Type if we have a body
@@ -95,8 +95,9 @@ export const runsApi = {
     return fetchApi<{ runs: RunWithSource[] }>(`/runs?${searchParams}`)
   },
   getById: (id: string) => fetchApi<{ run: RunWithSource }>(`/runs/${id}`),
-  triggerScrape: (sourceKey: string) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
+  triggerScrape: (sourceKey: string, options?: any) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
     method: 'POST',
+    body: options ? JSON.stringify(options) : undefined,
   }),
   triggerTest: (sourceKey: string) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/test/${sourceKey}`, {
     method: 'POST',

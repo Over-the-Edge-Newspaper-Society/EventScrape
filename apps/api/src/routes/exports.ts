@@ -289,7 +289,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
       setImmediate(async () => {
         try {
           await processExport(newExport.id, data);
-        } catch (error) {
+        } catch (error: any) {
           fastify.log.error(`Export processing failed for ${newExport.id}:`, error);
           await db
             .update(exportsTable)
@@ -308,7 +308,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
         message: 'Export job queued',
         export: newExport,
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -377,7 +377,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('Content-Disposition', `attachment; filename="${filename}"`);
       
       return fileContent;
-    } catch (error) {
+    } catch (error: any) {
       reply.status(500);
       return { error: 'Failed to read export file' };
     }

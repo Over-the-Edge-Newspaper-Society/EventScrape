@@ -12,7 +12,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
         queues: status,
         timestamp: new Date().toISOString(),
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to get queue status:', error);
       reply.status(503);
       return {
@@ -63,7 +63,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
           attemptsMade: job.attemptsMade,
         })),
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to get scrape jobs:', error);
       reply.status(500);
       return { error: 'Failed to get scrape jobs' };
@@ -88,7 +88,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
         message: 'Job retry initiated',
         jobId: job.id,
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to retry job:', error);
       reply.status(500);
       return { error: 'Failed to retry job' };
@@ -118,7 +118,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
           },
         },
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to clean queues:', error);
       reply.status(500);
       return { error: 'Failed to clean queues' };
@@ -149,7 +149,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
         jobId: job.id,
         data: matchJobData,
       };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };

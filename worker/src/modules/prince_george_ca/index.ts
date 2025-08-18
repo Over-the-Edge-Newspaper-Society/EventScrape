@@ -7,6 +7,8 @@ const princeGeorgeModule: ScraperModule = {
   startUrls: [
     'https://www.princegeorge.ca/community-culture/events/events-calendar',
   ],
+  paginationType: 'calendar',
+  integrationTags: ['calendar'],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;

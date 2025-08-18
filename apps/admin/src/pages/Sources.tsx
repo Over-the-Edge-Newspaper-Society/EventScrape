@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { sourcesApi, runsApi, CreateSourceData, Source } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Plus, Settings, Play, Pause, ExternalLink, Globe, Clock, AlertTriangle, CheckCircle, Zap, RefreshCw } from 'lucide-react'
+import { Plus, Settings, Pause, Globe, Clock, AlertTriangle, CheckCircle, Zap, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface SourceFormProps {

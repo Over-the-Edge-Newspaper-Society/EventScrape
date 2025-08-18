@@ -7,13 +7,21 @@ const tourismPgModule: ScraperModule = {
   startUrls: [
     'https://tourismpg.com/explore/events/',
   ],
+  paginationType: 'calendar',
+  integrationTags: ['calendar'],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;
     const events: RawEvent[] = [];
     const isTestMode = jobData?.testMode === true;
+    const scrapeMode = jobData?.scrapeMode || 'full';
+    const paginationOptions = jobData?.paginationOptions;
 
-    logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
+    logger.info(`Starting ${isTestMode ? 'test ' : scrapeMode} scrape of ${this.label}`);
+    
+    if (paginationOptions?.type === 'calendar' && (paginationOptions.startDate || paginationOptions.endDate)) {
+      logger.info(`Calendar pagination: ${paginationOptions.startDate || 'no start'} to ${paginationOptions.endDate || 'no end'}`);
+    }
 
     try {
       // Navigate to the events page
@@ -37,9 +45,30 @@ const tourismPgModule: ScraperModule = {
         throw error;
       }
 
+      // Determine date range for scraping
+      let maxMonths = isTestMode ? 1 : 3; // Default: current + next 2 months
+      let targetStartDate: Date | null = null;
+      let targetEndDate: Date | null = null;
+
+      if (paginationOptions?.type === 'calendar') {
+        if (paginationOptions.startDate) {
+          targetStartDate = new Date(paginationOptions.startDate);
+        }
+        if (paginationOptions.endDate) {
+          targetEndDate = new Date(paginationOptions.endDate);
+        }
+        
+        // If we have date range, calculate months to scrape
+        if (targetStartDate && targetEndDate) {
+          const monthsDiff = (targetEndDate.getFullYear() - targetStartDate.getFullYear()) * 12 + 
+                           (targetEndDate.getMonth() - targetStartDate.getMonth()) + 1;
+          maxMonths = Math.min(Math.max(monthsDiff, 1), 12); // Cap at 12 months
+          logger.info(`Date range specified: scraping ${maxMonths} months from ${paginationOptions.startDate} to ${paginationOptions.endDate}`);
+        }
+      }
+
       // Collect events from multiple months if not in test mode
       const allEventLinks: Array<{url: string, title: string, date: string}> = [];
-      const maxMonths = isTestMode ? 1 : 3; // Scrape current + next 2 months
       
       for (let monthIndex = 0; monthIndex < maxMonths; monthIndex++) {
         logger.info(`Processing month ${monthIndex + 1}/${maxMonths}`);
@@ -140,8 +169,33 @@ const tourismPgModule: ScraperModule = {
         }
       }
       
+      // Filter events by date range if specified
+      let filteredEventLinks = allEventLinks;
+      
+      if (paginationOptions?.type === 'calendar' && (targetStartDate || targetEndDate)) {
+        filteredEventLinks = allEventLinks.filter(eventLink => {
+          try {
+            // Parse the event date from the calendar
+            const eventDate = new Date(eventLink.date + ' ' + new Date().getFullYear());
+            
+            if (targetStartDate && eventDate < targetStartDate) {
+              return false;
+            }
+            if (targetEndDate && eventDate > targetEndDate) {
+              return false;
+            }
+            return true;
+          } catch (error) {
+            logger.warn(`Failed to parse date for filtering: ${eventLink.date}`);
+            return true; // Include if date parsing fails
+          }
+        });
+        
+        logger.info(`Filtered ${allEventLinks.length} events to ${filteredEventLinks.length} based on date range`);
+      }
+
       // In test mode, only process the first event
-      const eventsToProcess = isTestMode ? allEventLinks.slice(0, 1) : allEventLinks;
+      const eventsToProcess = isTestMode ? filteredEventLinks.slice(0, 1) : filteredEventLinks;
       logger.info(`Processing ${eventsToProcess.length} event${eventsToProcess.length === 1 ? '' : 's'}${isTestMode ? ' (test mode)' : ''}`);
 
       // Remove duplicates based on URL
@@ -291,7 +345,13 @@ const tourismPgModule: ScraperModule = {
                 if (eventDetails.startTime) {
                   // Normalize time format - "7:30pm" to "7:30 PM"
                   const normalizedStartTime = eventDetails.startTime.replace(/([ap])m$/i, ' $1M').toUpperCase();
-                  const combinedDateTime = `${dateStr} ${normalizedStartTime}`;
+                  
+                  // Determine if date is in DST period (roughly March-November for Pacific Time)
+                  const tempDate = new Date(dateStr);
+                  const month = tempDate.getMonth() + 1; // getMonth() returns 0-11
+                  const timezone = (month >= 3 && month <= 10) ? 'PDT' : 'PST';
+                  
+                  const combinedDateTime = `${dateStr} ${normalizedStartTime} ${timezone}`;
                   const dateObj = new Date(combinedDateTime);
                   
                   if (!isNaN(dateObj.getTime())) {
@@ -300,7 +360,7 @@ const tourismPgModule: ScraperModule = {
                     // Set end time if available
                     if (eventDetails.endTime) {
                       const normalizedEndTime = eventDetails.endTime.replace(/([ap])m$/i, ' $1M').toUpperCase();
-                      const endCombined = `${dateStr} ${normalizedEndTime}`;
+                      const endCombined = `${dateStr} ${normalizedEndTime} ${timezone}`;
                       const endDateObj = new Date(endCombined);
                       
                       if (!isNaN(endDateObj.getTime())) {
@@ -309,10 +369,13 @@ const tourismPgModule: ScraperModule = {
                     }
                   }
                 } else {
-                  // No specific time, use default 9 AM
-                  const dateOnly = new Date(dateStr);
+                  // No specific time, use default 9 AM with appropriate timezone
+                  const tempDate = new Date(dateStr);
+                  const month = tempDate.getMonth() + 1;
+                  const timezone = (month >= 3 && month <= 10) ? 'PDT' : 'PST';
+                  const defaultDateTime = `${dateStr} 9:00 AM ${timezone}`;
+                  const dateOnly = new Date(defaultDateTime);
                   if (!isNaN(dateOnly.getTime())) {
-                    dateOnly.setHours(9, 0, 0, 0);
                     eventStart = dateOnly.toISOString();
                   }
                 }

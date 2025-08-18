@@ -40,7 +40,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         .limit(query.limit);
 
       return { runs: runsWithSources };
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
@@ -83,6 +83,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
   // Trigger a new scrape run for a source
   fastify.post('/scrape/:sourceKey', async (request, reply) => {
     const { sourceKey } = request.params as { sourceKey: string };
+    const options = request.body as any;
     
     if (!sourceKey || typeof sourceKey !== 'string') {
       reply.status(400);
@@ -117,13 +118,25 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
-      // Enqueue the job with BullMQ
-      const job = await enqueueScrapeJob({
+      // Enqueue the job with BullMQ with pagination options
+      const jobData: any = {
         sourceId: source.id,
         runId: newRun.id,
         moduleKey: source.moduleKey,
         sourceName: source.name,
-      });
+      };
+
+      // Add pagination options if provided
+      if (options) {
+        if (options.scrapeMode) {
+          jobData.scrapeMode = options.scrapeMode;
+        }
+        if (options.paginationOptions) {
+          jobData.paginationOptions = options.paginationOptions;
+        }
+      }
+
+      const job = await enqueueScrapeJob(jobData);
 
       fastify.log.info(`Scrape job queued for source ${sourceKey} (run: ${newRun.id}, job: ${job.id})`);
 
@@ -138,7 +151,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         },
         jobId: job.id,
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to queue scrape job:', error);
       
       // Try to clean up the run record if it was created
@@ -210,7 +223,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         },
         jobId: job.id,
       };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to queue test scrape job:', error);
       
       // Try to clean up the run record if it was created
@@ -266,7 +279,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
 
       reply.status(200);
       return { message: 'Run cancelled successfully' };
-    } catch (error) {
+    } catch (error: any) {
       fastify.log.error('Failed to cancel run:', error);
       reply.status(500);
       return { error: 'Failed to cancel run' };

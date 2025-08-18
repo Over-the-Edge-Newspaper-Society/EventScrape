@@ -14,6 +14,19 @@ export const scrapeJobSchema = z.object({
   moduleKey: z.string(),
   sourceName: z.string(),
   testMode: z.boolean().optional(),
+  scrapeMode: z.enum(['full', 'incremental']).optional(),
+  paginationOptions: z.object({
+    type: z.enum(['page', 'calendar']),
+    scrapeAllPages: z.boolean().optional(),
+    maxPages: z.number().positive().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+  }).optional(),
+  uploadedFile: z.object({
+    path: z.string(),
+    format: z.enum(['csv', 'json', 'xlsx']),
+    content: z.string().optional(),
+  }).optional(),
 });
 
 export const matchJobSchema = z.object({

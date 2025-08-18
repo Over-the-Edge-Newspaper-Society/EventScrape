@@ -114,7 +114,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
   const downloadLogs = () => {
     const logText = logs.map(log => {
       const date = new Date(log.timestamp).toISOString()
-      const level = LOG_LEVELS[log.level]?.name || 'info'
+      const level = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS]?.name || 'info'
       return `[${date}] ${level.toUpperCase()}: ${log.msg}`
     }).join('\n')
     
@@ -247,7 +247,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
             ) : (
               <div className="space-y-1">
                 {logs.map((log) => {
-                  const levelInfo = LOG_LEVELS[log.level] || LOG_LEVELS[30]
+                  const levelInfo = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS] || LOG_LEVELS[30]
                   
                   return (
                     <div key={log.id} className="flex items-start gap-3 py-1 hover:bg-gray-800/50 rounded px-2 -mx-2">

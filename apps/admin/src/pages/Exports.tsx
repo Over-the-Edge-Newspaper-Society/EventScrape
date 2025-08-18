@@ -303,15 +303,6 @@ export function Exports() {
     )
   }
 
-  const getContentType = (format: string): string => {
-    switch (format) {
-      case 'csv': return 'text/csv';
-      case 'json':
-      case 'wp-rest': return 'application/json';
-      case 'ics': return 'text/calendar';
-      default: return 'application/octet-stream';
-    }
-  }
 
   const getDownloadFilename = (id: string, format: string): string => {
     const timestamp = new Date().toISOString().split('T')[0];

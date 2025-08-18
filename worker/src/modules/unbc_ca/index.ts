@@ -7,13 +7,17 @@ const unbcModule: ScraperModule = {
   startUrls: [
     'https://www.unbc.ca/events',
   ],
+  paginationType: 'page',
+  integrationTags: ['page-navigation'],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;
     const events: RawEvent[] = [];
     const isTestMode = jobData?.testMode === true;
+    const scrapeMode = jobData?.scrapeMode || 'full';
+    const paginationOptions = jobData?.paginationOptions;
 
-    logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
+    logger.info(`Starting ${isTestMode ? 'test ' : scrapeMode} scrape of ${this.label}`);
 
     try {
       // Navigate to the events page
@@ -119,15 +123,62 @@ const unbcModule: ScraperModule = {
       let allEventLinks = [...eventLinks];
       let currentPage = 1;
       let hasNextPage = true;
+      let maxPagesToScrape = paginationOptions?.scrapeAllPages === false && paginationOptions?.maxPages 
+        ? paginationOptions.maxPages 
+        : Infinity;
 
-      while (hasNextPage && !isTestMode) {
-        // Check if there's a next page
-        const nextPageExists = await page.evaluate(() => {
-          const nextLink = document.querySelector('.pager__item--next a');
-          return !!nextLink;
+      while (hasNextPage && !isTestMode && currentPage < maxPagesToScrape) {
+        // Check if there's a next page and get pagination info
+        const paginationInfo = await page.evaluate(() => {
+          const nextLink = document.querySelector('.pager__item--next a') as HTMLAnchorElement;
+          const lastLink = document.querySelector('.pager__item--last a') as HTMLAnchorElement;
+          const currentPageEl = document.querySelector('.pager__item.is-active a');
+          
+          let currentPageNum = 1;
+          let lastPageNum = 1;
+          
+          if (currentPageEl) {
+            const currentText = currentPageEl.textContent?.trim();
+            if (currentText) currentPageNum = parseInt(currentText, 10);
+          }
+          
+          // Extract last page number from the "Last" link or from page numbers
+          if (lastLink?.href) {
+            const lastUrlMatch = lastLink.href.match(/[?&]page=(\d+)/);
+            if (lastUrlMatch) {
+              lastPageNum = parseInt(lastUrlMatch[1], 10) + 1; // Page param is 0-indexed
+            }
+          } else {
+            // Fallback: find the highest page number in pagination
+            const pageLinks = document.querySelectorAll('.pager__item a[href*="page="]:not(.pager__item--first):not(.pager__item--last):not(.pager__item--previous):not(.pager__item--next)');
+            let maxPage = 1;
+            pageLinks.forEach(link => {
+              const pageText = link.textContent?.trim();
+              if (pageText) {
+                const pageNum = parseInt(pageText, 10);
+                if (pageNum > maxPage) maxPage = pageNum;
+              }
+            });
+            lastPageNum = maxPage;
+          }
+          
+          return {
+            hasNext: !!nextLink,
+            nextUrl: nextLink?.href,
+            currentPage: currentPageNum,
+            lastPage: lastPageNum,
+            isLastPage: currentPageNum >= lastPageNum
+          };
         });
 
-        if (!nextPageExists) {
+        const shouldStopAtMaxPages = maxPagesToScrape !== Infinity && currentPage >= maxPagesToScrape;
+        logger.info(`Page ${paginationInfo.currentPage} of ${paginationInfo.lastPage} (next available: ${paginationInfo.hasNext}, max pages: ${maxPagesToScrape === Infinity ? 'unlimited' : maxPagesToScrape})`);
+
+        // Stop if we're on the last page, there's no next button, or we've reached the max pages limit
+        if (paginationInfo.isLastPage || !paginationInfo.hasNext || shouldStopAtMaxPages) {
+          if (shouldStopAtMaxPages) {
+            logger.info(`Reached maximum pages limit (${maxPagesToScrape}), stopping pagination`);
+          }
           hasNextPage = false;
           break;
         }

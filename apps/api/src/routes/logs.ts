@@ -38,7 +38,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const existingLogs = await redis.xrange(streamKey, '-', '+', 'COUNT', 100);
       for (const [id, fields] of existingLogs) {
-        const logData = {};
+        const logData: Record<string, string> = {};
         for (let i = 0; i < fields.length; i += 2) {
           logData[fields[i]] = fields[i + 1];
         }
@@ -54,7 +54,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
         });
         lastId = id;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error reading existing logs:', error);
     }
 
@@ -73,7 +73,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
           const [, logs] = newLogs[0];
           
           for (const [id, fields] of logs) {
-            const logData = {};
+            const logData: Record<string, string> = {};
             for (let i = 0; i < fields.length; i += 2) {
               logData[fields[i]] = fields[i + 1];
             }
@@ -92,7 +92,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
             lastId = id;
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error reading logs:', error);
       }
     }, 1000); // Check every second
@@ -124,7 +124,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       const logs = await redis.xrange(streamKey, start, end, 'COUNT', parseInt(limit));
       
       const formattedLogs = logs.map(([id, fields]) => {
-        const logData = {};
+        const logData: Record<string, string> = {};
         for (let i = 0; i < fields.length; i += 2) {
           logData[fields[i]] = fields[i + 1];
         }
@@ -141,7 +141,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return { logs: formattedLogs };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching logs:', error);
       reply.status(500);
       return { error: 'Failed to fetch logs' };
@@ -161,7 +161,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       const streamKey = `logs:${runId}`;
       await redis.del(streamKey);
       return { message: 'Logs cleaned up successfully' };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error cleaning up logs:', error);
       reply.status(500);
       return { error: 'Failed to clean up logs' };

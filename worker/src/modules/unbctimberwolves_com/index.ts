@@ -4,16 +4,51 @@ import { delay, addJitter } from '../../lib/utils.js';
 const unbcTimberwolvesModule: ScraperModule = {
   key: 'unbctimberwolves_com',
   label: 'UNBC Timberwolves Athletics',
+  mode: 'hybrid', // Support both scraping and upload
+  paginationType: 'calendar',
+  integrationTags: ['calendar', 'csv'],
   startUrls: [
     'https://unbctimberwolves.com/calendar',
   ],
+  uploadConfig: {
+    supportedFormats: ['csv'],
+    downloadUrl: 'https://unbctimberwolves.com/calendar',
+    instructions: `To download events manually:
+1. Go to https://unbctimberwolves.com/calendar
+2. Click the "Sync/Download" button (calendar icon)
+3. Select "Excel" as the export format
+4. Click "Download Now"
+5. Upload the downloaded CSV file here`,
+  },
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;
     const events: RawEvent[] = [];
     const isTestMode = jobData?.testMode === true;
+    const scrapeMode = jobData?.scrapeMode || 'full';
+    const paginationOptions = jobData?.paginationOptions;
 
-    logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
+    // Check if file was uploaded
+    if (jobData?.uploadedFile) {
+      logger.info(`Processing uploaded ${jobData.uploadedFile.format} file for ${this.label}`);
+      
+      if (jobData.uploadedFile.format === 'csv' && jobData.uploadedFile.content) {
+        return this.processUpload(jobData.uploadedFile.content, 'csv', logger);
+      } else {
+        logger.error(`Unsupported file format: ${jobData.uploadedFile.format}`);
+        throw new Error(`Unsupported file format: ${jobData.uploadedFile.format}`);
+      }
+    }
+
+    logger.info(`Starting ${isTestMode ? 'test ' : scrapeMode} scrape of ${this.label}`);
+    
+    if (paginationOptions?.type === 'page') {
+      if (paginationOptions.scrapeAllPages) {
+        logger.info('Page pagination: scraping all pages until the end');
+      } else {
+        logger.info(`Page pagination: scraping maximum ${paginationOptions.maxPages || 10} pages`);
+      }
+    }
 
     try {
       // Navigate to the calendar page
@@ -37,6 +72,189 @@ const unbcTimberwolvesModule: ScraperModule = {
         throw error;
       }
 
+      // Try to use direct CSV endpoint first using page.evaluate to fetch with cookies
+      try {
+        logger.info('Attempting to download CSV from direct endpoint...');
+        
+        // Generate a random cache buster similar to the site's pattern
+        const cacheBuster = Math.random().toString(36).substring(2, 15);
+        const csvUrl = `https://unbctimberwolves.com/calendar.ashx/calendar.csv?sport_id=0&_=${cacheBuster}`;
+        
+        logger.info(`Fetching CSV from: ${csvUrl}`);
+        
+        // Use fetch within the page context to maintain cookies/session
+        const csvResponse = await page.evaluate(async (url) => {
+          try {
+            const response = await fetch(url);
+            if (response.ok) {
+              const text = await response.text();
+              return { success: true, content: text };
+            }
+            return { success: false, error: `HTTP ${response.status}` };
+          } catch (error) {
+            return { success: false, error: error.message };
+          }
+        }, csvUrl);
+        
+        if (csvResponse.success && csvResponse.content && csvResponse.content.length > 0) {
+          logger.info('CSV content retrieved successfully via fetch');
+          const csvEvents = await this.parseCSVContent(csvResponse.content, logger);
+          
+          if (csvEvents.length > 0) {
+            logger.info(`Successfully parsed ${csvEvents.length} events from direct CSV endpoint`);
+            return csvEvents;
+          }
+        } else {
+          logger.warn(`CSV fetch failed: ${csvResponse.error || 'No content'}`);
+        }
+        
+        logger.info('Direct CSV endpoint failed, trying interactive download...');
+        
+        // Look for various possible selectors for the download/subscribe button
+        const possibleSelectors = [
+          '.sidearm-calendar-subscribe__sync',
+          'button[aria-label*="Sync"]',
+          'button[aria-label*="download"]',
+          '.sidearm-calendar-subscribe button',
+          '[data-bind*="subscribe"]',
+          'button:has-text("Download")',
+          'button:has-text("Sync")'
+        ];
+        
+        let subscribeButton = null;
+        for (const selector of possibleSelectors) {
+          try {
+            subscribeButton = await page.$(selector);
+            if (subscribeButton) {
+              logger.info(`Found download button using selector: ${selector}`);
+              break;
+            }
+          } catch (selectorError) {
+            // Continue to next selector
+          }
+        }
+        
+        if (!subscribeButton) {
+          // Try to look for any button with text related to download/sync
+          subscribeButton = await page.$('button:has([class*="sync"]), button:has([class*="download"])');
+        }
+        
+        if (subscribeButton) {
+          // Check if button is visible, if not try to make it visible
+          const isVisible = await subscribeButton.isVisible();
+          if (!isVisible) {
+            logger.info('Download button not visible, trying to scroll it into view...');
+            await subscribeButton.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(1000);
+          }
+          
+          logger.info('Clicking download button...');
+          await subscribeButton.click({ force: true });
+          
+          // Wait for modal to appear and check for multiple possible states
+          await page.waitForTimeout(3000);
+          
+          // Look for Excel export option with multiple selectors
+          const excelSelectors = [
+            '#sidearm-calendar-subscribe-download-0',
+            'input[value="excel"]',
+            'input[type="radio"][name*="service"]',
+            'input[value*="excel" i]'
+          ];
+          
+          let excelRadio = null;
+          for (const selector of excelSelectors) {
+            try {
+              excelRadio = await page.$(selector);
+              if (excelRadio) {
+                logger.info(`Found Excel option using selector: ${selector}`);
+                break;
+              }
+            } catch (selectorError) {
+              // Continue to next selector
+            }
+          }
+          
+          if (excelRadio) {
+            logger.info('Selecting Excel export option...');
+            await excelRadio.click({ force: true });
+            await page.waitForTimeout(1000);
+            
+            // Set up download promise before clicking
+            const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
+            
+            // Look for download button with multiple selectors
+            const downloadSelectors = [
+              'button[aria-label="Sync or download calendar"]',
+              'button:has-text("Download Now")',
+              'button:has-text("Download")',
+              '.sidearm-calendar-subscribe__sync',
+              'button[type="submit"]'
+            ];
+            
+            let downloadButton = null;
+            for (const selector of downloadSelectors) {
+              try {
+                downloadButton = await page.$(selector);
+                if (downloadButton) {
+                  logger.info(`Found download button using selector: ${selector}`);
+                  break;
+                }
+              } catch (selectorError) {
+                // Continue to next selector
+              }
+            }
+            
+            if (downloadButton) {
+              logger.info('Clicking final download button...');
+              await downloadButton.click({ force: true });
+              
+              try {
+                // Wait for download to complete
+                const download = await downloadPromise;
+                const downloadPath = await download.path();
+                
+                if (downloadPath) {
+                  logger.info(`CSV downloaded to: ${downloadPath}`);
+                  
+                  // Read and parse the CSV file
+                  const fs = await import('fs');
+                  const csvContent = fs.readFileSync(downloadPath, 'utf-8');
+                  
+                  logger.info('Parsing CSV content...');
+                  const csvEvents = await this.parseCSVContent(csvContent, logger);
+                  
+                  if (csvEvents.length > 0) {
+                    logger.info(`Successfully parsed ${csvEvents.length} events from CSV`);
+                    
+                    // Clean up download file
+                    try {
+                      fs.unlinkSync(downloadPath);
+                    } catch (cleanupError) {
+                      logger.warn(`Could not clean up download file: ${cleanupError}`);
+                    }
+                    
+                    return csvEvents;
+                  }
+                }
+              } catch (downloadError) {
+                logger.warn(`Download wait failed: ${downloadError}`);
+              }
+            } else {
+              logger.warn('Could not find final download button');
+            }
+          } else {
+            logger.warn('Could not find Excel export option');
+          }
+        } else {
+          logger.warn('Could not find download/subscribe button');
+        }
+        
+        logger.info('CSV download method failed or no events found, falling back to calendar scraping...');
+      } catch (csvError) {
+        logger.warn(`CSV download failed: ${csvError}, falling back to calendar scraping...`);
+      }
+
       // Collect events from multiple months if not in test mode
       const allEvents: Array<{
         date: string,
@@ -50,7 +268,16 @@ const unbcTimberwolvesModule: ScraperModule = {
         isHome: boolean
       }> = [];
       
-      const maxMonths = isTestMode ? 1 : 3; // Scrape current + next 2 months
+      // Determine how many months to scrape based on pagination options
+      let maxMonths = isTestMode ? 1 : 12; // Default: current + next 11 months
+      
+      if (paginationOptions?.type === 'page') {
+        if (paginationOptions.scrapeAllPages) {
+          maxMonths = 12; // Scrape all available pages (up to 12 months)
+        } else if (paginationOptions.maxPages) {
+          maxMonths = Math.min(paginationOptions.maxPages, 12);
+        }
+      }
       
       for (let monthIndex = 0; monthIndex < maxMonths; monthIndex++) {
         logger.info(`Processing month ${monthIndex + 1}/${maxMonths}`);
@@ -154,17 +381,81 @@ const unbcTimberwolvesModule: ScraperModule = {
         // Navigate to next month if not the last iteration and not in test mode
         if (monthIndex < maxMonths - 1 && !isTestMode) {
           try {
-            // Look for next month navigation button
-            const nextButton = await page.$('[data-bind*="nextMonth"], .sidearm-calendar-nav-next, .next-month');
+            // Look for next month navigation button with multiple selectors
+            const nextSelectors = [
+              '[data-bind*="nextMonth"]',
+              '.sidearm-calendar-nav-next',
+              '.next-month',
+              'button[aria-label*="next"]',
+              'button[aria-label*="Next"]',
+              '.sidearm-calendar-navigation-next',
+              '.calendar-next',
+              'button:has-text("Next")',
+              'button:has-text(">")',
+              '.fa-chevron-right',
+              '.fa-arrow-right'
+            ];
+            
+            let nextButton = null;
+            for (const selector of nextSelectors) {
+              try {
+                nextButton = await page.$(selector);
+                if (nextButton) {
+                  logger.info(`Found next button using selector: ${selector}`);
+                  break;
+                }
+              } catch (selectorError) {
+                // Continue to next selector
+              }
+            }
+            
             if (nextButton) {
-              logger.info('Navigating to next month...');
-              await nextButton.click();
+              // Check if button is visible and enabled
+              const isVisible = await nextButton.isVisible();
+              const isEnabled = await nextButton.isEnabled();
               
-              // Wait for calendar to update
-              await page.waitForTimeout(3000);
+              if (!isVisible) {
+                logger.info('Next button not visible, scrolling into view...');
+                await nextButton.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+              }
+              
+              if (!isEnabled) {
+                logger.warn('Next button is disabled, reached end of calendar');
+                if (paginationOptions?.scrapeAllPages) {
+                  logger.info('Scrape all pages enabled: stopping at natural end of calendar');
+                }
+                break;
+              }
+              
+              logger.info('Navigating to next month...');
+              await nextButton.click({ force: true });
+              
+              // Wait for calendar to update and verify month changed
+              await page.waitForTimeout(4000);
+              
+              // Verify the month actually changed
+              try {
+                const newMonth = await page.$eval('[data-bind*="selectedDate"]', 
+                  el => el.textContent?.trim() || '');
+                if (newMonth === currentMonth) {
+                  logger.warn('Month did not change after clicking next, reached end of calendar');
+                  if (paginationOptions?.scrapeAllPages) {
+                    logger.info('Scrape all pages enabled: stopping at natural end of calendar');
+                  }
+                  break;
+                }
+                logger.info(`Successfully navigated to: ${newMonth}`);
+              } catch (monthCheckError) {
+                logger.warn('Could not verify month change');
+              }
+              
               if (ctx.stats) ctx.stats.pagesCrawled++;
             } else {
               logger.warn('No next month button found, stopping navigation');
+              if (paginationOptions?.scrapeAllPages) {
+                logger.info('Scrape all pages enabled: natural end of pagination reached');
+              }
               break;
             }
           } catch (navError) {
@@ -306,6 +597,210 @@ const unbcTimberwolvesModule: ScraperModule = {
       logger.error(`Scrape failed: ${error}`);
       throw error;
     }
+  },
+
+  async parseCSVContent(csvContent: string, logger: any): Promise<RawEvent[]> {
+    const events: RawEvent[] = [];
+    
+    try {
+      // Split CSV into lines and skip header
+      const lines = csvContent.split('\n').filter(line => line.trim());
+      if (lines.length <= 1) {
+        logger.warn('CSV appears to be empty or only contains header');
+        return events;
+      }
+      
+      // Skip header row
+      const dataLines = lines.slice(1);
+      
+      for (const line of dataLines) {
+        try {
+          // Parse CSV line - handle quoted fields
+          const fields = this.parseCSVLine(line);
+          
+          if (fields.length < 8) {
+            logger.warn(`Skipping malformed CSV line: ${line}`);
+            continue;
+          }
+          
+          // Map CSV fields based on the format you described:
+          // Event, Start Date, Start Time, End Date, End Time, Location, Category, Description, Facility
+          const [eventTitle, startDate, startTime, endDate, endTime, location, category, description, facility] = fields;
+          
+          if (!eventTitle || !startDate) {
+            continue;
+          }
+          
+          // Parse start date and time
+          let eventStart = '';
+          let eventEnd = '';
+          
+          try {
+            const startDateTimeString = `${startDate} ${startTime || ''}`.trim();
+            const startDateObj = new Date(startDateTimeString);
+            
+            if (!isNaN(startDateObj.getTime())) {
+              eventStart = startDateObj.toISOString();
+            } else {
+              // Fallback to just date
+              const dateOnly = new Date(startDate);
+              if (!isNaN(dateOnly.getTime())) {
+                eventStart = dateOnly.toISOString();
+              } else {
+                logger.warn(`Could not parse start date for event: ${eventTitle}`);
+                continue;
+              }
+            }
+            
+            // Parse end date and time if provided
+            if (endDate && endTime) {
+              const endDateTimeString = `${endDate} ${endTime}`.trim();
+              const endDateObj = new Date(endDateTimeString);
+              
+              if (!isNaN(endDateObj.getTime())) {
+                eventEnd = endDateObj.toISOString();
+                logger.debug(`Parsed end time for ${eventTitle}: ${eventEnd}`);
+              } else {
+                logger.warn(`Could not parse end date/time for event: ${eventTitle}`);
+              }
+            } else if (endTime && startDate) {
+              // If only end time is provided, use start date with end time
+              const endDateTimeString = `${startDate} ${endTime}`.trim();
+              const endDateObj = new Date(endDateTimeString);
+              
+              if (!isNaN(endDateObj.getTime())) {
+                eventEnd = endDateObj.toISOString();
+                logger.debug(`Parsed end time (same day) for ${eventTitle}: ${eventEnd}`);
+              }
+            }
+          } catch (dateError) {
+            logger.warn(`Date parsing error for ${eventTitle}: ${dateError}`);
+            continue;
+          }
+          
+          // Extract sport and opponent from event title
+          let sport = category || 'Athletic Event';
+          let opponent = '';
+          let atVs = '';
+          
+          // Try to parse "Sport vs/@ Opponent" pattern
+          const vsMatch = eventTitle.match(/^(.+?)\s+(vs|@|at)\s+(.+)$/i);
+          if (vsMatch) {
+            sport = vsMatch[1].trim();
+            atVs = vsMatch[2].toLowerCase() === 'vs' ? 'vs' : 'at';
+            opponent = vsMatch[3].trim();
+          } else {
+            opponent = eventTitle;
+          }
+          
+          const sourceEventId = `csv_${startDate}_${eventTitle.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          
+          const event: RawEvent = {
+            sourceEventId,
+            title: eventTitle,
+            start: eventStart,
+            city: 'Prince George',
+            region: 'British Columbia', 
+            country: 'Canada',
+            organizer: 'UNBC Timberwolves Athletics',
+            category: 'Sports',
+            url: this.startUrls[0],
+            raw: {
+              sport,
+              opponent,
+              atVs,
+              location: location || facility || '',
+              startDate,
+              startTime,
+              endDate,
+              endTime,
+              category,
+              description,
+              facility,
+              extractedAt: new Date().toISOString(),
+              source: 'csv_export'
+            },
+          };
+          
+          // Add end time if parsed successfully
+          if (eventEnd) {
+            event.end = eventEnd;
+            logger.debug(`Set end time for ${eventTitle}: ${eventEnd}`);
+          }
+          
+          // Set venue information
+          if (facility || location) {
+            const venueInfo = facility || location || '';
+            if (venueInfo.toLowerCase().includes('prince george') || 
+                venueInfo.toLowerCase().includes('unbc') ||
+                venueInfo.toLowerCase().includes('masich')) {
+              event.venueName = venueInfo;
+              event.venueAddress = 'Prince George, BC';
+            } else {
+              event.venueName = venueInfo;
+              event.venueAddress = venueInfo;
+            }
+          }
+          
+          events.push(event);
+          logger.debug(`Parsed CSV event: ${eventTitle} on ${startDate}`);
+          
+        } catch (lineError) {
+          logger.warn(`Error parsing CSV line: ${line} - ${lineError}`);
+        }
+      }
+      
+      logger.info(`Successfully parsed ${events.length} events from CSV`);
+      return events;
+      
+    } catch (error) {
+      logger.error(`Failed to parse CSV content: ${error}`);
+      return events;
+    }
+  },
+  
+  async processUpload(content: string, format: 'csv' | 'json' | 'xlsx', logger: any): Promise<RawEvent[]> {
+    if (format !== 'csv') {
+      throw new Error(`Unsupported format: ${format}. Only CSV is supported.`);
+    }
+    
+    logger.info('Processing uploaded CSV file for UNBC Timberwolves');
+    const events = await this.parseCSVContent(content, logger);
+    logger.info(`Processed ${events.length} events from uploaded CSV`);
+    
+    return events;
+  },
+  
+  parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // Field separator
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // Add final field
+    result.push(current.trim());
+    
+    return result;
   },
 };
 

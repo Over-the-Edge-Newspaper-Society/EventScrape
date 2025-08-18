@@ -18,9 +18,6 @@ COPY worker/package.json ./worker/
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Install Playwright browsers
-RUN pnpm --filter @eventscrape/worker exec playwright install --with-deps chromium
-
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
@@ -54,8 +51,9 @@ RUN apk add --no-cache \
     ttf-freefont
 
 # Tell Playwright to use installed Chromium
-ENV PLAYWRIGHT_BROWSERS_PATH=/usr/bin
+ENV PLAYWRIGHT_BROWSERS_PATH=0
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy the built application
 COPY --from=builder --chown=eventscrape:nodejs /app/worker/dist ./worker/dist
