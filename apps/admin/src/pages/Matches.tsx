@@ -96,7 +96,7 @@ function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, t
 
   const { eventA, eventB } = data
   const score = Math.round(match.match.score * 100)
-  const scoreColor = score >= 90 ? 'text-red-600' : score >= 70 ? 'text-orange-600' : 'text-yellow-600'
+  const scoreColor = score >= 90 ? 'text-destructive' : score >= 70 ? 'text-orange-600' : 'text-yellow-600'
 
   const getFieldComparison = (fieldA: any, fieldB: any, fieldName: string) => {
     const valueA = fieldA || 'Not provided'
@@ -614,8 +614,8 @@ export function Matches() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Duplicate Matches</h1>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h1 className="text-3xl font-bold text-foreground">Duplicate Matches</h1>
+          <p className="text-muted-foreground">
             Review and resolve potential duplicate events
           </p>
         </div>

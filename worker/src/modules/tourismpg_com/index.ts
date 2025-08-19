@@ -67,7 +67,7 @@ const tourismPgModule: ScraperModule = {
         }
       }
 
-      // Collect events from multiple months if not in test mode
+      // Collect events from multiple months (respecting date range even in test mode)
       const allEventLinks: Array<{url: string, title: string, date: string}> = [];
       
       for (let monthIndex = 0; monthIndex < maxMonths; monthIndex++) {
@@ -99,7 +99,15 @@ const tourismPgModule: ScraperModule = {
               
               if (titleLinkEl?.href && titleLinkEl?.textContent) {
                 // Create date string from current month and day
-                const eventDate = `${currentMonth} ${dayNumber}`;
+                // Convert "August 2025" + "27" to "August 27, 2025" format
+                let eventDate;
+                const monthYearMatch = currentMonth.match(/(\w+)\s+(\d{4})/);
+                if (monthYearMatch) {
+                  const [, month, year] = monthYearMatch;
+                  eventDate = `${month} ${dayNumber}, ${year}`;
+                } else {
+                  eventDate = `${currentMonth} ${dayNumber}`;
+                }
                 
                 links.push({
                   url: titleLinkEl.href,
@@ -116,38 +124,79 @@ const tourismPgModule: ScraperModule = {
         logger.info(`Found ${monthEventLinks.length} events in ${currentMonth}`);
         allEventLinks.push(...monthEventLinks);
 
-        // Navigate to next month if not the last iteration and not in test mode
-        if (monthIndex < maxMonths - 1 && !isTestMode) {
+        // Navigate to next month if not the last iteration
+        // Allow navigation in test mode when date range is specified
+        const shouldNavigate = monthIndex < maxMonths - 1 && 
+                              (!isTestMode || (paginationOptions?.type === 'calendar' && (targetStartDate || targetEndDate)));
+        if (shouldNavigate) {
           try {
-            // Wait for the next button to be visible and clickable
+            // Wait for the next button to be present in DOM (may be hidden)
             await page.waitForSelector('.jet-calendar-nav__link.nav-link-next', { 
-              state: 'visible', 
+              state: 'attached', 
               timeout: 10000 
             });
             
-            const nextButton = await page.$('.jet-calendar-nav__link.nav-link-next');
-            if (nextButton) {
-              logger.info('Navigating to next month...');
-              
-              // Use page.click() instead of elementHandle.click() for better reliability
-              await page.click('.jet-calendar-nav__link.nav-link-next');
-              
+            logger.info('Navigating to next month...');
+            const currentMonthName = currentMonth;
+            
+            // Try clicking the next button - it may trigger JavaScript navigation even if hidden
+            const clicked = await page.evaluate(() => {
+              const nextButton = document.querySelector('.jet-calendar-nav__link.nav-link-next') as HTMLElement;
+              if (nextButton) {
+                // Try both click and triggering any data attributes
+                nextButton.click();
+                
+                // Also try triggering based on data-month attribute if needed
+                const targetMonth = nextButton.getAttribute('data-month');
+                if (targetMonth) {
+                  // Dispatch custom event that might trigger calendar navigation
+                  nextButton.dispatchEvent(new Event('click', { bubbles: true }));
+                }
+                return true;
+              }
+              return false;
+            });
+            
+            if (clicked) {
               // Wait for the calendar to update by checking month name changes
-              const currentMonthName = currentMonth;
-              await page.waitForFunction(
-                (expectedMonth) => {
-                  const monthEl = document.querySelector('.jet-calendar-caption__name');
-                  return monthEl && monthEl.textContent?.trim() !== expectedMonth;
-                },
-                currentMonthName,
-                { timeout: 10000 }
-              );
-              
-              // Additional wait for events to load
-              await page.waitForTimeout(2000);
-              if (ctx.stats) ctx.stats.pagesCrawled++;
+              try {
+                await page.waitForFunction(
+                  (expectedMonth) => {
+                    const monthEl = document.querySelector('.jet-calendar-caption__name');
+                    return monthEl && monthEl.textContent?.trim() !== expectedMonth;
+                  },
+                  currentMonthName,
+                  { timeout: 15000 }
+                );
+                
+                // Additional wait for events to load
+                await page.waitForTimeout(3000);
+                if (ctx.stats) ctx.stats.pagesCrawled++;
+                
+                // Verify we actually moved to next month
+                const newMonth = await page.$eval('.jet-calendar-caption__name', 
+                  el => el.textContent?.trim() || '');
+                logger.info(`Successfully navigated to: ${newMonth}`);
+                
+              } catch (waitError) {
+                logger.warn(`Month didn't change after click, trying alternative approach: ${waitError}`);
+                
+                // Try alternative: force reload with next month URL if possible
+                const nextMonthData = await page.evaluate(() => {
+                  const nextButton = document.querySelector('.jet-calendar-nav__link.nav-link-next');
+                  return nextButton?.getAttribute('data-month') || null;
+                });
+                
+                if (nextMonthData) {
+                  logger.info(`Attempting to navigate to: ${nextMonthData}`);
+                  // For now, break the loop since we can't reliably navigate
+                  break;
+                } else {
+                  break;
+                }
+              }
             } else {
-              logger.warn('Next month button found but not accessible, stopping navigation');
+              logger.warn('Next month button not found or not clickable, stopping navigation');
               break;
             }
           } catch (navError) {
@@ -343,40 +392,77 @@ const tourismPgModule: ScraperModule = {
                 const dateStr = dateMatch[1];
                 
                 if (eventDetails.startTime) {
-                  // Normalize time format - "7:30pm" to "7:30 PM"
-                  const normalizedStartTime = eventDetails.startTime.replace(/([ap])m$/i, ' $1M').toUpperCase();
-                  
-                  // Determine if date is in DST period (roughly March-November for Pacific Time)
-                  const tempDate = new Date(dateStr);
-                  const month = tempDate.getMonth() + 1; // getMonth() returns 0-11
-                  const timezone = (month >= 3 && month <= 10) ? 'PDT' : 'PST';
-                  
-                  const combinedDateTime = `${dateStr} ${normalizedStartTime} ${timezone}`;
-                  const dateObj = new Date(combinedDateTime);
-                  
-                  if (!isNaN(dateObj.getTime())) {
-                    eventStart = dateObj.toISOString();
+                  // Parse date components manually to avoid timezone conversion
+                  const dateParts = dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+                  if (dateParts) {
+                    const [, monthName, day, year] = dateParts;
+                    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                                      'July', 'August', 'September', 'October', 'November', 'December'];
+                    const monthIndex = monthNames.indexOf(monthName);
                     
-                    // Set end time if available
-                    if (eventDetails.endTime) {
-                      const normalizedEndTime = eventDetails.endTime.replace(/([ap])m$/i, ' $1M').toUpperCase();
-                      const endCombined = `${dateStr} ${normalizedEndTime} ${timezone}`;
-                      const endDateObj = new Date(endCombined);
-                      
-                      if (!isNaN(endDateObj.getTime())) {
-                        eventEnd = endDateObj.toISOString();
+                    if (monthIndex !== -1) {
+                      // Parse time
+                      const timeMatch = eventDetails.startTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                      if (timeMatch) {
+                        let [, hours, minutes, ampm] = timeMatch;
+                        let hourNum = parseInt(hours);
+                        if (ampm.toLowerCase() === 'pm' && hourNum !== 12) {
+                          hourNum += 12;
+                        } else if (ampm.toLowerCase() === 'am' && hourNum === 12) {
+                          hourNum = 0;
+                        }
+                        
+                        // Create timezone-neutral date string format
+                        const monthStr = String(monthIndex + 1).padStart(2, '0');
+                        const dayStr = String(day).padStart(2, '0');
+                        const hourStr = String(hourNum).padStart(2, '0');
+                        const minuteStr = String(minutes).padStart(2, '0');
+                        eventStart = `${year}-${monthStr}-${dayStr} ${hourStr}:${minuteStr}`;
+                        
+                        // Set end time if available
+                        if (eventDetails.endTime) {
+                          const endTimeMatch = eventDetails.endTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                          if (endTimeMatch) {
+                            let [, endHours, endMinutes, endAmpm] = endTimeMatch;
+                            let endHourNum = parseInt(endHours);
+                            if (endAmpm.toLowerCase() === 'pm' && endHourNum !== 12) {
+                              endHourNum += 12;
+                            } else if (endAmpm.toLowerCase() === 'am' && endHourNum === 12) {
+                              endHourNum = 0;
+                            }
+                            
+                            // Handle next day if end time is earlier than start time
+                            let endDay = parseInt(day);
+                            if (endHourNum < hourNum) {
+                              endDay += 1;
+                            }
+                            
+                            // Create timezone-neutral end date string
+                            const endMonthStr = String(monthIndex + 1).padStart(2, '0');
+                            const endDayStr = String(endDay).padStart(2, '0');
+                            const endHourStr = String(endHourNum).padStart(2, '0');
+                            const endMinuteStr = String(parseInt(endMinutes)).padStart(2, '0');
+                            eventEnd = `${year}-${endMonthStr}-${endDayStr} ${endHourStr}:${endMinuteStr}`;
+                          }
+                        }
                       }
                     }
                   }
                 } else {
-                  // No specific time, use default 9 AM with appropriate timezone
-                  const tempDate = new Date(dateStr);
-                  const month = tempDate.getMonth() + 1;
-                  const timezone = (month >= 3 && month <= 10) ? 'PDT' : 'PST';
-                  const defaultDateTime = `${dateStr} 9:00 AM ${timezone}`;
-                  const dateOnly = new Date(defaultDateTime);
-                  if (!isNaN(dateOnly.getTime())) {
-                    eventStart = dateOnly.toISOString();
+                  // No specific time, use default 9 AM with manual date parsing
+                  const dateParts = dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+                  if (dateParts) {
+                    const [, monthName, day, year] = dateParts;
+                    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                                      'July', 'August', 'September', 'October', 'November', 'December'];
+                    const monthIndex = monthNames.indexOf(monthName);
+                    
+                    if (monthIndex !== -1) {
+                      // Create timezone-neutral date string with default 9 AM
+                      const monthStr = String(monthIndex + 1).padStart(2, '0');
+                      const dayStr = String(day).padStart(2, '0');
+                      eventStart = `${year}-${monthStr}-${dayStr} 09:00`;
+                    }
                   }
                 }
               }
@@ -384,11 +470,59 @@ const tourismPgModule: ScraperModule = {
 
             // Fallback if date parsing failed
             if (!eventStart) {
-              eventStart = new Date().toISOString();
+              // Use current date in timezone-neutral format
+              const now = new Date();
+              const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} 09:00`;
+              eventStart = fallbackDate;
               logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
             }
+            
+            // Handle multi-day events (parse endDateText like "- September 1, 2025")
+            if (!eventEnd && eventDetails.endDateText) {
+              const endDateMatch = eventDetails.endDateText.match(/(?:-\s*)?(\w+ \d+, \d+)/i);
+              if (endDateMatch) {
+                const endDateStr = endDateMatch[1];
+                const endDateParts = endDateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+                if (endDateParts) {
+                  const [, endMonthName, endDay, endYear] = endDateParts;
+                  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                                    'July', 'August', 'September', 'October', 'November', 'December'];
+                  const endMonthIndex = monthNames.indexOf(endMonthName);
+                  
+                  if (endMonthIndex !== -1) {
+                    // Use end time if available, otherwise use end of day (11:59 PM)
+                    let endHour = 23;
+                    let endMinute = 59;
+                    
+                    if (eventDetails.endTime) {
+                      const endTimeMatch = eventDetails.endTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                      if (endTimeMatch) {
+                        let [, hours, minutes, ampm] = endTimeMatch;
+                        endHour = parseInt(hours);
+                        endMinute = parseInt(minutes);
+                        if (ampm.toLowerCase() === 'pm' && endHour !== 12) {
+                          endHour += 12;
+                        } else if (ampm.toLowerCase() === 'am' && endHour === 12) {
+                          endHour = 0;
+                        }
+                      }
+                    }
+                    
+                    // Create timezone-neutral date string for end date
+                    const endMonthStr = String(endMonthIndex + 1).padStart(2, '0');
+                    const endDayStr = String(endDay).padStart(2, '0');
+                    const endHourStr = String(endHour).padStart(2, '0');
+                    const endMinuteStr = String(endMinute).padStart(2, '0');
+                    eventEnd = `${endYear}-${endMonthStr}-${endDayStr} ${endHourStr}:${endMinuteStr}`;
+                  }
+                }
+              }
+            }
           } catch (dateError) {
-            eventStart = new Date().toISOString();
+            // Use current date in timezone-neutral format
+            const now = new Date();
+            const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} 09:00`;
+            eventStart = fallbackDate;
             logger.warn(`Date parsing error for ${eventLink.title}: ${dateError}`);
           }
 

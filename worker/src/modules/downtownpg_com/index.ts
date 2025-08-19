@@ -212,7 +212,8 @@ const downtownPgModule: ScraperModule = {
       if (!isTestMode && eventData.events.length > 0) {
         let hasMoreEvents = true;
         let pageCount = 0;
-        const maxPages = 3; // Limit to prevent infinite loops
+        const maxPages = 20; // Increased limit to capture more events
+        const targetDate = jobData?.endDate ? new Date(jobData.endDate) : null;
 
         while (hasMoreEvents && pageCount < maxPages) {
           // Look for MEC load more or pagination buttons
@@ -223,9 +224,9 @@ const downtownPgModule: ScraperModule = {
             await loadMoreButton.click();
             await page.waitForTimeout(3000); // Wait for new events to load
             
-            // Extract additional events
-            const additionalEventData = await page.evaluate(() => {
-              const moreEvents: Array<{url: string, title: string, eventId?: string}> = [];
+            // Extract additional events with date checking
+            const additionalEventData = await page.evaluate((targetDateStr) => {
+              const moreEvents: Array<{url: string, title: string, eventId?: string, dateText?: string}> = [];
               const newEventElements = document.querySelectorAll('.mec-event-article:not([data-processed]), .mec-event-list-event:not([data-processed])');
               
               newEventElements.forEach(eventEl => {
@@ -234,20 +235,47 @@ const downtownPgModule: ScraperModule = {
                 
                 if (titleLinkEl?.href && titleLinkEl?.textContent) {
                   const eventId = eventEl.getAttribute('data-event-id') || eventEl.id;
+                  
+                  // Try to extract date from event element
+                  const dateEl = eventEl.querySelector('.mec-event-date, .mec-start-date, [class*="date"]');
+                  const dateText = dateEl?.textContent?.trim() || '';
+                  
                   moreEvents.push({
                     url: titleLinkEl.href,
                     title: titleLinkEl.textContent.trim(),
-                    eventId: eventId
+                    eventId: eventId,
+                    dateText: dateText
                   });
                 }
               });
               
               return moreEvents;
-            });
+            }, targetDate?.toISOString());
 
             if (additionalEventData.length > 0) {
               eventData.events.push(...additionalEventData);
               logger.info(`Found ${additionalEventData.length} additional events`);
+              
+              // Check if we've passed the target date
+              if (targetDate) {
+                const shouldStop = additionalEventData.some(event => {
+                  if (event.dateText) {
+                    try {
+                      const eventDate = new Date(event.dateText);
+                      return eventDate > targetDate;
+                    } catch (e) {
+                      // If we can't parse the date, continue
+                      return false;
+                    }
+                  }
+                  return false;
+                });
+                
+                if (shouldStop) {
+                  logger.info(`Reached target date ${targetDate.toDateString()}, stopping pagination`);
+                  hasMoreEvents = false;
+                }
+              }
             } else {
               hasMoreEvents = false;
             }
@@ -307,15 +335,44 @@ const downtownPgModule: ScraperModule = {
               }
             });
 
-            // Extract MEC event details
-            const startDateEl = document.querySelector('.mec-start-date, .mec-event-date, .event-date');
+            // Extract MEC event details - be specific about date vs time sections
+            const startDateEl = document.querySelector('.mec-single-event-date .mec-start-date-label') ||
+                               document.querySelector('.mec-single-event-date .mec-events-abbr') ||
+                               document.querySelector('.mec-start-date, .mec-event-date, .event-date');
             const endDateEl = document.querySelector('.mec-end-date, .mec-event-end-date');
-            const startTimeEl = document.querySelector('.mec-start-time, .mec-event-time, .event-time');
-            const endTimeEl = document.querySelector('.mec-end-time, .mec-event-end-time');
             
-            // Extract location
-            const locationEl = document.querySelector('.mec-event-location, .mec-location, .event-location');
-            const addressEl = document.querySelector('.mec-event-address, .mec-address, .event-address');
+            // Extract time specifically from the time section, not the date section
+            let timeRangeEl = document.querySelector('.mec-single-event-time .mec-events-abbr') ||
+                             document.querySelector('.mec-single-event-time dd abbr') ||
+                             document.querySelector('.mec-single-event-time dd') ||
+                             document.querySelector('.mec-event-info-desktop .mec-single-event-time .mec-events-abbr');
+            
+            let startTimeText = '';
+            let endTimeText = '';
+            
+            if (timeRangeEl) {
+              const timeText = timeRangeEl.textContent?.trim() || '';
+              // Check if it's a time range like "5:00 pm - 11:00 pm"
+              if (timeText.includes(' - ')) {
+                const [start, end] = timeText.split(' - ').map(t => t.trim());
+                startTimeText = start;
+                endTimeText = end;
+              } else {
+                startTimeText = timeText;
+              }
+            } else {
+              // Fallback to individual time elements
+              const startTimeEl = document.querySelector('.mec-start-time, .mec-event-time, .event-time');
+              const endTimeEl = document.querySelector('.mec-end-time, .mec-event-end-time');
+              startTimeText = startTimeEl?.textContent?.trim() || '';
+              endTimeText = endTimeEl?.textContent?.trim() || '';
+            }
+            
+            // Extract location - Downtown PG uses specific structure
+            const locationEl = document.querySelector('.mec-single-event-location .author, .mec-event-location, .mec-location, .event-location') ||
+                              document.querySelector('.mec-single-event-location dd.author');
+            const addressEl = document.querySelector('.mec-single-event-location .mec-address, .mec-event-address, .mec-address, .event-address') ||
+                             document.querySelector('.mec-single-event-location address .mec-address');
             
             // Extract description
             const descriptionEl = document.querySelector('.mec-single-event-description, .mec-event-content, .event-description, .entry-content');
@@ -330,8 +387,8 @@ const downtownPgModule: ScraperModule = {
               structuredEventData,
               startDate: startDateEl?.textContent?.trim(),
               endDate: endDateEl?.textContent?.trim(),
-              startTime: startTimeEl?.textContent?.trim(),
-              endTime: endTimeEl?.textContent?.trim(),
+              startTime: startTimeText,
+              endTime: endTimeText,
               location: locationEl?.textContent?.trim(),
               address: addressEl?.textContent?.trim(),
               description: descriptionEl?.innerHTML?.trim(),
@@ -348,10 +405,71 @@ const downtownPgModule: ScraperModule = {
           let eventEnd = '';
           
           if (eventInfo && eventInfo.startDate) {
-            // Use structured data for dates
-            eventStart = new Date(eventInfo.startDate).toISOString();
-            if (eventInfo.endDate) {
-              eventEnd = new Date(eventInfo.endDate).toISOString();
+            // Use structured data for dates but avoid timezone conversion
+            // Parse date components manually to prevent timezone shifting
+            const startDateMatch = eventInfo.startDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (startDateMatch) {
+              const [, year, month, day] = startDateMatch;
+              
+              // Create the date string that represents the local time in Pacific timezone
+              // Instead of creating a Date object (which uses system timezone), create a string
+              let hour = 9; // Default hour
+              let minute = 0; // Default minute
+              
+              if (eventDetails.startTime) {
+                const timeMatch = eventDetails.startTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                if (timeMatch) {
+                  let [, hours, minutes, ampm] = timeMatch;
+                  hour = parseInt(hours);
+                  minute = parseInt(minutes);
+                  if (ampm.toLowerCase() === 'pm' && hour !== 12) {
+                    hour += 12;
+                  } else if (ampm.toLowerCase() === 'am' && hour === 12) {
+                    hour = 0;
+                  }
+                }
+              }
+              
+              // Create a date string in "YYYY-MM-DD HH:mm" format 
+              // The normalizeEvent function will parse this with the defaultTimezone
+              // Note: month from ISO date format is already 1-based (01-12)
+              const dateStr = `${parseInt(year)}-${String(parseInt(month)).padStart(2, '0')}-${String(parseInt(day)).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+              eventStart = dateStr;
+              
+              // Handle end time
+              if (eventDetails.endTime) {
+                const endTimeMatch = eventDetails.endTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                if (endTimeMatch) {
+                  let [, endHours, endMinutes, endAmpm] = endTimeMatch;
+                  let endHour = parseInt(endHours);
+                  let endMinute = parseInt(endMinutes);
+                  if (endAmpm.toLowerCase() === 'pm' && endHour !== 12) {
+                    endHour += 12;
+                  } else if (endAmpm.toLowerCase() === 'am' && endHour === 12) {
+                    endHour = 0;
+                  }
+                  
+                  // Handle midnight crossing (e.g., 9:00 pm - 12:00 am) 
+                  let endDay = parseInt(day);
+                  if (endHour < hour) {
+                    endDay += 1;
+                  }
+                  
+                  // Create end date string
+                  // Note: month from ISO date format is already 1-based (01-12)
+                  const endDateStr = `${parseInt(year)}-${String(parseInt(month)).padStart(2, '0')}-${String(endDay).padStart(2, '0')} ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+                  eventEnd = endDateStr;
+                }
+              } else if (eventInfo.endDate && eventInfo.endDate !== eventInfo.startDate) {
+                // Handle multi-day events from structured data
+                const endDateMatch = eventInfo.endDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+                if (endDateMatch) {
+                  const [, endYear, endMonth, endDay] = endDateMatch;
+                  // Create end of day string
+                  const multiDayEndStr = `${endYear}-${endMonth}-${endDay} 23:59`;
+                  eventEnd = multiDayEndStr;
+                }
+              }
             }
           } else {
             // Fallback to parsed dates from HTML
@@ -359,20 +477,85 @@ const downtownPgModule: ScraperModule = {
               if (eventDetails.startDate) {
                 const startDateStr = eventDetails.startDate;
                 const startTimeStr = eventDetails.startTime || '9:00 AM';
-                const combinedStart = `${startDateStr} ${startTimeStr}`;
-                const startDate = new Date(combinedStart);
                 
-                if (!isNaN(startDate.getTime())) {
-                  eventStart = startDate.toISOString();
+                // Parse date and time separately to handle timezone correctly
+                // Prince George is in Pacific Time (UTC-8/UTC-7)
+                // Handle both "Aug 27 2025" and "Oct 25 2025" formats
+                const dateMatch = startDateStr.match(/(\w{3})\s+(\d{1,2})\s+(\d{4})/); // e.g., "Aug 27 2025" or "Oct 25 2025"
+                
+                if (dateMatch) {
+                  const [, month, day, year] = dateMatch;
+                  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                  const monthIndex = monthNames.indexOf(month);
                   
-                  if (eventDetails.endDate || eventDetails.endTime) {
-                    const endDateStr = eventDetails.endDate || startDateStr;
-                    const endTimeStr = eventDetails.endTime || startTimeStr;
-                    const combinedEnd = `${endDateStr} ${endTimeStr}`;
-                    const endDate = new Date(combinedEnd);
+                  if (monthIndex !== -1) {
+                    // Create date in Pacific timezone
+                    const startDate = new Date(parseInt(year), monthIndex, parseInt(day));
                     
-                    if (!isNaN(endDate.getTime())) {
-                      eventEnd = endDate.toISOString();
+                    // Parse time if available (don't use default 9:00 AM if we have real time)
+                    if (startTimeStr && startTimeStr.trim() !== '') {
+                      const timeMatch = startTimeStr.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                      if (timeMatch) {
+                        let [, hours, minutes, ampm] = timeMatch;
+                        let hourNum = parseInt(hours);
+                        if (ampm.toLowerCase() === 'pm' && hourNum !== 12) {
+                          hourNum += 12;
+                        } else if (ampm.toLowerCase() === 'am' && hourNum === 12) {
+                          hourNum = 0;
+                        }
+                        startDate.setHours(hourNum, parseInt(minutes), 0, 0);
+                      }
+                    } else {
+                      // Only use default 9:00 AM if no time was found at all
+                      startDate.setHours(9, 0, 0, 0);
+                    }
+                    
+                    eventStart = startDate.toISOString();
+                    
+                    // Handle end time
+                    if (eventDetails.endTime) {
+                      const endDate = new Date(startDate);
+                      const endTimeMatch = eventDetails.endTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+                      if (endTimeMatch) {
+                        let [, hours, minutes, ampm] = endTimeMatch;
+                        let hourNum = parseInt(hours);
+                        if (ampm.toLowerCase() === 'pm' && hourNum !== 12) {
+                          hourNum += 12;
+                        } else if (ampm.toLowerCase() === 'am' && hourNum === 12) {
+                          hourNum = 0;
+                        }
+                        
+                        // Handle midnight crossing (e.g., 9:00 pm - 12:00 am)
+                        if (hourNum < startDate.getHours()) {
+                          endDate.setDate(endDate.getDate() + 1);
+                        }
+                        
+                        endDate.setHours(hourNum, parseInt(minutes), 0, 0);
+                        
+                        eventEnd = endDate.toISOString();
+                      }
+                    }
+                  }
+                }
+                
+                // Fallback to original parsing if the new method fails
+                if (!eventStart) {
+                  const combinedStart = `${startDateStr} ${startTimeStr}`;
+                  const startDate = new Date(combinedStart);
+                  
+                  if (!isNaN(startDate.getTime())) {
+                    eventStart = startDate.toISOString();
+                    
+                    if (eventDetails.endDate || eventDetails.endTime) {
+                      const endDateStr = eventDetails.endDate || startDateStr;
+                      const endTimeStr = eventDetails.endTime || startTimeStr;
+                      const combinedEnd = `${endDateStr} ${endTimeStr}`;
+                      const endDate = new Date(combinedEnd);
+                      
+                      if (!isNaN(endDate.getTime())) {
+                        eventEnd = endDate.toISOString();
+                      }
                     }
                   }
                 }

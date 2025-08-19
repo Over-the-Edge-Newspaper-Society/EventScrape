@@ -139,14 +139,14 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
         {run.status === 'error' && run.errorsJsonb && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg text-red-600 flex items-center gap-2">
+              <CardTitle className="text-lg text-destructive flex items-center gap-2">
                 <XCircle className="h-5 w-5" />
                 Error Details
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-red-50 border border-red-200 rounded p-4">
-                <pre className="text-sm text-red-800 whitespace-pre-wrap">
+              <div className="bg-destructive/10 border border-destructive/20 rounded p-4">
+                <pre className="text-sm text-destructive whitespace-pre-wrap">
                   {typeof run.errorsJsonb === 'string' 
                     ? run.errorsJsonb 
                     : JSON.stringify(run.errorsJsonb, null, 2)}
@@ -164,7 +164,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <div className="w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full"></div>
                 <span className="text-sm">
                   <strong>Started:</strong> {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
                 </span>
@@ -172,7 +172,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
               {run.finishedAt && finishDate && !isNaN(finishDate.getTime()) && (
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
-                    run.status === 'success' ? 'bg-green-500' : 'bg-red-500'
+                    run.status === 'success' ? 'bg-emerald-500' : 'bg-destructive'
                   }`}></div>
                   <span className="text-sm">
                     <strong>Finished:</strong> {finishDate.toLocaleString()}
@@ -181,7 +181,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
               )}
               {run.status === 'running' && (
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                  <div className="w-2 h-2 bg-yellow-500 dark:bg-yellow-400 rounded-full animate-pulse"></div>
                   <span className="text-sm">
                     <strong>Status:</strong> Currently running...
                   </span>
@@ -285,21 +285,21 @@ export function Runs() {
       switch (tag) {
         case 'calendar':
           return (
-            <Badge key={tag} variant="secondary" className="text-xs bg-green-100 text-green-800 border-green-200">
+            <Badge key={tag} variant="secondary" className="text-xs bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100 border-emerald-200 dark:border-emerald-700">
               <Calendar className="h-3 w-3 mr-1" />
               Calendar
             </Badge>
           )
         case 'csv':
           return (
-            <Badge key={tag} variant="secondary" className="text-xs bg-orange-100 text-orange-800 border-orange-200">
+            <Badge key={tag} variant="secondary" className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-200 dark:border-orange-700">
               <FileSpreadsheet className="h-3 w-3 mr-1" />
               CSV
             </Badge>
           )
         case 'page-navigation':
           return (
-            <Badge key={tag} variant="secondary" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+            <Badge key={tag} variant="secondary" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 border-blue-200 dark:border-blue-700">
               <Layers className="h-3 w-3 mr-1" />
               Page Nav
             </Badge>
@@ -390,8 +390,18 @@ export function Runs() {
               options.paginationOptions.maxPages = maxPages
             }
           } else if (currentPaginationType === 'calendar') {
-            if (startDate) options.paginationOptions.startDate = startDate.toISOString().split('T')[0]
-            if (endDate) options.paginationOptions.endDate = endDate.toISOString().split('T')[0]
+            if (startDate) {
+              // Set start of day for start date
+              const start = new Date(startDate)
+              start.setHours(0, 0, 0, 0)
+              options.paginationOptions.startDate = start.toISOString()
+            }
+            if (endDate) {
+              // Set end of day for end date
+              const end = new Date(endDate)
+              end.setHours(23, 59, 59, 999)
+              options.paginationOptions.endDate = end.toISOString()
+            }
           }
         }
         
@@ -427,7 +437,7 @@ export function Runs() {
       case 'success':
         return <CheckCircle className="h-4 w-4 text-green-600" />
       case 'error':
-        return <XCircle className="h-4 w-4 text-red-600" />
+        return <XCircle className="h-4 w-4 text-destructive" />
       case 'running':
         return <RotateCcw className="h-4 w-4 text-blue-600 animate-spin" />
       case 'partial':
@@ -462,8 +472,8 @@ export function Runs() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Scraper Runs</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h1 className="text-3xl font-bold text-foreground">Scraper Runs</h1>
+        <p className="text-muted-foreground">
           View scraper execution history and trigger new runs
         </p>
       </div>
@@ -484,9 +494,9 @@ export function Runs() {
                 <div className="space-y-2">
                   <Label htmlFor="source-select">Select Source</Label>
                   <p className="text-xs text-muted-foreground mb-2">
-                    Integration types: <span className="inline-flex items-center gap-1 bg-green-100 text-green-800 px-1 py-0.5 rounded text-xs"><Calendar className="h-3 w-3" />Calendar</span> (date ranges), 
-                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-xs ml-1"><Layers className="h-3 w-3" />Page Nav</span> (pagination), 
-                    <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 px-1 py-0.5 rounded text-xs ml-1"><FileSpreadsheet className="h-3 w-3" />CSV</span> (data files)
+                    Integration types: <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100 px-1 py-0.5 rounded text-xs"><Calendar className="h-3 w-3" />Calendar</span> (date ranges), 
+                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 px-1 py-0.5 rounded text-xs ml-1"><Layers className="h-3 w-3" />Page Nav</span> (pagination), 
+                    <span className="inline-flex items-center gap-1 bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 px-1 py-0.5 rounded text-xs ml-1"><FileSpreadsheet className="h-3 w-3" />CSV</span> (data files)
                   </p>
                   <Select value={selectedSourceForTrigger} onValueChange={setSelectedSourceForTrigger}>
                     <SelectTrigger id="source-select">
@@ -568,14 +578,14 @@ export function Runs() {
                         <>
                           <Layers className="h-4 w-4 text-blue-600" />
                           <span className="text-sm font-medium">Page Navigation Support</span>
-                          <Badge variant="secondary" className="ml-auto bg-blue-100 text-blue-800 border-blue-200">Auto-detected</Badge>
+                          <Badge variant="secondary" className="ml-auto bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 border-blue-200 dark:border-blue-700">Auto-detected</Badge>
                         </>
                       )}
                       {currentPaginationType === 'calendar' && (
                         <>
                           <Calendar className="h-4 w-4 text-green-600" />
                           <span className="text-sm font-medium">Calendar Integration Support</span>
-                          <Badge variant="secondary" className="ml-auto bg-green-100 text-green-800 border-green-200">Auto-detected</Badge>
+                          <Badge variant="secondary" className="ml-auto bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100 border-emerald-200 dark:border-emerald-700">Auto-detected</Badge>
                         </>
                       )}
                       {currentPaginationType === 'none' && (
@@ -780,14 +790,14 @@ export function Runs() {
                     <Label className="flex items-center gap-2">
                       <Upload className="h-4 w-4 text-orange-600" />
                       CSV File Upload
-                      <Badge variant="secondary" className="bg-orange-100 text-orange-800 border-orange-200">
+                      <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-200 dark:border-orange-700">
                         File Processing Mode
                       </Badge>
                     </Label>
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Download className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm font-medium text-blue-800">Download Instructions</span>
+                        <span className="text-sm font-medium text-blue-800 dark:text-blue-100">Download Instructions</span>
                         <Button
                           type="button"
                           size="sm"
@@ -799,7 +809,7 @@ export function Runs() {
                           Open Site
                         </Button>
                       </div>
-                      <div className="text-xs text-blue-700 whitespace-pre-line">
+                      <div className="text-xs text-blue-700 dark:text-blue-200 whitespace-pre-line">
                         {getUploadInstructions(selectedSourceForTrigger)}
                       </div>
                     </div>
@@ -1055,7 +1065,7 @@ export function Runs() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <XCircle className="h-8 w-8 text-red-600" />
+              <XCircle className="h-8 w-8 text-destructive" />
               <div>
                 <p className="text-2xl font-bold">
                   {runs?.runs.filter(r => r.run.status === 'error').length || 0}

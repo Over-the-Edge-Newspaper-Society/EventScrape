@@ -31,6 +31,7 @@ function parseDateTime(dateStr: string, defaultTimezone: string): DateTime {
     // Try common formats
     const formats = [
       'yyyy-MM-dd HH:mm:ss',
+      'yyyy-MM-dd HH:mm',  // Added format for Downtown PG events
       'MM/dd/yyyy HH:mm',
       'dd/MM/yyyy HH:mm',
       'yyyy-MM-dd',

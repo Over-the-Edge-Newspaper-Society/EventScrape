@@ -24,15 +24,26 @@ function EventDetailView({ event }: EventDetailViewProps) {
 
   const formatFieldValue = (value: any, fieldName: string) => {
     if (value === null || value === undefined) {
-      return <span className="text-gray-500 italic">Not provided</span>
+      return <span className="text-muted-foreground italic">Not provided</span>
     }
     
     if (fieldName === 'startDatetime' || fieldName === 'endDatetime' || fieldName === 'scrapedAt') {
-      return new Date(value).toLocaleString()
+      // For Prince George events, display in Pacific Time instead of converting to browser's timezone
+      const date = new Date(value)
+      const options: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'numeric', 
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Vancouver' // Pacific Time for Prince George, BC
+      }
+      return date.toLocaleString('en-US', options)
     }
     
     if (fieldName === 'tags' && Array.isArray(value)) {
-      return value.length > 0 ? value.join(', ') : <span className="text-gray-500 italic">None</span>
+      return value.length > 0 ? value.join(', ') : <span className="text-muted-foreground italic">None</span>
     }
     
     if (fieldName === 'descriptionHtml' && value) {
@@ -104,7 +115,7 @@ function EventDetailView({ event }: EventDetailViewProps) {
             <div className="space-y-4 pr-4">
               {structuredFields.map(({ key, label, value }) => (
                 <div key={key} className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                  <div className="font-medium text-gray-700">{label}:</div>
+                  <div className="font-medium text-foreground">{label}:</div>
                   <div className="col-span-3 break-words">
                     {key === 'url' || key === 'imageUrl' ? (
                       value ? (
@@ -118,7 +129,7 @@ function EventDetailView({ event }: EventDetailViewProps) {
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
-                        <span className="text-gray-500 italic">Not provided</span>
+                        <span className="text-muted-foreground italic">Not provided</span>
                       )
                     ) : (
                       formatFieldValue(value, key)
@@ -132,7 +143,7 @@ function EventDetailView({ event }: EventDetailViewProps) {
 
         <TabsContent value="raw" className="overflow-hidden">
           <div className="h-[60vh] overflow-y-auto">
-            <pre className="bg-gray-50 p-4 rounded-md text-sm overflow-x-auto">
+            <pre className="bg-muted p-4 rounded-md text-sm overflow-x-auto">
               <code>{JSON.stringify(eventData.raw, null, 2)}</code>
             </pre>
           </div>
@@ -142,20 +153,20 @@ function EventDetailView({ event }: EventDetailViewProps) {
           <div className="h-[60vh] overflow-y-auto">
             <div className="space-y-4 pr-4">
               <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                <div className="font-medium text-gray-700">Source ID:</div>
+                <div className="font-medium text-foreground">Source ID:</div>
                 <div className="col-span-3">{sourceData.id}</div>
               </div>
               <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                <div className="font-medium text-gray-700">Source Name:</div>
+                <div className="font-medium text-foreground">Source Name:</div>
                 <div className="col-span-3">{sourceData.name}</div>
               </div>
               <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                <div className="font-medium text-gray-700">Module Key:</div>
+                <div className="font-medium text-foreground">Module Key:</div>
                 <div className="col-span-3 font-mono text-sm">{sourceData.moduleKey}</div>
               </div>
               {sourceData.baseUrl && (
                 <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                  <div className="font-medium text-gray-700">Base URL:</div>
+                  <div className="font-medium text-foreground">Base URL:</div>
                   <div className="col-span-3">
                     <a
                       href={sourceData.baseUrl}
@@ -170,7 +181,7 @@ function EventDetailView({ event }: EventDetailViewProps) {
                 </div>
               )}
               <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                <div className="font-medium text-gray-700">Run ID:</div>
+                <div className="font-medium text-foreground">Run ID:</div>
                 <div className="col-span-3 font-mono text-sm">{eventData.runId}</div>
               </div>
             </div>
@@ -265,8 +276,8 @@ export function RawEvents() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Raw Events</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h1 className="text-3xl font-bold text-foreground">Raw Events</h1>
+        <p className="text-muted-foreground">
           Browse and filter events scraped from sources
         </p>
       </div>
@@ -470,10 +481,30 @@ export function RawEvents() {
                         <TableCell>
                           <div className="flex flex-col gap-1">
                             {missingFields.length > 0 && (
-                              <Badge variant="outline" className="text-xs">
-                                <AlertCircle className="h-3 w-3 mr-1" />
-                                {missingFields.length} missing
-                              </Badge>
+                              <div className="relative group">
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-xs cursor-help hover:bg-accent transition-colors"
+                                  title={`Missing: ${missingFields.join(', ')}`}
+                                >
+                                  <AlertCircle className="h-3 w-3 mr-1" />
+                                  {missingFields.length} missing
+                                </Badge>
+                                <div className="absolute z-10 invisible group-hover:visible bg-white border border-gray-200 rounded-md shadow-lg p-3 bottom-full left-0 mb-2 min-w-max">
+                                  <div className="space-y-1">
+                                    <p className="font-medium text-sm">Missing fields:</p>
+                                    <ul className="text-sm text-muted-foreground">
+                                      {missingFields.map((field, index) => (
+                                        <li key={index} className="flex items-center gap-1">
+                                          <span className="w-1 h-1 bg-current rounded-full"></span>
+                                          {field}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                  <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-200"></div>
+                                </div>
+                              </div>
                             )}
                             {event.price && (
                               <Badge variant="success" className="text-xs">

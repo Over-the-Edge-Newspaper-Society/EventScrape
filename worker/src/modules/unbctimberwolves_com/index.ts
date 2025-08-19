@@ -631,46 +631,127 @@ const unbcTimberwolvesModule: ScraperModule = {
             continue;
           }
           
-          // Parse start date and time
+          // Parse start date and time - preserve local time without timezone conversion
           let eventStart = '';
           let eventEnd = '';
           
           try {
-            const startDateTimeString = `${startDate} ${startTime || ''}`.trim();
-            const startDateObj = new Date(startDateTimeString);
-            
-            if (!isNaN(startDateObj.getTime())) {
-              eventStart = startDateObj.toISOString();
-            } else {
-              // Fallback to just date
-              const dateOnly = new Date(startDate);
-              if (!isNaN(dateOnly.getTime())) {
-                eventStart = dateOnly.toISOString();
-              } else {
-                logger.warn(`Could not parse start date for event: ${eventTitle}`);
-                continue;
+            // Parse start date and time by constructing explicit UTC date that preserves the local time
+            if (startDate && startTime) {
+              const parsedDate = new Date(startDate);
+              if (!isNaN(parsedDate.getTime())) {
+                // Parse time string (e.g., "7:00PM", "10:00 PM")
+                let hours = 0;
+                let minutes = 0;
+                
+                const timeMatch = startTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
+                if (timeMatch) {
+                  hours = parseInt(timeMatch[1]);
+                  minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                  const isPM = timeMatch[3].toUpperCase() === 'PM';
+                  
+                  // Convert to 24-hour format
+                  if (isPM && hours !== 12) hours += 12;
+                  if (!isPM && hours === 12) hours = 0;
+                }
+                
+                // Create UTC date with the exact local time values (no timezone conversion)
+                const eventDate = new Date(Date.UTC(
+                  parsedDate.getFullYear(),
+                  parsedDate.getMonth(),
+                  parsedDate.getDate(),
+                  hours,
+                  minutes,
+                  0,
+                  0
+                ));
+                
+                eventStart = eventDate.toISOString();
+                logger.debug(`Parsed start time for ${eventTitle}: ${startDate} ${startTime} -> ${eventStart}`);
               }
             }
             
-            // Parse end date and time if provided
+            if (!eventStart && startDate) {
+              // Fallback to date-only
+              const dateOnly = new Date(startDate);
+              if (!isNaN(dateOnly.getTime())) {
+                eventStart = new Date(Date.UTC(
+                  dateOnly.getFullYear(),
+                  dateOnly.getMonth(),
+                  dateOnly.getDate(),
+                  0, 0, 0, 0
+                )).toISOString();
+                logger.warn(`Using date-only for ${eventTitle}: ${startDate}`);
+              }
+            }
+            
+            if (!eventStart) {
+              logger.warn(`Could not parse start date for event: ${eventTitle}`);
+              continue;
+            }
+            
+            // Parse end date and time if provided using same UTC approach
             if (endDate && endTime) {
-              const endDateTimeString = `${endDate} ${endTime}`.trim();
-              const endDateObj = new Date(endDateTimeString);
-              
-              if (!isNaN(endDateObj.getTime())) {
-                eventEnd = endDateObj.toISOString();
-                logger.debug(`Parsed end time for ${eventTitle}: ${eventEnd}`);
-              } else {
-                logger.warn(`Could not parse end date/time for event: ${eventTitle}`);
+              const parsedEndDate = new Date(endDate);
+              if (!isNaN(parsedEndDate.getTime())) {
+                let endHours = 0;
+                let endMinutes = 0;
+                
+                const endTimeMatch = endTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
+                if (endTimeMatch) {
+                  endHours = parseInt(endTimeMatch[1]);
+                  endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
+                  const isEndPM = endTimeMatch[3].toUpperCase() === 'PM';
+                  
+                  // Convert to 24-hour format
+                  if (isEndPM && endHours !== 12) endHours += 12;
+                  if (!isEndPM && endHours === 12) endHours = 0;
+                }
+                
+                // Create UTC date with exact local time values
+                const endEventDate = new Date(Date.UTC(
+                  parsedEndDate.getFullYear(),
+                  parsedEndDate.getMonth(),
+                  parsedEndDate.getDate(),
+                  endHours,
+                  endMinutes,
+                  0,
+                  0
+                ));
+                
+                eventEnd = endEventDate.toISOString();
+                logger.debug(`Parsed end time for ${eventTitle}: ${endDate} ${endTime} -> ${eventEnd}`);
               }
             } else if (endTime && startDate) {
-              // If only end time is provided, use start date with end time
-              const endDateTimeString = `${startDate} ${endTime}`.trim();
-              const endDateObj = new Date(endDateTimeString);
-              
-              if (!isNaN(endDateObj.getTime())) {
-                eventEnd = endDateObj.toISOString();
-                logger.debug(`Parsed end time (same day) for ${eventTitle}: ${eventEnd}`);
+              // Use start date with end time
+              const parsedDate = new Date(startDate);
+              if (!isNaN(parsedDate.getTime())) {
+                let endHours = 0;
+                let endMinutes = 0;
+                
+                const endTimeMatch = endTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
+                if (endTimeMatch) {
+                  endHours = parseInt(endTimeMatch[1]);
+                  endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
+                  const isEndPM = endTimeMatch[3].toUpperCase() === 'PM';
+                  
+                  if (isEndPM && endHours !== 12) endHours += 12;
+                  if (!isEndPM && endHours === 12) endHours = 0;
+                }
+                
+                // Create UTC date with exact local time values
+                const endEventDate = new Date(Date.UTC(
+                  parsedDate.getFullYear(),
+                  parsedDate.getMonth(),
+                  parsedDate.getDate(),
+                  endHours,
+                  endMinutes,
+                  0,
+                  0
+                ));
+                
+                eventEnd = endEventDate.toISOString();
+                logger.debug(`Parsed end time (same day) for ${eventTitle}: ${startDate} ${endTime} -> ${eventEnd}`);
               }
             }
           } catch (dateError) {
@@ -695,12 +776,50 @@ const unbcTimberwolvesModule: ScraperModule = {
           
           const sourceEventId = `csv_${startDate}_${eventTitle.replace(/[^a-zA-Z0-9]/g, '_')}`;
           
+          // Parse city and region from location using regex pattern
+          // Matches patterns like "City, Province" or "City Name, AB" or "Multi Word City, B.C."
+          let eventCity = 'Prince George'; // Default fallback
+          let eventRegion = 'British Columbia';
+          
+          if (location) {
+            // Regex to match "City, Province/State" format with optional periods and spaces
+            const locationMatch = location.match(/^(.+?),\s*([A-Z]{2}\.?|[A-Z][a-z\s]+)$/);
+            
+            if (locationMatch) {
+              eventCity = locationMatch[1].trim();
+              const regionPart = locationMatch[2].trim();
+              
+              // Map common Canadian province abbreviations to full names
+              const provinceMap: Record<string, string> = {
+                'BC': 'British Columbia',
+                'B.C.': 'British Columbia', 
+                'AB': 'Alberta',
+                'ON': 'Ontario',
+                'QC': 'Quebec',
+                'SK': 'Saskatchewan',
+                'MB': 'Manitoba',
+                'NB': 'New Brunswick',
+                'NS': 'Nova Scotia',
+                'PE': 'Prince Edward Island',
+                'NL': 'Newfoundland and Labrador',
+                'YT': 'Yukon',
+                'NT': 'Northwest Territories',
+                'NU': 'Nunavut'
+              };
+              
+              eventRegion = provinceMap[regionPart] || regionPart;
+            } else {
+              // If regex doesn't match, assume the entire location is the city
+              eventCity = location.trim();
+            }
+          }
+
           const event: RawEvent = {
             sourceEventId,
             title: eventTitle,
             start: eventStart,
-            city: 'Prince George',
-            region: 'British Columbia', 
+            city: eventCity,
+            region: eventRegion, 
             country: 'Canada',
             organizer: 'UNBC Timberwolves Athletics',
             category: 'Sports',
@@ -709,7 +828,7 @@ const unbcTimberwolvesModule: ScraperModule = {
               sport,
               opponent,
               atVs,
-              location: location || facility || '',
+              location,
               startDate,
               startTime,
               endDate,
@@ -728,18 +847,14 @@ const unbcTimberwolvesModule: ScraperModule = {
             logger.debug(`Set end time for ${eventTitle}: ${eventEnd}`);
           }
           
-          // Set venue information
-          if (facility || location) {
-            const venueInfo = facility || location || '';
-            if (venueInfo.toLowerCase().includes('prince george') || 
-                venueInfo.toLowerCase().includes('unbc') ||
-                venueInfo.toLowerCase().includes('masich')) {
-              event.venueName = venueInfo;
-              event.venueAddress = 'Prince George, BC';
-            } else {
-              event.venueName = venueInfo;
-              event.venueAddress = venueInfo;
-            }
+          // Set venue information using facility as venue name and location as address
+          if (facility) {
+            event.venueName = facility;
+            event.venueAddress = location || `${eventCity}, ${eventRegion}`;
+          } else if (location) {
+            // If no facility specified, use location as venue name
+            event.venueName = location;
+            event.venueAddress = location;
           }
           
           events.push(event);

@@ -130,14 +130,14 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
         {run.status === 'error' && run.errorsJsonb && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg text-red-600 flex items-center gap-2">
+              <CardTitle className="text-lg text-destructive flex items-center gap-2">
                 <XCircle className="h-5 w-5" />
                 Error Details
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-red-50 border border-red-200 rounded p-4">
-                <pre className="text-sm text-red-800 whitespace-pre-wrap">
+              <div className="bg-destructive/10 border border-destructive/20 rounded p-4">
+                <pre className="text-sm text-destructive whitespace-pre-wrap">
                   {typeof run.errorsJsonb === 'string' 
                     ? run.errorsJsonb 
                     : JSON.stringify(run.errorsJsonb, null, 2)}
@@ -155,7 +155,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
           <CardContent>
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                <div className="w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full"></div>
                 <span className="text-sm">
                   <strong>Started:</strong> {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
                 </span>
@@ -163,7 +163,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
               {run.finishedAt && finishDate && !isNaN(finishDate.getTime()) && (
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${
-                    run.status === 'success' ? 'bg-green-500' : 'bg-red-500'
+                    run.status === 'success' ? 'bg-emerald-500' : 'bg-destructive'
                   }`}></div>
                   <span className="text-sm">
                     <strong>Finished:</strong> {finishDate.toLocaleString()}
@@ -172,7 +172,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
               )}
               {run.status === 'running' && (
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                  <div className="w-2 h-2 bg-yellow-500 dark:bg-yellow-400 rounded-full animate-pulse"></div>
                   <span className="text-sm">
                     <strong>Status:</strong> Currently running...
                   </span>
@@ -253,8 +253,8 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-muted-foreground">
           Overview of your event scraping and review system
         </p>
       </div>
@@ -325,15 +325,15 @@ export function Dashboard() {
                   }
                   
                   return (
-                    <div key={run.id} className="flex items-center justify-between py-3 px-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                    <div key={run.id} className="flex items-center justify-between py-3 px-3 rounded-lg bg-muted/50">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           {getStatusIcon(run.status)}
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          <p className="text-sm font-medium text-foreground truncate">
                             {source.name}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{formatRelativeTime(run.startedAt)}</span>
                           <span>•</span>
                           <span>{durationFormatted}</span>
@@ -355,7 +355,7 @@ export function Dashboard() {
                           >
                             {run.status}
                           </Badge>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                          <p className="text-xs text-muted-foreground">
                             {run.eventsFound} events
                           </p>
                         </div>
@@ -408,10 +408,10 @@ export function Dashboard() {
                 {sources.sources.slice(0, 5).map((source) => (
                   <div key={source.id} className="flex items-center justify-between py-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      <p className="text-sm font-medium text-foreground truncate">
                         {source.name}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {source.moduleKey}
                       </p>
                     </div>
@@ -419,7 +419,7 @@ export function Dashboard() {
                       <Badge variant={source.active ? 'success' : 'secondary'}>
                         {source.active ? 'Active' : 'Inactive'}
                       </Badge>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-muted-foreground">
                         {source.rateLimitPerMin}/min
                       </span>
                     </div>
@@ -442,46 +442,46 @@ export function Dashboard() {
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
               onClick={() => navigate('/events/raw')}
             >
               <Calendar className="h-8 w-8 text-blue-600 mr-3" />
               <div>
                 <p className="font-medium">View Events</p>
-                <p className="text-sm text-gray-500">Browse scraped events</p>
+                <p className="text-sm text-muted-foreground">Browse scraped events</p>
               </div>
             </div>
             
             <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
               onClick={() => navigate('/matches')}
             >
               <GitMerge className="h-8 w-8 text-orange-600 mr-3" />
               <div>
                 <p className="font-medium">Review Matches</p>
-                <p className="text-sm text-gray-500">Handle duplicates</p>
+                <p className="text-sm text-muted-foreground">Handle duplicates</p>
               </div>
             </div>
             
             <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
               onClick={() => navigate('/runs')}
             >
               <Play className="h-8 w-8 text-green-600 mr-3" />
               <div>
                 <p className="font-medium">Run Scraper</p>
-                <p className="text-sm text-gray-500">Start new scrape</p>
+                <p className="text-sm text-muted-foreground">Start new scrape</p>
               </div>
             </div>
             
             <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
+              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
               onClick={() => navigate('/runs?status=error')}
             >
               <AlertTriangle className="h-8 w-8 text-red-600 mr-3" />
               <div>
                 <p className="font-medium">View Errors</p>
-                <p className="text-sm text-gray-500">Check failed runs</p>
+                <p className="text-sm text-muted-foreground">Check failed runs</p>
               </div>
             </div>
           </div>

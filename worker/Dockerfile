@@ -58,9 +58,10 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 # Copy the built application
 COPY --from=builder --chown=eventscrape:nodejs /app/worker/dist ./worker/dist
 COPY --from=builder --chown=eventscrape:nodejs /app/worker/package.json ./worker/
-COPY --from=builder --chown=eventscrape:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=eventscrape:nodejs /app/node_modules ./worker/node_modules
 COPY --from=builder --chown=eventscrape:nodejs /app/package.json ./
 
 USER eventscrape
 
-CMD ["node", "worker/dist/worker.js"]
+WORKDIR /app/worker
+CMD ["node", "dist/worker.js"]

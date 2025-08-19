@@ -293,11 +293,11 @@ export function Exports() {
   }
 
   const getStatusBadge = (status: string) => {
-    const variant = status === 'success' ? 'default' : 'destructive';
+    const variant = status === 'success' ? 'success' : 'destructive';
     const statusText = status.charAt(0).toUpperCase() + status.slice(1);
     
     return (
-      <Badge variant={variant} className={status === 'success' ? 'bg-green-100 text-green-800 border-green-200' : ''}>
+      <Badge variant={variant}>
         {statusText}
       </Badge>
     )
@@ -318,8 +318,8 @@ export function Exports() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Exports</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h1 className="text-3xl font-bold text-foreground">Exports</h1>
+        <p className="text-muted-foreground">
           Export canonical events to various formats and WordPress
         </p>
       </div>
@@ -446,7 +446,7 @@ export function Exports() {
                           </Button>
                         )}
                         {exportRecord.format === 'wp-rest' && exportRecord.status === 'success' && (
-                          <Badge variant="default" className="text-xs bg-blue-100 text-blue-800 border-blue-200">
+                          <Badge variant="secondary" className="text-xs">
                             Ready for WP
                           </Badge>
                         )}

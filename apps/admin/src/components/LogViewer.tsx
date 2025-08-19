@@ -21,12 +21,12 @@ interface LogViewerProps {
 }
 
 const LOG_LEVELS = {
-  10: { name: 'trace', color: 'text-gray-500', bg: 'bg-gray-500/10' },
+  10: { name: 'trace', color: 'text-muted-foreground', bg: 'bg-muted/50' },
   20: { name: 'debug', color: 'text-blue-500', bg: 'bg-blue-500/10' },
-  30: { name: 'info', color: 'text-green-500', bg: 'bg-green-500/10' },
+  30: { name: 'info', color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
   40: { name: 'warn', color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
-  50: { name: 'error', color: 'text-red-500', bg: 'bg-red-500/10' },
-  60: { name: 'fatal', color: 'text-red-700', bg: 'bg-red-700/20' },
+  50: { name: 'error', color: 'text-destructive', bg: 'bg-destructive/10' },
+  60: { name: 'fatal', color: 'text-destructive', bg: 'bg-destructive/20' },
 }
 
 export function LogViewer({ runId, className }: LogViewerProps) {
@@ -163,7 +163,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
             >
               <div className={cn(
                 'w-2 h-2 rounded-full',
-                isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
+                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'
               )} />
               {isConnected ? 'Connected' : 'Disconnected'}
             </Badge>
@@ -176,7 +176,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
               onClick={() => setAutoScroll(!autoScroll)}
               className={cn(
                 'text-xs',
-                autoScroll && 'bg-blue-50 text-blue-600 border-blue-200'
+                autoScroll && 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300 border-blue-200 dark:border-blue-700'
               )}
             >
               Auto-scroll
@@ -233,9 +233,9 @@ export function LogViewer({ runId, className }: LogViewerProps) {
           className="h-full w-full overflow-y-auto overflow-x-hidden" 
           ref={scrollRef}
         >
-          <div className="p-4 bg-gray-900 text-gray-100 font-mono text-sm min-h-full">
+          <div className="p-4 bg-slate-900 dark:bg-slate-950 text-slate-100 dark:text-slate-100 font-mono text-sm min-h-full">
             {logs.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
+              <div className="text-center text-slate-400 py-8">
                 <Terminal className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No logs available</p>
                 <p className="text-xs mt-1">
@@ -250,8 +250,8 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                   const levelInfo = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS] || LOG_LEVELS[30]
                   
                   return (
-                    <div key={log.id} className="flex items-start gap-3 py-1 hover:bg-gray-800/50 rounded px-2 -mx-2">
-                      <div className="text-gray-500 text-xs font-mono flex-shrink-0 w-12">
+                    <div key={log.id} className="flex items-start gap-3 py-1 hover:bg-slate-800/50 dark:hover:bg-slate-800/50 rounded px-2 -mx-2">
+                      <div className="text-slate-400 text-xs font-mono flex-shrink-0 w-12">
                         {formatTimestamp(log.timestamp)}
                       </div>
                       
@@ -269,7 +269,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                         </div>
                       )}
                       
-                      <div className="text-gray-100 flex-1 min-w-0">
+                      <div className="text-slate-100 flex-1 min-w-0">
                         {log.msg}
                       </div>
                     </div>

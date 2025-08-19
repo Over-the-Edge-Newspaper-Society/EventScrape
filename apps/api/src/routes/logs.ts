@@ -36,7 +36,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Read existing logs first
     try {
-      const existingLogs = await redis.xrange(streamKey, '-', '+', 'COUNT', 100);
+      const existingLogs = await redis.xrange(streamKey, '-', '+', 'COUNT', 1000);
       for (const [id, fields] of existingLogs) {
         const logData: Record<string, string> = {};
         for (let i = 0; i < fields.length; i += 2) {
@@ -54,6 +54,13 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
         });
         lastId = id;
       }
+      
+      // Trim old logs to prevent memory issues - keep only last 2000 entries
+      try {
+        await redis.xtrim(streamKey, 'MAXLEN', '~', 2000);
+      } catch (trimError) {
+        console.warn('Error trimming log stream:', trimError);
+      }
     } catch (error: any) {
       console.error('Error reading existing logs:', error);
     }
@@ -67,7 +74,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
           return; // Skip if stream doesn't exist yet
         }
 
-        const newLogs = await redis.xread('STREAMS', streamKey, lastId, 'COUNT', 10);
+        const newLogs = await redis.xread('STREAMS', streamKey, lastId, 'COUNT', 50);
         
         if (newLogs && newLogs.length > 0) {
           const [, logs] = newLogs[0];
@@ -95,7 +102,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (error: any) {
         console.error('Error reading logs:', error);
       }
-    }, 1000); // Check every second
+    }, 500); // Check every 500ms for more responsive updates
 
     // Clean up on connection close
     request.raw.on('close', () => {
@@ -112,7 +119,7 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
   // Get historical logs for a run
   fastify.get('/history/:runId', async (request, reply) => {
     const { runId } = request.params as { runId: string };
-    const { limit = '100', start = '-', end = '+' } = request.query as any;
+    const { limit = '1000', start = '-', end = '+' } = request.query as any;
     
     if (!runId || typeof runId !== 'string') {
       reply.status(400);

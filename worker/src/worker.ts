@@ -218,6 +218,10 @@ class EventScraperWorker {
           logger: contextLogger,
           jobData: {
             testMode: jobData.testMode,
+            scrapeMode: jobData.scrapeMode,
+            paginationOptions: jobData.paginationOptions,
+            sourceId: jobData.sourceId,
+            runId: jobData.runId,
           },
           stats: {
             pagesCrawled: 0,
