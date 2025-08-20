@@ -500,27 +500,51 @@ const unbcTimberwolvesModule: ScraperModule = {
             // Parse date like "August 2025 22"
             const dateParts = eventData.date.split(' ');
             if (dateParts.length >= 3) {
-              const monthYear = `${dateParts[0]} ${dateParts[1]}`;
+              const monthName = dateParts[0];
+              const year = dateParts[1];
               const day = dateParts[2];
               
-              if (eventData.time) {
-                // Parse time like "5:30 PM"
-                const combinedDateTime = `${monthYear} ${day} ${eventData.time}`;
-                const dateObj = new Date(combinedDateTime);
+              // Convert month name to number
+              const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                                'July', 'August', 'September', 'October', 'November', 'December'];
+              const monthIndex = monthNames.indexOf(monthName);
+              
+              if (monthIndex !== -1) {
+                const monthStr = (monthIndex + 1).toString().padStart(2, '0');
+                const dayStr = day.padStart(2, '0');
                 
-                if (!isNaN(dateObj.getTime())) {
-                  eventStart = dateObj.toISOString();
+                if (eventData.time) {
+                  // Parse time like "5:30 PM"
+                  const timeMatch = eventData.time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+                  if (timeMatch) {
+                    let hour = parseInt(timeMatch[1]);
+                    const minute = timeMatch[2];
+                    const isPM = timeMatch[3].toUpperCase() === 'PM';
+                    
+                    if (isPM && hour !== 12) hour += 12;
+                    else if (!isPM && hour === 12) hour = 0;
+                    
+                    eventStart = `${year}-${monthStr}-${dayStr} ${hour.toString().padStart(2, '0')}:${minute}`;
+                  } else {
+                    // Default time if parsing fails
+                    eventStart = `${year}-${monthStr}-${dayStr} 19:00`;
+                  }
+                } else {
+                  // No time specified, default to 7 PM
+                  eventStart = `${year}-${monthStr}-${dayStr} 19:00`;
                 }
               }
             }
 
             // Fallback if date parsing failed
             if (!eventStart) {
-              eventStart = new Date().toISOString();
+              const now = new Date();
+              eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
               logger.warn(`Date parsing failed for ${eventData.opponent}, using current date`);
             }
           } catch (dateError) {
-            eventStart = new Date().toISOString();
+            const now = new Date();
+            eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
             logger.warn(`Date parsing error for ${eventData.opponent}: ${dateError}`);
           }
 
@@ -569,10 +593,12 @@ const unbcTimberwolvesModule: ScraperModule = {
           logger.warn(`Failed to process event ${eventData.opponent}: ${eventError}`);
           
           // Create minimal fallback event
+          const now = new Date();
+          const fallbackStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
           const fallbackEvent: RawEvent = {
             sourceEventId: `${eventData.date}#${eventData.opponent}#${eventData.time}`,
             title: `${eventData.sport} ${eventData.atVs} ${eventData.opponent}`,
-            start: new Date().toISOString(),
+            start: fallbackStart,
             city: 'Prince George',
             region: 'British Columbia',
             country: 'Canada',
@@ -690,68 +716,74 @@ const unbcTimberwolvesModule: ScraperModule = {
               continue;
             }
             
-            // Parse end date and time if provided using same UTC approach
+            // Parse end date and time if provided
             if (endDate && endTime) {
               const parsedEndDate = new Date(endDate);
               if (!isNaN(parsedEndDate.getTime())) {
-                let endHours = 0;
-                let endMinutes = 0;
+                const endYear = parsedEndDate.getFullYear();
+                const endMonth = (parsedEndDate.getMonth() + 1).toString().padStart(2, '0');
+                const endDay = parsedEndDate.getDate().toString().padStart(2, '0');
                 
                 const endTimeMatch = endTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
                 if (endTimeMatch) {
-                  endHours = parseInt(endTimeMatch[1]);
-                  endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
+                  let endHours = parseInt(endTimeMatch[1]);
+                  const endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
                   const isEndPM = endTimeMatch[3].toUpperCase() === 'PM';
                   
                   // Convert to 24-hour format
                   if (isEndPM && endHours !== 12) endHours += 12;
                   if (!isEndPM && endHours === 12) endHours = 0;
+                  
+                  eventEnd = `${endYear}-${endMonth}-${endDay} ${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+                  logger.debug(`Parsed end time for ${eventTitle}: ${endDate} ${endTime} -> ${eventEnd}`);
                 }
-                
-                // Create UTC date with exact local time values
-                const endEventDate = new Date(Date.UTC(
-                  parsedEndDate.getFullYear(),
-                  parsedEndDate.getMonth(),
-                  parsedEndDate.getDate(),
-                  endHours,
-                  endMinutes,
-                  0,
-                  0
-                ));
-                
-                eventEnd = endEventDate.toISOString();
-                logger.debug(`Parsed end time for ${eventTitle}: ${endDate} ${endTime} -> ${eventEnd}`);
               }
             } else if (endTime && startDate) {
               // Use start date with end time
               const parsedDate = new Date(startDate);
               if (!isNaN(parsedDate.getTime())) {
-                let endHours = 0;
-                let endMinutes = 0;
+                const year = parsedDate.getFullYear();
+                const month = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+                const day = parsedDate.getDate().toString().padStart(2, '0');
                 
                 const endTimeMatch = endTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
                 if (endTimeMatch) {
-                  endHours = parseInt(endTimeMatch[1]);
-                  endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
+                  let endHours = parseInt(endTimeMatch[1]);
+                  const endMinutes = endTimeMatch[2] ? parseInt(endTimeMatch[2]) : 0;
                   const isEndPM = endTimeMatch[3].toUpperCase() === 'PM';
                   
                   if (isEndPM && endHours !== 12) endHours += 12;
                   if (!isEndPM && endHours === 12) endHours = 0;
+                  
+                  // Check if end time is before start time (indicates next day)
+                  if (startTime) {
+                    const startTimeMatch = startTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
+                    if (startTimeMatch) {
+                      let startHours = parseInt(startTimeMatch[1]);
+                      const isStartPM = startTimeMatch[3].toUpperCase() === 'PM';
+                      if (isStartPM && startHours !== 12) startHours += 12;
+                      if (!isStartPM && startHours === 12) startHours = 0;
+                      
+                      if (endHours < startHours) {
+                        // End time is next day
+                        const nextDay = new Date(parsedDate);
+                        nextDay.setDate(nextDay.getDate() + 1);
+                        const nextDayNum = nextDay.getDate().toString().padStart(2, '0');
+                        const nextMonth = (nextDay.getMonth() + 1).toString().padStart(2, '0');
+                        const nextYear = nextDay.getFullYear();
+                        eventEnd = `${nextYear}-${nextMonth}-${nextDayNum} ${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+                        logger.debug(`Parsed end time (next day) for ${eventTitle}`);
+                      } else {
+                        eventEnd = `${year}-${month}-${day} ${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+                        logger.debug(`Parsed end time (same day) for ${eventTitle}`);
+                      }
+                    } else {
+                      eventEnd = `${year}-${month}-${day} ${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+                    }
+                  } else {
+                    eventEnd = `${year}-${month}-${day} ${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+                  }
                 }
-                
-                // Create UTC date with exact local time values
-                const endEventDate = new Date(Date.UTC(
-                  parsedDate.getFullYear(),
-                  parsedDate.getMonth(),
-                  parsedDate.getDate(),
-                  endHours,
-                  endMinutes,
-                  0,
-                  0
-                ));
-                
-                eventEnd = endEventDate.toISOString();
-                logger.debug(`Parsed end time (same day) for ${eventTitle}: ${startDate} ${endTime} -> ${eventEnd}`);
               }
             }
           } catch (dateError) {

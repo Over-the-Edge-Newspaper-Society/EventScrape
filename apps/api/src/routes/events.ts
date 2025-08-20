@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
+import { eq, desc, asc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, eventsCanonical, sources, matches } from '../db/schema.js';
 
@@ -14,6 +14,8 @@ const querySchema = z.object({
   search: z.string().optional(),
   hasDuplicates: z.coerce.boolean().optional(),
   missingFields: z.coerce.boolean().optional(),
+  sortBy: z.enum(['title', 'startDatetime', 'city', 'source', 'scrapedAt']).optional().default('startDatetime'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
 });
 
 export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -52,6 +54,39 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+      // Determine sort column and order
+      let orderByClause;
+      const sortDirection = query.sortOrder === 'asc' ? sql`ASC` : sql`DESC`;
+      
+      switch (query.sortBy) {
+        case 'title':
+          orderByClause = query.sortOrder === 'asc' 
+            ? sql`${eventsRaw.title} ASC`
+            : sql`${eventsRaw.title} DESC`;
+          break;
+        case 'city':
+          orderByClause = query.sortOrder === 'asc'
+            ? sql`${eventsRaw.city} ASC NULLS LAST`
+            : sql`${eventsRaw.city} DESC NULLS LAST`;
+          break;
+        case 'source':
+          orderByClause = query.sortOrder === 'asc'
+            ? sql`${sources.name} ASC`
+            : sql`${sources.name} DESC`;
+          break;
+        case 'scrapedAt':
+          orderByClause = query.sortOrder === 'asc'
+            ? sql`${eventsRaw.scrapedAt} ASC`
+            : sql`${eventsRaw.scrapedAt} DESC`;
+          break;
+        case 'startDatetime':
+        default:
+          orderByClause = query.sortOrder === 'asc'
+            ? sql`${eventsRaw.startDatetime} ASC`
+            : sql`${eventsRaw.startDatetime} DESC`;
+          break;
+      }
+
       // Get events with source information
       const events = await db
         .select({
@@ -65,7 +100,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .from(eventsRaw)
         .leftJoin(sources, eq(eventsRaw.sourceId, sources.id))
         .where(whereClause)
-        .orderBy(desc(eventsRaw.startDatetime))
+        .orderBy(orderByClause)
         .limit(query.limit)
         .offset(offset);
 

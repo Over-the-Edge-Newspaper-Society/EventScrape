@@ -292,6 +292,8 @@ export interface EventsQueryParams {
   search?: string
   hasDuplicates?: boolean
   missingFields?: boolean
+  sortBy?: 'title' | 'startDatetime' | 'city' | 'source' | 'scrapedAt'
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface EventsResponse {

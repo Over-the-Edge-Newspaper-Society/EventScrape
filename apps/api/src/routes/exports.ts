@@ -41,6 +41,7 @@ function generateCSV(events: any[], fieldMap: Record<string, string>): string {
         case 'description': value = event.descriptionHtml || ''; break;
         case 'start': value = event.startDatetime ? new Date(event.startDatetime).toISOString() : ''; break;
         case 'end': value = event.endDatetime ? new Date(event.endDatetime).toISOString() : ''; break;
+        case 'timezone': value = event.timezone || ''; break;
         case 'venue': value = event.venueName || ''; break;
         case 'city': value = event.city || ''; break;
         case 'organizer': value = event.organizer || ''; break;
@@ -89,6 +90,7 @@ function generateJSON(events: any[], fieldMap: Record<string, string>): string {
         description: event.descriptionHtml,
         startDatetime: event.startDatetime,
         endDatetime: event.endDatetime,
+        timezone: event.timezone,
         venueName: event.venueName,
         venueAddress: event.venueAddress,
         city: event.city,
@@ -168,6 +170,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
       descriptionHtml: eventsRaw.descriptionHtml,
       startDatetime: eventsRaw.startDatetime,
       endDatetime: eventsRaw.endDatetime,
+      timezone: eventsRaw.timezone,
       venueName: eventsRaw.venueName,
       venueAddress: eventsRaw.venueAddress,
       city: eventsRaw.city,

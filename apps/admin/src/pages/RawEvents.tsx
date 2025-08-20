@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { eventsApi, sourcesApi, EventsQueryParams, EventWithSource } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code } from 'lucide-react'
+import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 
 interface EventDetailViewProps {
   event: EventWithSource
@@ -196,6 +196,8 @@ export function RawEvents() {
   const [filters, setFilters] = useState<EventsQueryParams>({
     page: 1,
     limit: 20,
+    sortBy: 'startDatetime',
+    sortOrder: 'desc',
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set())
@@ -261,6 +263,24 @@ export function RawEvents() {
     if (selectedEvents.size > 0 && confirm(`Are you sure you want to delete ${selectedEvents.size} events?`)) {
       deleteMutation.mutate(Array.from(selectedEvents))
     }
+  }
+
+  const handleSort = (field: 'title' | 'startDatetime' | 'city' | 'source') => {
+    setFilters(prev => ({
+      ...prev,
+      sortBy: field,
+      sortOrder: prev.sortBy === field && prev.sortOrder === 'desc' ? 'asc' : 'desc',
+      page: 1, // Reset to first page when sorting
+    }))
+  }
+
+  const getSortIcon = (field: string) => {
+    if (filters.sortBy !== field) {
+      return <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+    }
+    return filters.sortOrder === 'desc' 
+      ? <ArrowDown className="h-4 w-4" />
+      : <ArrowUp className="h-4 w-4" />
   }
 
   const getMissingFields = (event: any) => {
@@ -407,10 +427,50 @@ export function RawEvents() {
                         aria-label="Select all events"
                       />
                     </TableHead>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Date/Time</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 data-[state=open]:bg-accent"
+                        onClick={() => handleSort('title')}
+                      >
+                        Event
+                        {getSortIcon('title')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 data-[state=open]:bg-accent"
+                        onClick={() => handleSort('startDatetime')}
+                      >
+                        Date/Time
+                        {getSortIcon('startDatetime')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 data-[state=open]:bg-accent"
+                        onClick={() => handleSort('city')}
+                      >
+                        Location
+                        {getSortIcon('city')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-3 h-8 data-[state=open]:bg-accent"
+                        onClick={() => handleSort('source')}
+                      >
+                        Source
+                        {getSortIcon('source')}
+                      </Button>
+                    </TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>

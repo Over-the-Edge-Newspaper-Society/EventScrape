@@ -451,13 +451,31 @@ const unbcModule: ScraperModule = {
               }
 
               if (enhancementData.startDateTime) {
-                baseEvent.start = enhancementData.startDateTime;
-                logger.info(`Updated event start time from detail page: ${enhancementData.startDateTime}`);
+                // Parse ISO datetime and convert to local format for normalizeEvent
+                const detailDate = new Date(enhancementData.startDateTime);
+                if (!isNaN(detailDate.getTime())) {
+                  const year = detailDate.getFullYear();
+                  const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
+                  const day = detailDate.getDate().toString().padStart(2, '0');
+                  const hours = detailDate.getHours().toString().padStart(2, '0');
+                  const minutes = detailDate.getMinutes().toString().padStart(2, '0');
+                  baseEvent.start = `${year}-${month}-${day} ${hours}:${minutes}`;
+                  logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
+                }
               }
 
               if (enhancementData.endDateTime) {
-                baseEvent.end = enhancementData.endDateTime;
-                logger.info(`Set event end time from detail page: ${enhancementData.endDateTime}`);
+                // Parse ISO datetime and convert to local format for normalizeEvent
+                const detailDate = new Date(enhancementData.endDateTime);
+                if (!isNaN(detailDate.getTime())) {
+                  const year = detailDate.getFullYear();
+                  const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
+                  const day = detailDate.getDate().toString().padStart(2, '0');
+                  const hours = detailDate.getHours().toString().padStart(2, '0');
+                  const minutes = detailDate.getMinutes().toString().padStart(2, '0');
+                  baseEvent.end = `${year}-${month}-${day} ${hours}:${minutes}`;
+                  logger.info(`Set event end time from detail page: ${baseEvent.end}`);
+                }
               }
 
               if (enhancementData.location) {
@@ -476,9 +494,7 @@ const unbcModule: ScraperModule = {
                 baseEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
               }
 
-              if (enhancementData.registrationUrl) {
-                baseEvent.ticketUrl = enhancementData.registrationUrl;
-              }
+              // Note: Registration URL is stored in raw data, not as separate field
 
               // Add enhancement data to raw
               baseEvent.raw = {
@@ -522,37 +538,44 @@ const unbcModule: ScraperModule = {
           // Create minimal fallback event
           let fallbackStart = '';
           try {
-            if (eventLink.date && eventLink.time) {
-              if (eventLink.time === 'All day') {
-                const dateObj = new Date(eventLink.date);
-                if (!isNaN(dateObj.getTime())) {
-                  dateObj.setHours(9, 0, 0, 0);
-                  fallbackStart = dateObj.toISOString();
-                }
-              } else {
-                let normalizedTime = eventLink.time.replace(/\./g, '').toUpperCase();
-                if (normalizedTime.includes(' TO ')) {
-                  normalizedTime = normalizedTime.split(' TO ')[0].trim();
-                }
+            if (eventLink.date) {
+              const dateObj = new Date(eventLink.date);
+              if (!isNaN(dateObj.getTime())) {
+                const year = dateObj.getFullYear();
+                const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                const day = dateObj.getDate().toString().padStart(2, '0');
                 
-                const combinedDateTime = `${eventLink.date} ${normalizedTime}`;
-                const dateObj = new Date(combinedDateTime);
-                if (!isNaN(dateObj.getTime())) {
-                  fallbackStart = dateObj.toISOString();
+                if (!eventLink.time || eventLink.time === 'All day') {
+                  fallbackStart = `${year}-${month}-${day} 09:00`;
                 } else {
-                  const dateOnly = new Date(eventLink.date);
-                  if (!isNaN(dateOnly.getTime())) {
-                    dateOnly.setHours(9, 0, 0, 0);
-                    fallbackStart = dateOnly.toISOString();
+                  let normalizedTime = eventLink.time.replace(/\./g, '').toUpperCase();
+                  if (normalizedTime.includes(' TO ')) {
+                    normalizedTime = normalizedTime.split(' TO ')[0].trim();
+                  }
+                  
+                  const timeMatch = normalizedTime.match(/(\d{1,2}):(\d{2})\s*(A|P)M?/i);
+                  if (timeMatch) {
+                    let hour = parseInt(timeMatch[1]);
+                    const minute = parseInt(timeMatch[2]);
+                    const isPM = timeMatch[3].toUpperCase() === 'P';
+                    
+                    if (isPM && hour !== 12) hour += 12;
+                    else if (!isPM && hour === 12) hour = 0;
+                    
+                    fallbackStart = `${year}-${month}-${day} ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                  } else {
+                    fallbackStart = `${year}-${month}-${day} 09:00`;
                   }
                 }
               }
             }
             if (!fallbackStart) {
-              fallbackStart = new Date().toISOString();
+              const now = new Date();
+              fallbackStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 09:00`;
             }
           } catch (dateError) {
-            fallbackStart = new Date().toISOString();
+            const now = new Date();
+            fallbackStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 09:00`;
           }
           
           const fallbackEvent: RawEvent = {

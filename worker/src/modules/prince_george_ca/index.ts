@@ -352,6 +352,7 @@ const princeGeorgeModule: ScraperModule = {
         
         // Create base event from calendar data first
         let eventStart = '';
+        let eventEnd: string | undefined;
         try {
           if (eventLink.date && eventLink.time) {
             // Parse the date and time properly
@@ -360,48 +361,71 @@ const princeGeorgeModule: ScraperModule = {
             
             // Extract the start time from time ranges like "4:00pm - 7:00pm"
             let startTime = timeStr;
+            let endTime = null;
             if (timeStr.includes(' - ')) {
-              startTime = timeStr.split(' - ')[0].trim();
+              const parts = timeStr.split(' - ');
+              startTime = parts[0].trim();
+              endTime = parts[1]?.trim();
             }
             
-            // Normalize time format: "11a" -> "11:00 AM", "4:00pm" -> "4:00 PM"
-            let normalizedTime = startTime;
-            if (/^\d+[ap]$/.test(startTime)) {
-              // Handle "11a" format
-              const hour = startTime.slice(0, -1);
-              const ampm = startTime.slice(-1).toUpperCase();
-              normalizedTime = `${hour}:00 ${ampm}M`;
-            } else if (/^\d+:\d+[ap]m?$/i.test(startTime)) {
-              // Handle "4:00pm" format
-              normalizedTime = startTime.replace(/([ap])m?$/i, (match, ampm) => ` ${ampm.toUpperCase()}M`);
-            }
-            
-            // Try to parse the combined date and time
-            const combinedDateTime = `${dateStr} ${normalizedTime}`;
-            logger.info(`Attempting to parse: "${combinedDateTime}" from date: "${dateStr}" and time: "${timeStr}"`);
-            
-            const dateObj = new Date(combinedDateTime);
-            if (!isNaN(dateObj.getTime())) {
-              eventStart = dateObj.toISOString();
-              logger.info(`Successfully parsed event time: ${eventStart}`);
-            } else {
-              // Try parsing just the date and use a default time
-              const dateOnly = new Date(dateStr);
-              if (!isNaN(dateOnly.getTime())) {
-                // Set a default time if time parsing failed
-                dateOnly.setHours(19, 0, 0, 0); // Default to 7 PM
-                eventStart = dateOnly.toISOString();
-                logger.warn(`Used date with default time for event: ${eventLink.title}`);
+            // Normalize time format: "11a" -> "11:00", "4:00pm" -> "16:00"
+            const normalizeTimeToString = (time: string): string => {
+              if (/^\d+[ap]$/i.test(time)) {
+                // Handle "11a" format
+                const hour = parseInt(time.slice(0, -1));
+                const isPM = time.slice(-1).toLowerCase() === 'p';
+                const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
+                return `${hour24.toString().padStart(2, '0')}:00`;
+              } else if (/^\d+:\d+\s*[ap]m?$/i.test(time)) {
+                // Handle "4:00pm" format
+                const match = time.match(/(\d+):(\d+)\s*([ap])m?/i);
+                if (match) {
+                  const hour = parseInt(match[1]);
+                  const min = match[2];
+                  const isPM = match[3].toLowerCase() === 'p';
+                  const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
+                  return `${hour24.toString().padStart(2, '0')}:${min}`;
+                }
               }
+              return '19:00'; // Default to 7 PM if parsing fails
+            };
+            
+            const startTimeNormalized = normalizeTimeToString(startTime);
+            
+            // Parse the date
+            let dateOnlyStr = dateStr;
+            if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              // Already in YYYY-MM-DD format
+              dateOnlyStr = dateStr;
+            } else {
+              // Try to parse natural language date
+              const tempDate = new Date(dateStr);
+              if (!isNaN(tempDate.getTime())) {
+                dateOnlyStr = `${tempDate.getFullYear()}-${(tempDate.getMonth() + 1).toString().padStart(2, '0')}-${tempDate.getDate().toString().padStart(2, '0')}`;
+              }
+            }
+            
+            // Create date string in format that normalizeEvent will parse correctly
+            // This will be parsed as Pacific time by normalizeEvent
+            eventStart = `${dateOnlyStr} ${startTimeNormalized}`;
+            logger.info(`Created event start time: ${eventStart} from date: "${dateStr}" and time: "${timeStr}"`);
+            
+            // Handle end time if available
+            if (endTime) {
+              const endTimeNormalized = normalizeTimeToString(endTime);
+              eventEnd = `${dateOnlyStr} ${endTimeNormalized}`;
+              logger.info(`Created event end time: ${eventEnd}`);
             }
           }
           // Fallback to current date if parsing fails
           if (!eventStart) {
-            eventStart = new Date().toISOString();
+            const now = new Date();
+            eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
             logger.warn(`Using current date as fallback for event: ${eventLink.title}`);
           }
         } catch (dateError) {
-          eventStart = new Date().toISOString();
+          const now = new Date();
+          eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
           logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
         }
 
@@ -414,6 +438,7 @@ const princeGeorgeModule: ScraperModule = {
           sourceEventId: sourceEventId,
           title: eventLink.title || 'Untitled Event',
           start: eventStart,
+          end: eventEnd,
           city: 'Prince George',
           region: 'British Columbia', 
           country: 'Canada',
@@ -497,13 +522,31 @@ const princeGeorgeModule: ScraperModule = {
 
             // Use the correct datetime from detail page if available
             if (enhancementData.startDateTime) {
-              baseEvent.start = enhancementData.startDateTime;
-              logger.info(`Updated event start time from detail page: ${enhancementData.startDateTime}`);
+              // Parse the ISO datetime and convert to local format for normalizeEvent
+              const detailDate = new Date(enhancementData.startDateTime);
+              if (!isNaN(detailDate.getTime())) {
+                const year = detailDate.getFullYear();
+                const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
+                const day = detailDate.getDate().toString().padStart(2, '0');
+                const hours = detailDate.getHours().toString().padStart(2, '0');
+                const minutes = detailDate.getMinutes().toString().padStart(2, '0');
+                baseEvent.start = `${year}-${month}-${day} ${hours}:${minutes}`;
+                logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
+              }
             }
 
             if (enhancementData.endDateTime) {
-              baseEvent.end = enhancementData.endDateTime;
-              logger.info(`Set event end time from detail page: ${enhancementData.endDateTime}`);
+              // Parse the ISO datetime and convert to local format for normalizeEvent
+              const detailDate = new Date(enhancementData.endDateTime);
+              if (!isNaN(detailDate.getTime())) {
+                const year = detailDate.getFullYear();
+                const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
+                const day = detailDate.getDate().toString().padStart(2, '0');
+                const hours = detailDate.getHours().toString().padStart(2, '0');
+                const minutes = detailDate.getMinutes().toString().padStart(2, '0');
+                baseEvent.end = `${year}-${month}-${day} ${hours}:${minutes}`;
+                logger.info(`Set event end time from detail page: ${baseEvent.end}`);
+              }
             }
 
             // Enhance the base event with detail page data
@@ -598,10 +641,12 @@ const princeGeorgeModule: ScraperModule = {
         logger.warn(`Failed to process calendar event ${eventLink.title}: ${eventError}`);
         
         // Create minimal fallback event
+        const now = new Date();
+        const fallbackStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 19:00`;
         const fallbackEvent: RawEvent = {
           sourceEventId: `${eventLink.url}#${eventLink.date || new Date().toDateString()}`,
           title: eventLink.title || 'Untitled Event',
-          start: new Date().toISOString(),
+          start: fallbackStart,
           city: 'Prince George',
           region: 'British Columbia', 
           country: 'Canada',
