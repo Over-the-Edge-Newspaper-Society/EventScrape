@@ -633,13 +633,49 @@ return dateObj.toISOString(); // This causes timezone shifts!
 
 // ❌ WRONG: String parsing can cause timezone conversion
 return new Date(`${dateStr} ${timeStr}`).toISOString();
+
+// ❌ WRONG: Manual parsing of ISO datetime strings loses timezone info
+const enhancedData = {
+  startDateTime: new Date(isoString).getHours() + ':' + new Date(isoString).getMinutes()
+};
+// This converts the ISO datetime to system timezone, losing the original zone!
 ```
+
+#### Critical Timezone Lessons Learned
+
+**The parseDateTime Function is Your Friend**: Always pass ISO datetime strings directly to the `normalizeEvent()` function. The `parseDateTime()` function in `lib/utils.ts` handles timezone conversion properly using Luxon's DateTime library.
+
+**Real Bug Example**: In the UNBC and Prince George modules, we had this problematic code:
+
+```typescript
+// ❌ BAD: Manual parsing loses timezone information
+const enhancementData = {
+  startDateTime: new Date(startDateTime).getHours() + ':' + 
+                 String(new Date(startDateTime).getMinutes()).padStart(2, '0')
+};
+baseEvent.start = parseEventDate(baseEvent.start.split(' ')[0], enhancementData.startDateTime);
+```
+
+**✅ FIXED**: Pass the ISO string directly:
+
+```typescript
+// ✅ GOOD: Pass ISO datetime directly to normalizeEvent
+baseEvent.start = enhancementData.startDateTime; // Keep as ISO string
+// Let normalizeEvent() handle the timezone conversion properly
+```
+
+**Key Insights**:
+1. **ISO Strings Preserve Timezone**: When sites provide ISO datetime strings (e.g., `2024-10-25T19:00:00-07:00`), they contain timezone information
+2. **Manual Parsing Breaks Timezones**: Using `new Date()` constructor converts to system timezone, losing original zone info
+3. **Trust the Pipeline**: The `normalizeEvent()` function with `parseDateTime()` correctly handles timezone conversion using Luxon
+4. **Docker Matters**: Always rebuild worker container (`docker-compose build worker && docker-compose restart worker`) when fixing timezone issues
 
 #### Why This Matters
 
 1. **System Timezone**: The scraper might run in a different timezone than the events
 2. **Processing Pipeline**: The `normalizeEvent()` function handles timezone conversion using the source's `defaultTimezone`
 3. **Frontend Display**: Times are displayed in the correct local timezone
+4. **Data Consistency**: Events from the same source should all have consistent timezone representation
 
 #### Full Example
 

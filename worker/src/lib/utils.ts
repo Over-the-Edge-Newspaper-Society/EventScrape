@@ -27,7 +27,16 @@ function parseDateTime(dateStr: string, defaultTimezone: string): DateTime {
   // Try parsing as ISO first
   let dt = DateTime.fromISO(dateStr);
   
-  if (!dt.isValid) {
+  if (dt.isValid) {
+    // If it's a date-only string (no time component), ensure it's interpreted in the correct timezone
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Date-only ISO format - reparse with explicit timezone
+      dt = DateTime.fromISO(dateStr, { zone: defaultTimezone });
+    } else {
+      // For datetime strings with timezone info, convert to the default timezone to preserve zone name
+      dt = dt.setZone(defaultTimezone);
+    }
+  } else {
     // Try common formats
     const formats = [
       'yyyy-MM-dd HH:mm:ss',

@@ -303,11 +303,13 @@ const unbcModule: ScraperModule = {
           try {
             if (eventLink.date && eventLink.time) {
               if (eventLink.time === 'All day') {
-                // All day event
+                // All day event - use local format for normalizeEvent to handle timezone
                 const dateObj = new Date(eventLink.date);
                 if (!isNaN(dateObj.getTime())) {
-                  dateObj.setHours(9, 0, 0, 0); // Default to 9 AM
-                  eventStart = dateObj.toISOString();
+                  const year = dateObj.getFullYear();
+                  const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                  const day = dateObj.getDate().toString().padStart(2, '0');
+                  eventStart = `${year}-${month}-${day} 09:00`;
                 }
               } else {
                 // Parse specific time - convert "5:00 p.m." to "5:00 PM"
@@ -319,24 +321,36 @@ const unbcModule: ScraperModule = {
                 const combinedDateTime = `${eventLink.date} ${normalizedTime}`;
                 const dateObj = new Date(combinedDateTime);
                 if (!isNaN(dateObj.getTime())) {
-                  eventStart = dateObj.toISOString();
+                  // Use local format for normalizeEvent to handle timezone
+                  const year = dateObj.getFullYear();
+                  const month = (dateObj.getMonth() + 1).toString().padStart(2, '0');
+                  const day = dateObj.getDate().toString().padStart(2, '0');
+                  const hours = dateObj.getHours().toString().padStart(2, '0');
+                  const minutes = dateObj.getMinutes().toString().padStart(2, '0');
+                  eventStart = `${year}-${month}-${day} ${hours}:${minutes}`;
                 } else {
-                  // Fallback to date only
+                  // Fallback to date only - use local format for normalizeEvent to handle timezone
                   const dateOnly = new Date(eventLink.date);
                   if (!isNaN(dateOnly.getTime())) {
-                    dateOnly.setHours(9, 0, 0, 0);
-                    eventStart = dateOnly.toISOString();
+                    const year = dateOnly.getFullYear();
+                    const month = (dateOnly.getMonth() + 1).toString().padStart(2, '0');
+                    const day = dateOnly.getDate().toString().padStart(2, '0');
+                    eventStart = `${year}-${month}-${day} 09:00`;
                   }
                 }
               }
             }
             
             if (!eventStart) {
-              eventStart = new Date().toISOString();
+              // Use a reasonable fallback time in local format for normalizeEvent to handle
+              const now = new Date();
+              eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 09:00`;
               logger.warn(`Using current date as fallback for event: ${eventLink.title}`);
             }
           } catch (dateError) {
-            eventStart = new Date().toISOString();
+            // Use a reasonable fallback time in local format for normalizeEvent to handle
+            const now = new Date();
+            eventStart = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} 09:00`;
             logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
           }
 
@@ -451,31 +465,15 @@ const unbcModule: ScraperModule = {
               }
 
               if (enhancementData.startDateTime) {
-                // Parse ISO datetime and convert to local format for normalizeEvent
-                const detailDate = new Date(enhancementData.startDateTime);
-                if (!isNaN(detailDate.getTime())) {
-                  const year = detailDate.getFullYear();
-                  const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
-                  const day = detailDate.getDate().toString().padStart(2, '0');
-                  const hours = detailDate.getHours().toString().padStart(2, '0');
-                  const minutes = detailDate.getMinutes().toString().padStart(2, '0');
-                  baseEvent.start = `${year}-${month}-${day} ${hours}:${minutes}`;
-                  logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
-                }
+                // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+                baseEvent.start = enhancementData.startDateTime;
+                logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
               }
 
               if (enhancementData.endDateTime) {
-                // Parse ISO datetime and convert to local format for normalizeEvent
-                const detailDate = new Date(enhancementData.endDateTime);
-                if (!isNaN(detailDate.getTime())) {
-                  const year = detailDate.getFullYear();
-                  const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
-                  const day = detailDate.getDate().toString().padStart(2, '0');
-                  const hours = detailDate.getHours().toString().padStart(2, '0');
-                  const minutes = detailDate.getMinutes().toString().padStart(2, '0');
-                  baseEvent.end = `${year}-${month}-${day} ${hours}:${minutes}`;
-                  logger.info(`Set event end time from detail page: ${baseEvent.end}`);
-                }
+                // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+                baseEvent.end = enhancementData.endDateTime;
+                logger.info(`Set event end time from detail page: ${baseEvent.end}`);
               }
 
               if (enhancementData.location) {

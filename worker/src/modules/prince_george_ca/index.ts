@@ -522,31 +522,15 @@ const princeGeorgeModule: ScraperModule = {
 
             // Use the correct datetime from detail page if available
             if (enhancementData.startDateTime) {
-              // Parse the ISO datetime and convert to local format for normalizeEvent
-              const detailDate = new Date(enhancementData.startDateTime);
-              if (!isNaN(detailDate.getTime())) {
-                const year = detailDate.getFullYear();
-                const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
-                const day = detailDate.getDate().toString().padStart(2, '0');
-                const hours = detailDate.getHours().toString().padStart(2, '0');
-                const minutes = detailDate.getMinutes().toString().padStart(2, '0');
-                baseEvent.start = `${year}-${month}-${day} ${hours}:${minutes}`;
-                logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
-              }
+              // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+              baseEvent.start = enhancementData.startDateTime;
+              logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
             }
 
             if (enhancementData.endDateTime) {
-              // Parse the ISO datetime and convert to local format for normalizeEvent
-              const detailDate = new Date(enhancementData.endDateTime);
-              if (!isNaN(detailDate.getTime())) {
-                const year = detailDate.getFullYear();
-                const month = (detailDate.getMonth() + 1).toString().padStart(2, '0');
-                const day = detailDate.getDate().toString().padStart(2, '0');
-                const hours = detailDate.getHours().toString().padStart(2, '0');
-                const minutes = detailDate.getMinutes().toString().padStart(2, '0');
-                baseEvent.end = `${year}-${month}-${day} ${hours}:${minutes}`;
-                logger.info(`Set event end time from detail page: ${baseEvent.end}`);
-              }
+              // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+              baseEvent.end = enhancementData.endDateTime;
+              logger.info(`Set event end time from detail page: ${baseEvent.end}`);
             }
 
             // Enhance the base event with detail page data

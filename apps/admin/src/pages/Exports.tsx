@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/DatePicker'
-import { exportsApi, CreateExportData } from '@/lib/api'
+import { exportsApi, sourcesApi, CreateExportData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle } from 'lucide-react'
 
@@ -24,12 +25,29 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
     filters: {},
     fieldMap: {},
   })
+  const [allData, setAllData] = useState(false)
+
+  // Fetch sources for the source filter
+  const { data: sources, isLoading: sourcesLoading } = useQuery({
+    queryKey: ['sources'],
+    queryFn: () => sourcesApi.getAll(),
+  })
 
   const handleNext = () => {
     if (step < 3) {
       setStep(step + 1)
     } else {
-      onExport(exportData)
+      // Clear date filters if "All Data" is selected
+      const finalExportData = allData ? {
+        ...exportData,
+        filters: {
+          ...exportData.filters,
+          startDate: undefined,
+          endDate: undefined,
+        }
+      } : exportData
+      
+      onExport(finalExportData)
       onClose()
     }
   }
@@ -115,37 +133,73 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
         {step === 2 && (
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Apply Filters</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Start Date</label>
-                <DatePicker
-                  date={exportData.filters?.startDate ? new Date(exportData.filters.startDate) : undefined}
-                  onDateChange={(date) =>
+            
+            {/* All Data Checkbox */}
+            <div className="flex items-center space-x-2 p-3 border rounded-lg bg-blue-50 border-blue-200">
+              <Checkbox
+                id="all-data"
+                checked={allData}
+                onCheckedChange={(checked) => {
+                  setAllData(!!checked)
+                  if (checked) {
+                    // Clear date filters when All Data is selected
                     setExportData(prev => ({
                       ...prev,
-                      filters: { 
-                        ...prev.filters, 
-                        startDate: date ? date.toISOString().split('T')[0] : undefined 
-                      },
+                      filters: {
+                        ...prev.filters,
+                        startDate: undefined,
+                        endDate: undefined,
+                      }
                     }))
                   }
-                  placeholder="Select start date"
+                }}
+              />
+              <label htmlFor="all-data" className="text-sm font-medium cursor-pointer">
+                Export All Data (no date restrictions)
+              </label>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={`text-sm font-medium mb-2 block ${allData ? 'text-muted-foreground' : ''}`}>
+                  Start Date {allData && '(disabled - all data selected)'}
+                </label>
+                <DatePicker
+                  disabled={allData}
+                  date={allData ? undefined : (exportData.filters?.startDate ? new Date(exportData.filters.startDate) : undefined)}
+                  onDateChange={(date) => {
+                    if (!allData) {
+                      setExportData(prev => ({
+                        ...prev,
+                        filters: { 
+                          ...prev.filters, 
+                          startDate: date ? date.toISOString().split('T')[0] : undefined 
+                        },
+                      }))
+                    }
+                  }}
+                  placeholder={allData ? "All data selected" : "Select start date"}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">End Date</label>
+                <label className={`text-sm font-medium mb-2 block ${allData ? 'text-muted-foreground' : ''}`}>
+                  End Date {allData && '(disabled - all data selected)'}
+                </label>
                 <DatePicker
-                  date={exportData.filters?.endDate ? new Date(exportData.filters.endDate) : undefined}
-                  onDateChange={(date) =>
-                    setExportData(prev => ({
-                      ...prev,
-                      filters: { 
-                        ...prev.filters, 
-                        endDate: date ? date.toISOString().split('T')[0] : undefined 
-                      },
-                    }))
-                  }
-                  placeholder="Select end date"
+                  disabled={allData}
+                  date={allData ? undefined : (exportData.filters?.endDate ? new Date(exportData.filters.endDate) : undefined)}
+                  onDateChange={(date) => {
+                    if (!allData) {
+                      setExportData(prev => ({
+                        ...prev,
+                        filters: { 
+                          ...prev.filters, 
+                          endDate: date ? date.toISOString().split('T')[0] : undefined 
+                        },
+                      }))
+                    }
+                  }}
+                  placeholder={allData ? "All data selected" : "Select end date"}
                 />
               </div>
               <div>
@@ -186,6 +240,86 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
                     <SelectItem value="ignored">Ignored</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            
+            {/* Sources Filter */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Sources</label>
+              <p className="text-xs text-muted-foreground">Select which event sources to include in the export</p>
+              {sourcesLoading ? (
+                <div className="text-sm text-muted-foreground">Loading sources...</div>
+              ) : sources?.sources?.length ? (
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
+                  {sources.sources.map((source) => (
+                    <div key={source.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`source-${source.id}`}
+                        checked={exportData.filters?.sourceIds?.includes(source.id) || false}
+                        onCheckedChange={(checked) => {
+                          setExportData(prev => {
+                            const currentSourceIds = prev.filters?.sourceIds || []
+                            const newSourceIds = checked
+                              ? [...currentSourceIds, source.id]
+                              : currentSourceIds.filter(id => id !== source.id)
+                            
+                            return {
+                              ...prev,
+                              filters: {
+                                ...prev.filters,
+                                sourceIds: newSourceIds.length > 0 ? newSourceIds : undefined,
+                              },
+                            }
+                          })
+                        }}
+                      />
+                      <label
+                        htmlFor={`source-${source.id}`}
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        {source.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">No sources available</div>
+              )}
+              
+              {/* Source selection controls */}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setExportData(prev => ({
+                      ...prev,
+                      filters: {
+                        ...prev.filters,
+                        sourceIds: sources?.sources?.map(s => s.id) || [],
+                      },
+                    }))
+                  }}
+                >
+                  Select All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setExportData(prev => ({
+                      ...prev,
+                      filters: {
+                        ...prev.filters,
+                        sourceIds: undefined,
+                      },
+                    }))
+                  }}
+                >
+                  Clear All
+                </Button>
               </div>
             </div>
           </div>

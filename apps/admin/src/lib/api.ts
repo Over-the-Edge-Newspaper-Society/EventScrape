@@ -350,6 +350,7 @@ export interface CreateExportData {
     endDate?: string
     city?: string
     category?: string
+    sourceIds?: string[]
     status?: 'new' | 'ready' | 'exported' | 'ignored'
   }
   fieldMap?: Record<string, string>
