@@ -14,6 +14,7 @@ const querySchema = z.object({
   search: z.string().optional(),
   hasDuplicates: z.coerce.boolean().optional(),
   missingFields: z.coerce.boolean().optional(),
+  hasSeries: z.coerce.boolean().optional(),
   sortBy: z.enum(['title', 'startDatetime', 'city', 'source', 'scrapedAt']).optional().default('startDatetime'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
 });
@@ -50,6 +51,13 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         );
       }
 
+      // Series filter - check if raw data contains seriesDates with multiple entries
+      if (query.hasSeries) {
+        conditions.push(
+          sql`${eventsRaw.raw}::text LIKE '%seriesDates%' AND (${eventsRaw.raw}::text LIKE '%},{%' OR ${eventsRaw.raw}::text ~ '.*seriesDates[^}]*}[^}]*}.*')`
+        );
+      }
+      
       // TODO: Add hasDuplicates and missingFields filters when match system is implemented
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

@@ -114,6 +114,41 @@ describe('Prince George CA Module', () => {
     expect(imageEl?.src).toContain('Foodie%20Fridays%20-%20Omnivex.png');
   });
 
+  it('matches series instances to a calendar date (YYYY-MM-DD or natural language)', async () => {
+    const fixtureHtml = await readFile(join(process.cwd(), 'worker/src/modules/prince_george_ca/fixtures/event-detail.html'), 'utf-8');
+    const dom = new JSDOM(fixtureHtml);
+    const { document } = dom.window as any;
+
+    const dateItems = Array.from(document.querySelectorAll('.field--name-field-when .field__item')) as HTMLElement[];
+    const dates: Array<{ start: string, end?: string }> = [];
+    dateItems.forEach(item => {
+      const times = item.querySelectorAll('time[datetime]');
+      if (times.length >= 1) {
+        const start = times[0].getAttribute('datetime') || '';
+        const endAttr = times[1]?.getAttribute('datetime') || undefined;
+        if (start) dates.push({ start, end: endAttr || undefined });
+      }
+    });
+
+    // Helper to normalize dates similar to module code
+    const normalizeToYMD = (d: string): string | null => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+      const tmp = new Date(d);
+      if (isNaN(tmp.getTime())) return null;
+      return `${tmp.getFullYear()}-${(tmp.getMonth() + 1).toString().padStart(2, '0')}-${tmp.getDate().toString().padStart(2, '0')}`;
+    };
+
+    // Take a target calendar date and ensure we pick the matching instance
+    const target1 = '2025-08-01';
+    const match1 = dates.find(d => d.start.split('T')[0] === normalizeToYMD(target1));
+    expect(match1?.start).toBe('2025-08-01T11:00:00-07:00');
+    expect(match1?.end).toBe('2025-08-01T15:00:00-07:00');
+
+    const target2 = 'Friday, July 4, 2025';
+    const match2 = dates.find(d => d.start.split('T')[0] === normalizeToYMD(target2));
+    expect(match2?.start).toBe('2025-07-04T11:00:00-07:00');
+  });
+
   it('should normalize event data correctly', () => {
     const testEventData = {
       title: 'Foodie Fridays',

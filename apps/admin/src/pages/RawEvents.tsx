@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { eventsApi, sourcesApi, EventsQueryParams, EventWithSource } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, Filter, Calendar, MapPin, ExternalLink, AlertCircle, Trash2, Eye, Database, Code, ArrowUpDown, ArrowUp, ArrowDown, Repeat, Clock } from 'lucide-react'
 
 interface EventDetailViewProps {
   event: EventWithSource
@@ -21,6 +21,17 @@ interface EventDetailViewProps {
 function EventDetailView({ event }: EventDetailViewProps) {
   const eventData = event.event
   const sourceData = event.source
+
+  // Helper function to extract series dates from raw data
+  const getSeriesDates = (rawData: any) => {
+    if (rawData?.seriesDates && Array.isArray(rawData.seriesDates)) {
+      return rawData.seriesDates as Array<{ start: string, end?: string }>
+    }
+    return []
+  }
+
+  const seriesDates = getSeriesDates(eventData.raw)
+  const isSeriesEvent = seriesDates.length > 1
 
   const formatFieldValue = (value: any, fieldName: string) => {
     if (value === null || value === undefined) {
@@ -95,11 +106,17 @@ function EventDetailView({ event }: EventDetailViewProps) {
       </DialogHeader>
 
       <Tabs defaultValue="structured" className="flex-1 overflow-hidden">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={`grid w-full ${isSeriesEvent ? 'grid-cols-4' : 'grid-cols-3'}`}>
           <TabsTrigger value="structured" className="flex items-center gap-2">
             <Eye className="h-4 w-4" />
             Structured View
           </TabsTrigger>
+          {isSeriesEvent && (
+            <TabsTrigger value="series" className="flex items-center gap-2">
+              <Repeat className="h-4 w-4" />
+              Series ({seriesDates.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="raw" className="flex items-center gap-2">
             <Code className="h-4 w-4" />
             Raw JSON
@@ -140,6 +157,97 @@ function EventDetailView({ event }: EventDetailViewProps) {
             </div>
           </div>
         </TabsContent>
+
+        {isSeriesEvent && (
+          <TabsContent value="series" className="overflow-hidden">
+            <div className="h-[60vh] overflow-y-auto">
+              <div className="space-y-4 pr-4">
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-medium mb-2">
+                    <Repeat className="h-4 w-4" />
+                    Event Series Information
+                  </div>
+                  <p className="text-blue-600 dark:text-blue-400 text-sm">
+                    This event occurs {seriesDates.length} times as part of a recurring series.
+                  </p>
+                </div>
+                
+                <div className="space-y-3">
+                  {seriesDates.map((dateInfo, index) => {
+                    const startDate = new Date(dateInfo.start)
+                    const endDate = dateInfo.end ? new Date(dateInfo.end) : null
+                    const isCurrentInstance = dateInfo.start === eventData.startDatetime
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={`border rounded-lg p-4 ${
+                          isCurrentInstance 
+                            ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800' 
+                            : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${
+                              isCurrentInstance ? 'bg-green-500 dark:bg-green-400' : 'bg-gray-400 dark:bg-gray-500'
+                            }`} />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                                <span className="font-medium">
+                                  {startDate.toLocaleDateString('en-US', { 
+                                    weekday: 'long',
+                                    year: 'numeric', 
+                                    month: 'long', 
+                                    day: 'numeric'
+                                  })}
+                                </span>
+                                {isCurrentInstance && (
+                                  <Badge variant="success" className="text-xs ml-2">
+                                    Current Instance
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Clock className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                                <span className="text-sm text-gray-600 dark:text-gray-300">
+                                  {startDate.toLocaleTimeString('en-US', {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true,
+                                    timeZone: 'America/Vancouver'
+                                  })}
+                                  {endDate && (
+                                    <>
+                                      {' - '}
+                                      {endDate.toLocaleTimeString('en-US', {
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                        hour12: true,
+                                        timeZone: 'America/Vancouver'
+                                      })}
+                                    </>
+                                  )}
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">(Pacific Time)</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              Instance {index + 1} of {seriesDates.length}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="raw" className="overflow-hidden">
           <div className="h-[60vh] overflow-y-auto">
@@ -293,6 +401,11 @@ export function RawEvents() {
     return missing
   }
 
+  const isEventSeries = (event: EventWithSource) => {
+    const seriesDates = event.event.raw?.seriesDates
+    return Array.isArray(seriesDates) && seriesDates.length > 1
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -348,16 +461,28 @@ export function RawEvents() {
             />
 
             {/* Special Filters */}
-            <Select onValueChange={(value) => {
+            <Select value={
+              filters.hasSeries ? 'series' : 
+              filters.hasDuplicates ? 'duplicates' : 
+              filters.missingFields ? 'missing' : 
+              'all'
+            } onValueChange={(value) => {
               if (value === 'duplicates') {
                 handleFilterChange('hasDuplicates', true)
                 handleFilterChange('missingFields', undefined)
+                handleFilterChange('hasSeries', undefined)
               } else if (value === 'missing') {
                 handleFilterChange('missingFields', true)
                 handleFilterChange('hasDuplicates', undefined)
+                handleFilterChange('hasSeries', undefined)
+              } else if (value === 'series') {
+                handleFilterChange('hasSeries', true)
+                handleFilterChange('hasDuplicates', undefined)
+                handleFilterChange('missingFields', undefined)
               } else {
                 handleFilterChange('hasDuplicates', undefined)
                 handleFilterChange('missingFields', undefined)
+                handleFilterChange('hasSeries', undefined)
               }
             }}>
               <SelectTrigger>
@@ -367,6 +492,12 @@ export function RawEvents() {
                 <SelectItem value="all">All events</SelectItem>
                 <SelectItem value="duplicates">Has duplicates</SelectItem>
                 <SelectItem value="missing">Missing fields</SelectItem>
+                <SelectItem value="series">
+                  <div className="flex items-center gap-2">
+                    <Repeat className="h-4 w-4" />
+                    Series events
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -479,6 +610,8 @@ export function RawEvents() {
                   {events.events.map(({ event, source }) => {
                     const missingFields = getMissingFields({ event, source })
                     const eventDate = new Date(event.startDatetime)
+                    const isSeries = isEventSeries({ event, source })
+                    const seriesCount = isSeries ? event.raw?.seriesDates?.length || 0 : 0
                     
                     return (
                       <TableRow key={event.id}>
@@ -491,7 +624,15 @@ export function RawEvents() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium text-sm">{event.title}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium text-sm">{event.title}</p>
+                              {isSeries && (
+                                <Badge variant="outline" className="text-xs flex items-center gap-1">
+                                  <Repeat className="h-3 w-3" />
+                                  Series ({seriesCount})
+                                </Badge>
+                              )}
+                            </div>
                             {event.category && (
                               <Badge variant="secondary" className="text-xs mt-1">
                                 {event.category}

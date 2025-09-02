@@ -13,6 +13,8 @@ const princeGeorgeModule: ScraperModule = {
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;
     const events: RawEvent[] = [];
+    // Cache all series dates per URL so we can reuse for repeated calendar entries
+    const seriesCache: Record<string, Array<{ start: string, end?: string }>> = {};
     const isTestMode = jobData?.testMode === true;
 
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
@@ -93,7 +95,7 @@ const princeGeorgeModule: ScraperModule = {
       logger.info(`Calendar pagination completed. Total events found: ${events.length}`);
 
       // Process events (visit detail pages for enhancement)
-      const processedEvents = await this.processEventDetails(ctx, events, isTestMode);
+      const processedEvents = await this.processEventDetails(ctx, events, isTestMode, seriesCache);
 
       const pagesCrawledCount = ctx.stats?.pagesCrawled || 0;
       logger.info(`Scrape completed. Total events found: ${processedEvents.length}, Pages crawled: ${pagesCrawledCount}`);
@@ -335,7 +337,7 @@ const princeGeorgeModule: ScraperModule = {
     return filteredEvents;
   },
 
-  async processEventDetails(ctx: RunContext, eventLinks: Array<{url: string, title: string, time: string, date: string}>, isTestMode: boolean): Promise<RawEvent[]> {
+  async processEventDetails(ctx: RunContext, eventLinks: Array<{url: string, title: string, time: string, date: string}>, isTestMode: boolean, seriesCache: Record<string, Array<{ start: string, end?: string }>>): Promise<RawEvent[]> {
     const { page, logger } = ctx;
     const events: RawEvent[] = [];
     
@@ -454,6 +456,18 @@ const princeGeorgeModule: ScraperModule = {
           },
         };
 
+        // Helper to normalize a calendar date string to YYYY-MM-DD
+        const normalizeToYMD = (d: string): string | null => {
+          try {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+            const tmp = new Date(d);
+            if (isNaN(tmp.getTime())) return null;
+            return `${tmp.getFullYear()}-${(tmp.getMonth() + 1).toString().padStart(2, '0')}-${tmp.getDate().toString().padStart(2, '0')}`;
+          } catch {
+            return null;
+          }
+        };
+
         // Only visit detail page if we haven't processed this URL before
         if (!visitedUrls.has(eventLink.url)) {
           logger.info(`Enhancing with details from: ${eventLink.url}`);
@@ -494,20 +508,17 @@ const princeGeorgeModule: ScraperModule = {
               const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
               const imageUrl = imageEl?.src;
 
-              // Extract datetime information from the when field
-              const datetimeElements = document.querySelectorAll('.field--name-field-when .datetime');
-              let startDateTime = null;
-              let endDateTime = null;
-
-              if (datetimeElements.length >= 1) {
-                // Get start time from first datetime element
-                startDateTime = datetimeElements[0].getAttribute('datetime');
-              }
-
-              if (datetimeElements.length >= 2) {
-                // Get end time from second datetime element
-                endDateTime = datetimeElements[1].getAttribute('datetime');
-              }
+              // Extract ALL date instances (series) from the when field
+              const dateItems = Array.from(document.querySelectorAll('.field--name-field-when .field__item')) as HTMLElement[];
+              const dates: Array<{ start: string, end?: string }> = [];
+              dateItems.forEach(item => {
+                const times = item.querySelectorAll('time[datetime]');
+                if (times.length >= 1) {
+                  const start = times[0].getAttribute('datetime') || '';
+                  const endAttr = times[1]?.getAttribute('datetime') || undefined;
+                  if (start) dates.push({ start, end: endAttr || undefined });
+                }
+              });
 
               return {
                 eventType,
@@ -515,22 +526,35 @@ const princeGeorgeModule: ScraperModule = {
                 location,
                 description,
                 imageUrl,
-                startDateTime,
-                endDateTime,
+                // Backward compatibility fields
+                startDateTime: dates[0]?.start || null,
+                endDateTime: dates[0]?.end || null,
+                dates,
               };
             });
-
-            // Use the correct datetime from detail page if available
-            if (enhancementData.startDateTime) {
-              // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
-              baseEvent.start = enhancementData.startDateTime;
-              logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
+            // Cache series for this URL for reuse
+            if (enhancementData.dates && Array.isArray(enhancementData.dates)) {
+              seriesCache[eventLink.url] = enhancementData.dates as Array<{ start: string, end?: string }>;
             }
 
-            if (enhancementData.endDateTime) {
-              // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
-              baseEvent.end = enhancementData.endDateTime;
-              logger.info(`Set event end time from detail page: ${baseEvent.end}`);
+            // Prefer matching the series instance to the calendar date
+            const eventDateYMD = normalizeToYMD(eventLink.date);
+            const series = enhancementData.dates as Array<{ start: string, end?: string }> | undefined;
+            if (eventDateYMD && series?.length) {
+              const match = series.find(d => (d.start?.split('T')[0] === eventDateYMD));
+              if (match) {
+                baseEvent.start = match.start;
+                baseEvent.end = match.end;
+                logger.info(`Matched series date ${eventDateYMD} from detail page for ${eventLink.title}`);
+              } else if (!enhancementData.startDateTime && series[0]) {
+                baseEvent.start = series[0].start;
+                baseEvent.end = series[0].end;
+                logger.info(`No exact series match; used first instance for ${eventLink.title}`);
+              }
+            } else {
+              // Fallback: single start/end override
+              if (enhancementData.startDateTime) baseEvent.start = enhancementData.startDateTime;
+              if (enhancementData.endDateTime) baseEvent.end = enhancementData.endDateTime;
             }
 
             // Enhance the base event with detail page data
@@ -596,6 +620,7 @@ const princeGeorgeModule: ScraperModule = {
               fullDescription: enhancementData.description,
               detailPageStartDateTime: enhancementData.startDateTime,
               detailPageEndDateTime: enhancementData.endDateTime,
+              seriesDates: (enhancementData as any).dates,
               enhancedFromDetailPage: true,
             };
 
@@ -611,6 +636,18 @@ const princeGeorgeModule: ScraperModule = {
           }
         } else {
           logger.info(`Detail page already processed, using calendar data only: ${eventLink.url}`);
+          // If we cached series dates for this URL, align this instance to the correct date
+          const eventDateYMD = normalizeToYMD(eventLink.date);
+          const series = seriesCache[eventLink.url];
+          if (eventDateYMD && series?.length) {
+            const match = series.find(d => (d.start?.split('T')[0] === eventDateYMD));
+            if (match) {
+              baseEvent.start = match.start;
+              baseEvent.end = match.end;
+              logger.info(`Applied cached series match for ${eventLink.title} on ${eventDateYMD}`);
+            }
+            baseEvent.raw.seriesDates = series;
+          }
           baseEvent.raw = {
             ...baseEvent.raw,
             enhancedFromDetailPage: false,
