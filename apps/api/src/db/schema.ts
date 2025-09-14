@@ -79,6 +79,7 @@ export const eventsRaw = pgTable('events_raw', {
   id: uuid('id').primaryKey().defaultRandom(),
   sourceId: uuid('source_id').notNull().references(() => sources.id),
   runId: uuid('run_id').notNull().references(() => runs.id),
+  lastUpdatedByRunId: uuid('last_updated_by_run_id').references(() => runs.id),
   sourceEventId: text('source_event_id'),
   title: text('title').notNull(),
   descriptionHtml: text('description_html'),
@@ -99,6 +100,7 @@ export const eventsRaw = pgTable('events_raw', {
   url: text('url').notNull(),
   imageUrl: text('image_url'),
   scrapedAt: timestamp('scraped_at', { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow(),
   raw: jsonb('raw').notNull(),
   contentHash: text('content_hash').notNull(),
 }, (table) => ({
@@ -183,6 +185,18 @@ export const users = pgTable('users', {
   name: text('name').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Automated run schedules
+export const schedules = pgTable('schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceId: uuid('source_id').notNull().references(() => sources.id),
+  cron: text('cron').notNull(),
+  timezone: text('timezone').notNull().default('America/Vancouver'),
+  active: boolean('active').notNull().default(true),
+  repeatKey: text('repeat_key'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Optional: Audit logs

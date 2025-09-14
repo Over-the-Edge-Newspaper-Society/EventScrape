@@ -9,7 +9,8 @@ import {
   Home, 
   Play, 
   Settings,
-  Upload
+  Upload,
+  Clock
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'Canonical Events', href: '/events/canonical', icon: Calendar },
   { name: 'Matches', href: '/matches', icon: GitMerge },
   { name: 'Runs', href: '/runs', icon: Play },
+  { name: 'Schedules', href: '/schedules', icon: Clock },
   { name: 'Poster Import', href: '/poster-import', icon: Upload },
   { name: 'Exports', href: '/exports', icon: Download },
 ]

@@ -90,6 +90,7 @@ function EventDetailView({ event }: EventDetailViewProps) {
     { key: 'url', label: 'URL', value: eventData.url },
     { key: 'imageUrl', label: 'Image URL', value: eventData.imageUrl },
     { key: 'scrapedAt', label: 'Scraped At', value: eventData.scrapedAt },
+    { key: 'lastSeenAt', label: 'Last Seen At', value: (eventData as any).lastSeenAt },
     { key: 'contentHash', label: 'Content Hash', value: eventData.contentHash },
   ]
 
@@ -291,6 +292,10 @@ function EventDetailView({ event }: EventDetailViewProps) {
               <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
                 <div className="font-medium text-foreground">Run ID:</div>
                 <div className="col-span-3 font-mono text-sm">{eventData.runId}</div>
+              </div>
+              <div className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
+                <div className="font-medium text-foreground">Last Updated By Run ID:</div>
+                <div className="col-span-3 font-mono text-sm">{(eventData as any).lastUpdatedByRunId || <span className="text-muted-foreground italic">Never updated</span>}</div>
               </div>
             </div>
           </div>

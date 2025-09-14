@@ -40,6 +40,20 @@ async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0003 (schedules)
+    try {
+      const sqlPath3 = join(process.cwd(), 'src/db/migrations/0003_schedules.sql');
+      const sql3 = await readFile(sqlPath3, 'utf-8');
+      await migrationClient.unsafe(sql3);
+      console.log('✅ Applied migration 0003 (schedules)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0003 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0003 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

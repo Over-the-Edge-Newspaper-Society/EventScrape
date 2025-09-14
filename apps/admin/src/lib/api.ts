@@ -160,6 +160,32 @@ export const queueApi = {
     }),
 }
 
+// Schedules API
+export interface Schedule {
+  id: string
+  sourceId: string
+  cron: string
+  timezone: string
+  active: boolean
+  repeatKey?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ScheduleWithSource {
+  schedule: Schedule
+  source: Pick<Source, 'id' | 'name' | 'moduleKey'>
+}
+
+export const schedulesApi = {
+  getAll: () => fetchApi<{ schedules: ScheduleWithSource[] }>(`/schedules`),
+  create: (data: { sourceId: string; cron: string; timezone?: string; active?: boolean }) =>
+    fetchApi<{ schedule: Schedule }>(`/schedules`, { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean }>) =>
+    fetchApi<{ schedule: Schedule }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/schedules/${id}`, { method: 'DELETE' }),
+}
+
 // Types
 export interface Source {
   id: string
@@ -206,6 +232,7 @@ export interface EventRaw {
   id: string
   sourceId: string
   runId: string
+  lastUpdatedByRunId?: string
   sourceEventId?: string
   title: string
   descriptionHtml?: string
@@ -226,6 +253,7 @@ export interface EventRaw {
   url: string
   imageUrl?: string
   scrapedAt: string
+  lastSeenAt?: string
   raw: any
   contentHash: string
 }

@@ -16,6 +16,8 @@ import { queueRoutes } from './routes/queue.js';
 import { logsRoutes } from './routes/logs.js';
 import { uploadsRoutes } from './routes/uploads.js';
 import { posterImportRoutes } from './routes/poster-import.js';
+import { schedulesRoutes } from './routes/schedules.js';
+import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -114,6 +116,11 @@ await fastify.register(queueRoutes, { prefix: '/api/queue' });
 await fastify.register(logsRoutes, { prefix: '/api/logs' });
 await fastify.register(uploadsRoutes, { prefix: '/api/uploads' });
 await fastify.register(posterImportRoutes, { prefix: '/api/poster-import' });
+await fastify.register(schedulesRoutes, { prefix: '/api/schedules' });
+
+// Initialize schedule worker and sync schedules
+initScheduleWorker();
+await syncSchedulesFromDb();
 
 // Start server
 const start = async () => {
