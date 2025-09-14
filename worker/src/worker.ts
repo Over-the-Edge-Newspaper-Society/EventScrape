@@ -220,6 +220,9 @@ class EventScraperWorker {
             testMode: jobData.testMode,
             scrapeMode: jobData.scrapeMode,
             paginationOptions: jobData.paginationOptions,
+            // Pass through uploadedFile when present (supports upload-only modules)
+            // @ts-expect-error: uploadedFile is provided by API job schema
+            uploadedFile: (job.data && (job.data as any).uploadedFile) ? (job.data as any).uploadedFile : undefined,
             sourceId: jobData.sourceId,
             runId: jobData.runId,
           },
@@ -243,9 +246,12 @@ class EventScraperWorker {
         );
         contextLogger.info(`✅ Processed ${processedEvents.length} events`);
 
-        // Save events to database
+        // Save events to database with insert/update/unchanged stats
         contextLogger.info('💾 Saving events to database...');
-        let savedCount = 0;
+        let savedCount = 0; // kept for backward-compat logs
+        const stats = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 } as const;
+        // mutable copy
+        const counters: Record<keyof typeof stats, number> = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
         for (const event of processedEvents) {
           try {
             // Debug logging: check for undefined values before database insertion
@@ -284,27 +290,103 @@ class EventScraperWorker {
               contextLogger.warn(`Event "${event.title}" has undefined fields: ${undefinedFields.join(', ')}`);
               contextLogger.debug('Full event object:', JSON.stringify(event, null, 2));
             }
+            counters.processed++;
 
-            await db`
+            // If no stable source_event_id, always insert (will create a new row)
+            if (!event.sourceEventId) {
+              await db`
+                INSERT INTO events_raw (
+                  source_id, run_id, source_event_id, title, description_html,
+                  start_datetime, end_datetime, timezone, venue_name, venue_address,
+                  city, region, country, lat, lon, organizer, category, price, tags,
+                  url, image_url, scraped_at, raw, content_hash, last_seen_at
+                ) VALUES (
+                  ${source.id}, ${jobData.runId}, ${null}, ${event.title}, ${event.descriptionHtml || null},
+                  ${event.startDatetime}, ${event.endDatetime || null}, ${event.timezone}, ${event.venueName || null}, ${event.venueAddress || null},
+                  ${event.city || null}, ${event.region || null}, ${event.country || null}, ${event.lat || null}, ${event.lon || null}, ${event.organizer || null},
+                  ${event.category || null}, ${event.price || null}, ${event.tags ? JSON.stringify(event.tags) : null},
+                  ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}, NOW()
+                )
+              `;
+              counters.inserted++;
+              savedCount++;
+              continue;
+            }
+
+            // 1) Try insert
+            const inserted = await db`
               INSERT INTO events_raw (
                 source_id, run_id, source_event_id, title, description_html,
                 start_datetime, end_datetime, timezone, venue_name, venue_address,
                 city, region, country, lat, lon, organizer, category, price, tags,
-                url, image_url, scraped_at, raw, content_hash
+                url, image_url, scraped_at, raw, content_hash, last_seen_at
               ) VALUES (
-                ${source.id}, ${jobData.runId}, ${event.sourceEventId || null}, ${event.title}, ${event.descriptionHtml || null},
+                ${source.id}, ${jobData.runId}, ${event.sourceEventId}, ${event.title}, ${event.descriptionHtml || null},
                 ${event.startDatetime}, ${event.endDatetime || null}, ${event.timezone}, ${event.venueName || null}, ${event.venueAddress || null},
                 ${event.city || null}, ${event.region || null}, ${event.country || null}, ${event.lat || null}, ${event.lon || null}, ${event.organizer || null}, 
                 ${event.category || null}, ${event.price || null}, ${event.tags ? JSON.stringify(event.tags) : null},
-                ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}
-              ) ON CONFLICT (source_id, source_event_id) 
+                ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}, NOW()
+              ) ON CONFLICT (source_id, source_event_id)
               WHERE source_event_id IS NOT NULL
               DO NOTHING
+              RETURNING id
             `;
-            savedCount++;
+
+            if (inserted.length > 0) {
+              counters.inserted++;
+              savedCount++;
+              continue;
+            }
+
+            // 2) If exists, try content update when hash changed
+            const updated = await db`
+              UPDATE events_raw
+              SET 
+                title = ${event.title},
+                description_html = ${event.descriptionHtml || null},
+                start_datetime = ${event.startDatetime},
+                end_datetime = ${event.endDatetime || null},
+                timezone = ${event.timezone},
+                venue_name = ${event.venueName || null},
+                venue_address = ${event.venueAddress || null},
+                city = ${event.city || null},
+                region = ${event.region || null},
+                country = ${event.country || null},
+                lat = ${event.lat || null},
+                lon = ${event.lon || null},
+                organizer = ${event.organizer || null},
+                category = ${event.category || null},
+                price = ${event.price || null},
+                tags = ${event.tags ? JSON.stringify(event.tags) : null},
+                url = ${event.url},
+                image_url = ${event.imageUrl || null},
+                raw = ${JSON.stringify(event.raw)},
+                content_hash = ${event.contentHash},
+                last_updated_by_run_id = ${jobData.runId},
+                last_seen_at = NOW()
+              WHERE source_id = ${source.id}
+                AND source_event_id = ${event.sourceEventId}
+                AND content_hash IS DISTINCT FROM ${event.contentHash}
+              RETURNING id
+            `;
+
+            if (updated.length > 0) {
+              counters.updated++;
+              savedCount++;
+            } else {
+              // 3) Unchanged: only touch last_seen_at
+              await db`
+                UPDATE events_raw
+                SET last_seen_at = NOW()
+                WHERE source_id = ${source.id}
+                  AND source_event_id = ${event.sourceEventId}
+              `;
+              counters.unchanged++;
+            }
           } catch (dbError) {
             contextLogger.warn(`Failed to save event "${event.title}": ${dbError}`);
             contextLogger.debug('Event that failed to save:', JSON.stringify(event, null, 2));
+            counters.failed++;
           }
         }
 
@@ -317,8 +399,8 @@ class EventScraperWorker {
           WHERE id = ${jobData.runId}
         `;
 
-        contextLogger.info(`🎉 Scrape completed successfully! Saved ${savedCount}/${rawEvents.length} events`);
-        contextLogger.info(`✅ Scrape completed: ${savedCount}/${rawEvents.length} events saved`);
+        contextLogger.info(`🎉 Scrape completed: ${savedCount}/${rawEvents.length} inserts/updates`);
+        contextLogger.info(`📊 Stats — processed: ${counters.processed}, inserted: ${counters.inserted}, updated: ${counters.updated}, unchanged: ${counters.unchanged}, failed: ${counters.failed}`);
 
         // Queue a match job to find duplicates for recently scraped events
         if (savedCount > 0) {

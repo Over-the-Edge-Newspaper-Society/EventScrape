@@ -143,8 +143,7 @@ export const uploadsRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Source not found' };
       }
 
-      // TODO: Get upload config from module
-      // For now, return config for UNBC Timberwolves
+      // Temporary mapping until module metadata import is wired into API
       if (source.moduleKey === 'unbctimberwolves_com') {
         return {
           supportedFormats: ['csv'],
@@ -155,6 +154,13 @@ export const uploadsRoutes: FastifyPluginAsync = async (fastify) => {
 4. Click "Download Now"
 5. Upload the downloaded CSV file here`,
           downloadUrl: 'https://unbctimberwolves.com/calendar',
+        };
+      }
+
+      if (source.moduleKey === 'ai_poster_import') {
+        return {
+          supportedFormats: ['json'],
+          instructions: `Use the Poster Import prompt (see repo: Poster Import/poster-import-prompt.md) with your poster image to produce JSON, then upload the JSON here.`,
         };
       }
 

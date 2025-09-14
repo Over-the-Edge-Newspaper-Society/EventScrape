@@ -107,6 +107,15 @@ export const runsApi = {
   }),
 }
 
+// Poster Import API
+export const posterImportApi = {
+  upload: (data: { content: string; testMode?: boolean }) =>
+    fetchApi<{ success: boolean; runId: string; jobId: string }>(`/poster-import`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
 // Matches API
 export const matchesApi = {
   getAll: (params?: { status?: string; minScore?: number; limit?: number }) => {

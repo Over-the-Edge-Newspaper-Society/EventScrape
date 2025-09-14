@@ -15,6 +15,7 @@ import { healthRoutes } from './routes/health.js';
 import { queueRoutes } from './routes/queue.js';
 import { logsRoutes } from './routes/logs.js';
 import { uploadsRoutes } from './routes/uploads.js';
+import { posterImportRoutes } from './routes/poster-import.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -112,6 +113,7 @@ await fastify.register(exportsRoutes, { prefix: '/api/exports' });
 await fastify.register(queueRoutes, { prefix: '/api/queue' });
 await fastify.register(logsRoutes, { prefix: '/api/logs' });
 await fastify.register(uploadsRoutes, { prefix: '/api/uploads' });
+await fastify.register(posterImportRoutes, { prefix: '/api/poster-import' });
 
 // Start server
 const start = async () => {

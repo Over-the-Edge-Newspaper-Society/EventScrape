@@ -8,7 +8,8 @@ import {
   GitMerge, 
   Home, 
   Play, 
-  Settings 
+  Settings,
+  Upload
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Canonical Events', href: '/events/canonical', icon: Calendar },
   { name: 'Matches', href: '/matches', icon: GitMerge },
   { name: 'Runs', href: '/runs', icon: Play },
+  { name: 'Poster Import', href: '/poster-import', icon: Upload },
   { name: 'Exports', href: '/exports', icon: Download },
 ]
 

@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Textarea } from '@/components/ui/textarea'
-import { runsApi, sourcesApi } from '@/lib/api'
+import { runsApi, sourcesApi, posterImportApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity, Calendar, Layers, FileSpreadsheet, Upload, Download, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
@@ -218,6 +218,7 @@ export function Runs() {
   const [runMode, setRunMode] = useState<'scrape' | 'upload'>('scrape')
   const [csvContent, setCsvContent] = useState<string>('')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  // Poster Import UI moved to dedicated page
 
   const { data: runs, isLoading: runsLoading } = useQuery({
     queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter }],
@@ -252,6 +253,7 @@ export function Runs() {
       'unbc_ca': ['page-navigation'],
       'prince_george_ca': ['calendar'],
       'downtownpg_com': ['calendar'],
+      'ai_poster_import': ['csv'], // signals upload capability in current UI
       // Add more modules as needed
     }
     return integrationTagsMap[moduleKey] || []
@@ -261,7 +263,7 @@ export function Runs() {
   const moduleSupportsUpload = (moduleKey: string): boolean => {
     const uploadSupportMap: Record<string, boolean> = {
       'unbctimberwolves_com': true,
-      // Add other modules that support upload
+      'ai_poster_import': true,
     }
     return uploadSupportMap[moduleKey] || false
   }
@@ -275,6 +277,11 @@ export function Runs() {
 3. Select "Excel" as the export format
 4. Click "Download Now"
 5. Upload the downloaded CSV file below`,
+      'ai_poster_import': `To import events from posters:
+1. Use the Poster Import prompt (see repo: Poster Import/poster-import-prompt.md)
+2. Run the prompt on your poster image with an LLM (Claude/GPT-4o etc.)
+3. Copy the JSON output that matches the prompt schema
+4. Upload a .json file below or paste the JSON into the text area`
     }
     return instructionsMap[moduleKey] || 'Upload instructions not available'
   }
@@ -327,6 +334,8 @@ export function Runs() {
     }
   }
 
+  // Poster Import UI moved to dedicated page
+
   const triggerScrapeMutation = useMutation({
     mutationFn: (params: { sourceKey: string; options?: any }) => 
       runsApi.triggerScrape(params.sourceKey, params.options),
@@ -349,6 +358,8 @@ export function Runs() {
     },
   })
 
+  // Poster Import UI moved to dedicated page
+
 
   const handleTriggerRun = async () => {
     if (!selectedSourceForTrigger) {
@@ -358,7 +369,8 @@ export function Runs() {
     
     // Validation for upload mode
     if (runMode === 'upload' && !csvContent) {
-      toast.error('Please upload a CSV file or paste content')
+      const isJson = selectedSourceForTrigger && selectedSource && selectedSource.moduleKey === 'ai_poster_import'
+      toast.error(`Please upload a ${isJson ? 'JSON' : 'CSV'} file or paste content`)
       return
     }
     
@@ -373,10 +385,11 @@ export function Runs() {
         
         // Add upload data if in upload mode
         if (runMode === 'upload' && csvContent) {
+          const isJson = selectedSource && selectedSource.moduleKey === 'ai_poster_import'
           options.uploadedFile = {
-            format: 'csv',
+            format: (isJson ? 'json' : 'csv') as 'csv' | 'json',
             content: csvContent,
-            path: uploadFile?.name || 'uploaded.csv'
+            path: uploadFile?.name || (isJson ? 'uploaded.json' : 'uploaded.csv')
           }
         } else if (runMode === 'scrape' && currentPaginationType !== 'none') {
           // Only add pagination options for scrape mode
@@ -478,6 +491,8 @@ export function Runs() {
         </p>
       </div>
 
+      {/* Poster Import UI moved to its own page */}
+
       {/* Quick Actions */}
       <Card>
         <CardContent className="pt-6">
@@ -504,7 +519,7 @@ export function Runs() {
                     </SelectTrigger>
                     <SelectContent>
                       {sources?.sources
-                        .filter(source => source.active)
+                        .filter(source => source.active && source.moduleKey !== 'ai_poster_import')
                         .map((source) => {
                           const integrationTags = getModuleIntegrationTags(source.moduleKey)
                           return (
@@ -787,13 +802,13 @@ export function Runs() {
               {scrapeMode === 'full' && selectedSourceForTrigger && runMode === 'upload' && currentModuleSupportsUpload && (
                 <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Upload className="h-4 w-4 text-orange-600" />
-                      CSV File Upload
-                      <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-200 dark:border-orange-700">
-                        File Processing Mode
-                      </Badge>
-                    </Label>
+              <Label className="flex items-center gap-2">
+                <Upload className="h-4 w-4 text-orange-600" />
+                {selectedSource && selectedSource.moduleKey === 'ai_poster_import' ? 'JSON Upload' : 'CSV File Upload'}
+                <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-200 dark:border-orange-700">
+                  File Processing Mode
+                </Badge>
+              </Label>
                     <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Download className="h-4 w-4 text-blue-600" />
@@ -817,11 +832,11 @@ export function Runs() {
                   
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="csv-upload">Upload CSV File</Label>
+                      <Label htmlFor="csv-upload">{selectedSource && selectedSource.moduleKey === 'ai_poster_import' ? 'Upload JSON File' : 'Upload CSV File'}</Label>
                       <Input
                         id="csv-upload"
                         type="file"
-                        accept=".csv,.xlsx,.xls"
+                        accept={selectedSource && selectedSource.moduleKey === 'ai_poster_import' ? '.json' : '.csv,.xlsx,.xls'}
                         onChange={handleFileUpload}
                         className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/80"
                       />
@@ -833,17 +848,19 @@ export function Runs() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label htmlFor="csv-content">Or Paste CSV Content</Label>
+                      <Label htmlFor="csv-content">{selectedSource && selectedSource.moduleKey === 'ai_poster_import' ? 'Or Paste JSON Content' : 'Or Paste CSV Content'}</Label>
                       <Textarea
                         id="csv-content"
-                        placeholder="Paste your CSV content here..."
+                        placeholder={selectedSource && selectedSource.moduleKey === 'ai_poster_import' ? 'Paste your JSON content here...' : 'Paste your CSV content here...'}
                         value={csvContent}
                         onChange={(e) => setCsvContent(e.target.value)}
                         rows={6}
                         className="font-mono text-xs"
                       />
                       <p className="text-xs text-muted-foreground">
-                        You can either upload a file above or paste the CSV content directly here.
+                        {selectedSource && selectedSource.moduleKey === 'ai_poster_import'
+                          ? 'You can either upload a .json file above or paste the JSON content directly here.'
+                          : 'You can either upload a file above or paste the CSV content directly here.'}
                       </p>
                     </div>
                   </div>

@@ -11,6 +11,7 @@ import { CanonicalEvents } from '@/pages/CanonicalEvents'
 import { Matches } from '@/pages/Matches'
 import { Exports } from '@/pages/Exports'
 import { Runs } from '@/pages/Runs'
+import { PosterImport } from '@/pages/PosterImport'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +36,7 @@ export default function App() {
                 <Route path="/events/canonical" element={<CanonicalEvents />} />
                 <Route path="/matches" element={<Matches />} />
                 <Route path="/runs" element={<Runs />} />
+                <Route path="/poster-import" element={<PosterImport />} />
                 <Route path="/exports" element={<Exports />} />
               </Routes>
             </Layout>
