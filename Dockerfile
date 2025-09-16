@@ -17,9 +17,12 @@ ARG SOURCE_REF="main"
 RUN if [ ! -f package.json ]; then \
       echo "Build context missing package.json, cloning ${SOURCE_REPO}@${SOURCE_REF}" && \
       git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /tmp/src && \
-      cp -R /tmp/src/. /app && \
+      cp -a /tmp/src/. /app && \
       rm -rf /tmp/src; \
     fi
+
+# Verify that key workspace files are present before proceeding
+RUN ls -la && ls -la apps && ls -la worker
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
