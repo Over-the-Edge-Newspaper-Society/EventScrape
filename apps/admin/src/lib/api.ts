@@ -1,13 +1,18 @@
 const resolveApiBaseUrl = () => {
   const configured = import.meta.env.VITE_API_URL
-  if (configured) {
-    if (typeof window !== 'undefined') {
-      return configured.replace('__HOST__', window.location.hostname)
-    }
-    return configured
-  }
   if (typeof window !== 'undefined') {
+    if (configured && configured.length > 0) {
+      let value = configured.replace('__HOST__', window.location.hostname)
+      if (!/^https?:\/\//i.test(value)) {
+        // Allow values like "api:3001/api" to resolve relative to current protocol
+        value = `${window.location.protocol}//${value.replace(/^\/\//, '')}`
+      }
+      return value
+    }
     return `${window.location.protocol}//${window.location.hostname}:3001/api`
+  }
+  if (configured && configured.length > 0) {
+    return configured
   }
   return 'http://localhost:3001/api'
 }
