@@ -1,20 +1,34 @@
-FROM node:18-alpine
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Ensure pnpm is available
+# Install pnpm
 RUN npm install -g pnpm
 
 # Copy repository files
 COPY . .
 
-# Install dependencies including dev deps for the build step
-RUN pnpm install --frozen-lockfile --prod=false
+# Install all dependencies (including dev) for building
+RUN pnpm install --frozen-lockfile
 
-# Build the API so the compiled output exists in the image
+# Build the API
 RUN pnpm --filter @eventscrape/api build
 
-# Expose the API port and run the compiled server
+# Ensure the compiled output was generated
+RUN ls -la apps/api/dist && test -f apps/api/dist/server.js
+
+FROM node:18-alpine AS api
+WORKDIR /app
 ENV NODE_ENV=production
+
+# Install pnpm for workspace pruning
+RUN npm install -g pnpm
+
+# Copy everything from the builder stage (includes dist and node_modules)
+COPY --from=builder /app /app
+
+# Prune dev dependencies to keep only what's needed at runtime
+RUN pnpm prune --prod
+
 EXPOSE 3001
 CMD ["node", "apps/api/dist/server.js"]
