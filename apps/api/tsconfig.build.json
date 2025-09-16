@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json", 
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}

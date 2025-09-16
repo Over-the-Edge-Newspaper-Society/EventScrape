@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "noImplicitReturns": false,
+    "noImplicitThis": false,
+    "noImplicitOverride": false,
+    "allowJs": true,
+    "noCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "test-*.ts"]
+}

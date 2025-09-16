@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+package-lock.json
 
 # Environment
 .env
@@ -44,9 +45,9 @@ playwright/.cache/
 
 # Exports
 exports/
-*.csv
-*.json
-*.ics
+exports/**/*.csv
+exports/**/*.json
+exports/**/*.ics
 
 # Database
 *.db
