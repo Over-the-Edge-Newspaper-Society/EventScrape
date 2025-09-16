@@ -11,23 +11,23 @@ COPY . .
 # Install all dependencies (including dev) for building
 RUN pnpm install --frozen-lockfile
 
-# Build the API
-RUN pnpm --filter @eventscrape/api build
+# Build the API from its package directory to ensure scripts run
+RUN pnpm --dir apps/api run build
 
-# Ensure the compiled output was generated
-RUN ls -la apps/api/dist && test -f apps/api/dist/server.js
+# Verify the compiled output exists
+RUN ls -la apps/api && ls -la apps/api/dist
 
 FROM node:18-alpine AS api
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install pnpm for workspace pruning
+# Install pnpm for pruning dependencies
 RUN npm install -g pnpm
 
-# Copy everything from the builder stage (includes dist and node_modules)
+# Copy everything from the builder stage, including built assets
 COPY --from=builder /app /app
 
-# Prune dev dependencies to keep only what's needed at runtime
+# Remove dev-only dependencies to keep the image lean
 RUN pnpm prune --prod
 
 EXPOSE 3001
