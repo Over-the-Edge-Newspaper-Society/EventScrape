@@ -1,8 +1,10 @@
 # Multi-stage build for EventScrape services
-FROM node:18-alpine AS base
+FROM node:18-bullseye-slim AS base
 
 # Install system dependencies required during build (git for fallback clone)
-RUN apk add --no-cache libc6-compat git
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # Install pnpm
@@ -35,7 +37,7 @@ FROM base AS admin-builder
 RUN pnpm --filter @eventscrape/admin build
 
 # API Production
-FROM node:18-alpine AS api
+FROM node:18-bullseye-slim AS api
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
@@ -51,7 +53,7 @@ EXPOSE 3001
 CMD ["node", "apps/api/dist/server.js"]
 
 # Admin Production
-FROM node:18-alpine AS admin
+FROM node:18-bullseye-slim AS admin
 WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
