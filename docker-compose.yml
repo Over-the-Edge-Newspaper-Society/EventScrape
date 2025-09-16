@@ -59,7 +59,8 @@ services:
   admin:
     build:
       context: .
-      dockerfile: Dockerfile.debug
+      dockerfile: Dockerfile
+      target: admin
     container_name: eventscrape-admin
     ports:
       - "3000:3000"
