@@ -66,7 +66,8 @@ CMD ["serve", "-s", "dist", "-l", "3000"]
 FROM base AS worker
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_HEADLESS=true
-RUN pnpm --filter @eventscrape/worker build
+RUN pnpm --filter @eventscrape/worker build \
+    && test -f worker/dist/worker.js
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
 USER eventscrape
-CMD ["node", "worker/dist/index.js"]
+CMD ["node", "worker/dist/worker.js"]
