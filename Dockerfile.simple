@@ -1,0 +1,18 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy everything (ignore dockerignore for now)
+COPY . .
+
+# Install pnpm
+RUN npm install -g pnpm
+
+# Install dependencies
+RUN pnpm install
+
+# Build API (default)
+RUN pnpm --filter @eventscrape/api build
+
+EXPOSE 3001
+CMD ["node", "apps/api/dist/server.js"]

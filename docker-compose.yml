@@ -38,8 +38,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: api
+      dockerfile: Dockerfile.simple
     container_name: eventscrape-api
     ports:
       - "3001:3001"
