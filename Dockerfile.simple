@@ -5,11 +5,14 @@ WORKDIR /app
 # Copy everything
 COPY . .
 
-# Install pnpm and ts-node with ESM support
-RUN npm install -g pnpm ts-node
+# Install pnpm
+RUN npm install -g pnpm
 
 # Install dependencies
 RUN pnpm install
+
+# Install ts-node locally for ESM support
+RUN pnpm add -w ts-node
 
 # Try to build first, if it fails, fall back to dev mode
 RUN pnpm --filter @eventscrape/api build || echo "Build failed, will run in dev mode"
@@ -21,5 +24,5 @@ RUN ls -la apps/api/src/
 
 EXPOSE 3001
 
-# Try built version first, fall back to TypeScript source with ESM support
-CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && NODE_OPTIONS='--loader ts-node/esm' node src/server.ts; fi"]
+# Try built version first, fall back to dev mode using pnpm script
+CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && pnpm dev; fi"]
