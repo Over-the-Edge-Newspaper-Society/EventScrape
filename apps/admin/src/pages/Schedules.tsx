@@ -42,6 +42,11 @@ export function Schedules() {
 
   const to24h = (h12: number, mer: 'AM'|'PM') => ((h12 % 12) + (mer === 'PM' ? 12 : 0))
   const [manualCron, setManualCron] = useState(false)
+  const handleBuilderInteraction = () => {
+    if (manualCron) {
+      setManualCron(false)
+    }
+  }
 
   // Recompute cron whenever builder inputs change (unless manualCron is enabled)
   useEffect(() => {
@@ -121,7 +126,7 @@ export function Schedules() {
           {/* Schedule Builder */}
           <div className="space-y-3">
             <Label>Schedule Builder</Label>
-            <RadioGroup value={mode} onValueChange={(v) => { setMode(v as any); setTimeout(applyBuilderToCron, 0) }} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <RadioGroup value={mode} onValueChange={(v) => { setMode(v as any); handleBuilderInteraction() }} className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="everyNMinutes" id="mode-everyN" />
                 <Label htmlFor="mode-everyN" className="text-sm cursor-pointer">Every N minutes</Label>
@@ -152,21 +157,21 @@ export function Schedules() {
             {mode === 'everyNMinutes' && (
               <div className="flex items-center gap-2">
                 <Label className="text-sm">Every</Label>
-                <Input type="number" min={1} max={59} value={everyN} onChange={e => { setEveryN(parseInt(e.target.value || '1', 10)); applyBuilderToCron() }} className="w-24" />
+                <Input type="number" min={1} max={59} value={everyN} onChange={e => { handleBuilderInteraction(); setEveryN(parseInt(e.target.value || '1', 10)) }} className="w-24" />
                 <span className="text-sm text-muted-foreground">minutes</span>
               </div>
             )}
             {mode === 'hourly' && (
               <div className="flex items-center gap-2">
                 <Label className="text-sm">At minute</Label>
-                <Input type="number" min={0} max={59} value={hourlyMinute} onChange={e => { setHourlyMinute(parseInt(e.target.value || '0', 10)); applyBuilderToCron() }} className="w-24" />
+                <Input type="number" min={0} max={59} value={hourlyMinute} onChange={e => { handleBuilderInteraction(); setHourlyMinute(parseInt(e.target.value || '0', 10)) }} className="w-24" />
                 <span className="text-sm text-muted-foreground">each hour</span>
               </div>
             )}
             {mode === 'daily' && (
               <div className="flex items-center gap-2">
                 <Label className="text-sm">Time</Label>
-                <Select value={String(dailyHour12)} onValueChange={(v) => { setDailyHour12(parseInt(v, 10)); applyBuilderToCron() }}>
+                <Select value={String(dailyHour12)} onValueChange={(v) => { handleBuilderInteraction(); setDailyHour12(parseInt(v, 10)) }}>
                   <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
@@ -174,7 +179,7 @@ export function Schedules() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={String(dailyMinute)} onValueChange={(v) => { setDailyMinute(parseInt(v, 10)); applyBuilderToCron() }}>
+                <Select value={String(dailyMinute)} onValueChange={(v) => { handleBuilderInteraction(); setDailyMinute(parseInt(v, 10)) }}>
                   <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Array.from({ length: 60 }, (_, i) => i).filter(m => m % 5 === 0).map(m => (
@@ -182,7 +187,7 @@ export function Schedules() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={dailyMeridiem} onValueChange={(v) => { setDailyMeridiem(v as 'AM'|'PM'); applyBuilderToCron() }}>
+                <Select value={dailyMeridiem} onValueChange={(v) => { handleBuilderInteraction(); setDailyMeridiem(v as 'AM'|'PM') }}>
                   <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="AM">AM</SelectItem>
@@ -195,7 +200,7 @@ export function Schedules() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label className="text-sm">Time</Label>
-                  <Select value={String(weeklyHour12)} onValueChange={(v) => { setWeeklyHour12(parseInt(v, 10)); applyBuilderToCron() }}>
+                  <Select value={String(weeklyHour12)} onValueChange={(v) => { handleBuilderInteraction(); setWeeklyHour12(parseInt(v, 10)) }}>
                     <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
@@ -203,7 +208,7 @@ export function Schedules() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={String(weeklyMinute)} onValueChange={(v) => { setWeeklyMinute(parseInt(v, 10)); applyBuilderToCron() }}>
+                  <Select value={String(weeklyMinute)} onValueChange={(v) => { handleBuilderInteraction(); setWeeklyMinute(parseInt(v, 10)) }}>
                     <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Array.from({ length: 60 }, (_, i) => i).filter(m => m % 5 === 0).map(m => (
@@ -211,7 +216,7 @@ export function Schedules() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={weeklyMeridiem} onValueChange={(v) => { setWeeklyMeridiem(v as 'AM'|'PM'); applyBuilderToCron() }}>
+                  <Select value={weeklyMeridiem} onValueChange={(v) => { handleBuilderInteraction(); setWeeklyMeridiem(v as 'AM'|'PM') }}>
                     <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="AM">AM</SelectItem>
@@ -232,7 +237,7 @@ export function Schedules() {
                     <label key={d.k} className="flex items-center gap-2 text-sm">
                       <Checkbox
                         checked={!!weeklyDays[d.k]}
-                        onCheckedChange={(v) => { const next = { ...weeklyDays, [d.k]: !!v }; setWeeklyDays(next); applyBuilderToCron() }}
+                        onCheckedChange={(v) => { const next = { ...weeklyDays, [d.k]: !!v }; handleBuilderInteraction(); setWeeklyDays(next) }}
                       />
                       {d.label}
                     </label>
@@ -244,11 +249,11 @@ export function Schedules() {
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Label className="text-sm">Day</Label>
-                  <Input type="number" min={1} max={31} value={monthlyDay} onChange={e => { setMonthlyDay(parseInt(e.target.value || '1', 10)); applyBuilderToCron() }} className="w-24" />
+                  <Input type="number" min={1} max={31} value={monthlyDay} onChange={e => { handleBuilderInteraction(); setMonthlyDay(parseInt(e.target.value || '1', 10)) }} className="w-24" />
                 </div>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm">Time</Label>
-                  <Select value={String(monthlyHour12)} onValueChange={(v) => { setMonthlyHour12(parseInt(v, 10)); applyBuilderToCron() }}>
+                  <Select value={String(monthlyHour12)} onValueChange={(v) => { handleBuilderInteraction(); setMonthlyHour12(parseInt(v, 10)) }}>
                     <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Array.from({ length: 12 }, (_, i) => i + 1).map(h => (
@@ -256,7 +261,7 @@ export function Schedules() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={String(monthlyMinute)} onValueChange={(v) => { setMonthlyMinute(parseInt(v, 10)); applyBuilderToCron() }}>
+                  <Select value={String(monthlyMinute)} onValueChange={(v) => { handleBuilderInteraction(); setMonthlyMinute(parseInt(v, 10)) }}>
                     <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Array.from({ length: 60 }, (_, i) => i).filter(m => m % 5 === 0).map(m => (
@@ -264,7 +269,7 @@ export function Schedules() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Select value={monthlyMeridiem} onValueChange={(v) => { setMonthlyMeridiem(v as 'AM'|'PM'); applyBuilderToCron() }}>
+                  <Select value={monthlyMeridiem} onValueChange={(v) => { handleBuilderInteraction(); setMonthlyMeridiem(v as 'AM'|'PM') }}>
                     <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="AM">AM</SelectItem>
@@ -306,11 +311,24 @@ export function Schedules() {
               <Label>Timezone</Label>
               <Input value={timezone} onChange={e => setTimezone(e.target.value)} placeholder="America/Vancouver" />
               <div className="flex flex-wrap gap-2 mt-2">
-                <Button type="button" variant="outline" size="xs" onClick={() => setTimezone('America/Vancouver')}>Pacific</Button>
-                <Button type="button" variant="outline" size="xs" onClick={() => setTimezone('America/Edmonton')}>Mountain</Button>
-                <Button type="button" variant="outline" size="xs" onClick={() => setTimezone('America/Chicago')}>Central</Button>
-                <Button type="button" variant="outline" size="xs" onClick={() => setTimezone('America/Toronto')}>Eastern</Button>
-                <Button type="button" variant="outline" size="xs" onClick={() => setTimezone('UTC')}>UTC</Button>
+                {[
+                  { label: 'Pacific', value: 'America/Vancouver' },
+                  { label: 'Mountain', value: 'America/Edmonton' },
+                  { label: 'Central', value: 'America/Chicago' },
+                  { label: 'Eastern', value: 'America/Toronto' },
+                  { label: 'UTC', value: 'UTC' },
+                ].map(preset => (
+                  <Button
+                    key={preset.value}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setTimezone(preset.value)}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
               </div>
             </div>
             <div>
