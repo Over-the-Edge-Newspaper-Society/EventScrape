@@ -1,8 +1,5 @@
 # Dependencies
 node_modules
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # Build outputs
 .next
@@ -37,6 +34,9 @@ coverage
 # Logs
 logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Runtime data
 pids
@@ -51,13 +51,3 @@ temp
 # Docker
 docker-compose*.yml
 .dockerignore
-
-# Don't ignore files needed for Docker builds
-!package.json
-!*/package.json
-!**/package.json
-!pnpm-lock.yaml
-!pnpm-workspace.yaml
-!Dockerfile
-!*/Dockerfile
-!**/Dockerfile
