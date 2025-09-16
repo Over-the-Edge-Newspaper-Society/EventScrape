@@ -8,9 +8,15 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
+# Debug: List files in build context
+RUN ls -la /
+
 # Copy root package.json and pnpm-workspace.yaml
 COPY package.json pnpm-workspace.yaml ./
 COPY pnpm-lock.yaml ./
+
+# Debug: Check what was copied
+RUN ls -la ./ && echo "--- apps directory ---" && ls -la apps/ || echo "apps directory not found"
 
 # Copy package.json files
 COPY apps/admin/package.json ./apps/admin/
