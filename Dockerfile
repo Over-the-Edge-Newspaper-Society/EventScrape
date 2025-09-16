@@ -1,26 +1,28 @@
 # Multi-stage build for EventScrape services
 FROM node:18-alpine AS base
 
-# Install system dependencies
-RUN apk add --no-cache libc6-compat
+# Install system dependencies required during build (git for fallback clone)
+RUN apk add --no-cache libc6-compat git
 WORKDIR /app
 
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy root files
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# Copy everything from the build context (may be incomplete in some environments)
+COPY . .
 
-# Copy all app package.json files
-COPY apps/api/package.json ./apps/api/
-COPY apps/admin/package.json ./apps/admin/
-COPY worker/package.json ./worker/
+# Fallback: if the build context is missing core files, re-clone the repository
+ARG SOURCE_REPO="https://github.com/Over-the-Edge-Newspaper-Society/EventScrape.git"
+ARG SOURCE_REF="main"
+RUN if [ ! -f package.json ]; then \
+      echo "Build context missing package.json, cloning ${SOURCE_REPO}@${SOURCE_REF}" && \
+      git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /tmp/src && \
+      cp -R /tmp/src/. /app && \
+      rm -rf /tmp/src; \
+    fi
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
-
-# Copy source code
-COPY . .
 
 # Build API
 FROM base AS api-builder
