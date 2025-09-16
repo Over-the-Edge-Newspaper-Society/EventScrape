@@ -37,6 +37,8 @@ RUN pnpm --filter @eventscrape/api build
 
 # Build Admin
 FROM base AS admin-builder
+ARG ADMIN_API_URL="http://localhost:3001/api"
+ENV VITE_API_URL=${ADMIN_API_URL}
 RUN pnpm --filter @eventscrape/admin build
 
 # API Production
