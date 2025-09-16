@@ -2,7 +2,7 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy everything (ignore dockerignore for now)
+# Copy everything
 COPY . .
 
 # Install pnpm
@@ -11,8 +11,12 @@ RUN npm install -g pnpm
 # Install dependencies
 RUN pnpm install
 
-# Build API (default)
+# Build API
 RUN pnpm --filter @eventscrape/api build
+
+# Debug: Check what was built
+RUN ls -la apps/api/
+RUN ls -la apps/api/dist/ || echo "dist directory not found"
 
 EXPOSE 3001
 CMD ["node", "apps/api/dist/server.js"]
