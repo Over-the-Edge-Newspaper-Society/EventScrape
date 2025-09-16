@@ -1,0 +1,13 @@
+FROM alpine:latest
+
+# Debug: Show what's in the build context
+RUN echo "=== BUILD CONTEXT CONTENTS ===" && ls -la / && echo "=== CURRENT DIR ===" && pwd && ls -la
+
+# Try to show specific paths
+RUN echo "=== CHECKING FOR FILES ===" && \
+    (ls -la package.json 2>/dev/null || echo "package.json NOT FOUND") && \
+    (ls -la apps/ 2>/dev/null || echo "apps/ directory NOT FOUND") && \
+    (ls -la worker/ 2>/dev/null || echo "worker/ directory NOT FOUND")
+
+# Show everything in build context
+RUN find . -type f | head -20
