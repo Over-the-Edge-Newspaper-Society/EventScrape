@@ -17,7 +17,9 @@ ARG SOURCE_REF="main"
 RUN if [ ! -f package.json ]; then \
       echo "Build context missing package.json, cloning ${SOURCE_REPO}@${SOURCE_REF}" && \
       rm -rf /app/* && \
-      git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /app; \
+      git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /tmp/src && \
+      cp -a /tmp/src/. /app && \
+      rm -rf /tmp/src; \
     fi
 
 # Verify that key workspace files are present before proceeding
