@@ -2,16 +2,27 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install pnpm for workspace management
-RUN npm install -g pnpm
+# Install pnpm and git (git is used as a fallback when build context is incomplete)
+RUN apk add --no-cache git \
+    && npm install -g pnpm
 
-# Copy the full repository into the build context
+# Copy the repository contents that are available in the build context
 COPY . .
+
+# Fallback: if the build context is missing key files, reclone the repository
+ARG SOURCE_REPO="https://github.com/Over-the-Edge-Newspaper-Society/EventScrape.git"
+ARG SOURCE_REF="main"
+RUN if [ ! -f package.json ]; then \
+      echo "Build context missing package.json, cloning ${SOURCE_REPO}@${SOURCE_REF}" && \
+      git clone --depth 1 --branch "${SOURCE_REF}" "${SOURCE_REPO}" /tmp/src && \
+      cp -R /tmp/src/. /app && \
+      rm -rf /tmp/src; \
+    fi
 
 # Install all dependencies according to the lockfile
 RUN pnpm install --frozen-lockfile
 
-# Build the API package to generate dist output
+# Build the API package to generate the production output
 RUN pnpm --filter @eventscrape/api build
 
 # Sanity check that the build output exists
@@ -22,13 +33,10 @@ FROM node:18-alpine AS api
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install pnpm for pruning dependencies
 RUN npm install -g pnpm
 
-# Copy everything from the builder stage (sources, node_modules, built assets)
+# Copy everything from the builder stage and prune dev dependencies
 COPY --from=builder /app /app
-
-# Remove development-only dependencies to keep the runtime image lean
 RUN pnpm prune --prod
 
 EXPOSE 3001
