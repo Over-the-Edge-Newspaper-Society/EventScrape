@@ -7,6 +7,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
+# Share playwright browser binaries across users
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Install pnpm
 RUN npm install -g pnpm
 
@@ -67,9 +70,11 @@ CMD ["serve", "-s", "dist", "-l", "3000"]
 FROM base AS worker
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_HEADLESS=true
-RUN pnpm exec playwright install --with-deps \
+RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
+    && pnpm exec playwright install --with-deps \
     && pnpm --filter @eventscrape/worker build \
     && test -f worker/dist/worker.js
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape \
+    && chown -R eventscrape:nodejs "$PLAYWRIGHT_BROWSERS_PATH"
 USER eventscrape
 CMD ["node", "worker/dist/worker.js"]
