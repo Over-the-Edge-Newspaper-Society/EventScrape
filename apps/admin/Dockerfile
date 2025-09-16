@@ -8,8 +8,8 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Debug: List files in build context
-RUN ls -la /
+# Debug: List files in build context (v2)
+RUN ls -la / && echo "=== BUILD CONTEXT ROOT ===" && ls -la
 
 # Copy root package.json and pnpm-workspace.yaml
 COPY package.json pnpm-workspace.yaml ./
