@@ -62,7 +62,7 @@ services:
       dockerfile: Dockerfile
       target: admin
       args:
-        ADMIN_API_URL: http://api:3001/api
+        ADMIN_API_URL: http://__HOST__:3001/api
     container_name: eventscrape-admin
     ports:
       - "3000:3000"

@@ -1,4 +1,18 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+const resolveApiBaseUrl = () => {
+  const configured = import.meta.env.VITE_API_URL
+  if (configured) {
+    if (typeof window !== 'undefined') {
+      return configured.replace('__HOST__', window.location.hostname)
+    }
+    return configured
+  }
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:3001/api`
+  }
+  return 'http://localhost:3001/api'
+}
+
+const API_BASE_URL = resolveApiBaseUrl()
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
