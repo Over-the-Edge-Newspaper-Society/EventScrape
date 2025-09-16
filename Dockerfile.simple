@@ -2,27 +2,19 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy everything
-COPY . .
-
-# Install pnpm
+# Ensure pnpm is available
 RUN npm install -g pnpm
 
-# Install dependencies
-RUN pnpm install
+# Copy repository files
+COPY . .
 
-# Install ts-node locally for ESM support
-RUN pnpm add -w ts-node
+# Install dependencies including dev deps for the build step
+RUN pnpm install --frozen-lockfile --prod=false
 
-# Try to build first, if it fails, fall back to dev mode
-RUN pnpm --filter @eventscrape/api build || echo "Build failed, will run in dev mode"
+# Build the API so the compiled output exists in the image
+RUN pnpm --filter @eventscrape/api build
 
-# Debug: Check what was built
-RUN ls -la apps/api/
-RUN ls -la apps/api/dist/ || echo "dist directory not found"
-RUN ls -la apps/api/src/
-
+# Expose the API port and run the compiled server
+ENV NODE_ENV=production
 EXPOSE 3001
-
-# Use Node.js experimental TypeScript support
-CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && node --loader tsx/esm --experimental-specifier-resolution=node src/server.ts; fi"]
+CMD ["node", "apps/api/dist/server.js"]
