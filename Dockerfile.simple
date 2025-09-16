@@ -2,34 +2,33 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install pnpm
+# Install pnpm for workspace management
 RUN npm install -g pnpm
 
-# Copy core workspace manifests first for better caching
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY apps/admin/package.json ./apps/admin/
-COPY worker/package.json ./worker/
-
-# Install dependencies using the workspace lockfile
-RUN pnpm install --frozen-lockfile
-
-# Copy the remainder of the repository (source files, configs, etc.)
+# Copy the full repository into the build context
 COPY . .
 
-# Build the API package to produce the compiled output
+# Install all dependencies according to the lockfile
+RUN pnpm install --frozen-lockfile
+
+# Build the API package to generate dist output
 RUN pnpm --filter @eventscrape/api build
 
+# Sanity check that the build output exists
+RUN ls -la apps/api/dist
+
 FROM node:18-alpine AS api
+
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Install pnpm for pruning dependencies
 RUN npm install -g pnpm
 
-# Copy everything from the builder, including node_modules and built assets
+# Copy everything from the builder stage (sources, node_modules, built assets)
 COPY --from=builder /app /app
 
-# Prune dev dependencies to keep the runtime image slim
+# Remove development-only dependencies to keep the runtime image lean
 RUN pnpm prune --prod
 
 EXPOSE 3001
