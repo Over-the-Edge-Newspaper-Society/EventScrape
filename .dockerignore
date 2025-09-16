@@ -49,13 +49,15 @@ tmp
 temp
 
 # Docker
-Dockerfile
 docker-compose*.yml
 .dockerignore
 
-# Don't ignore package.json files - these are needed for Docker builds
+# Don't ignore files needed for Docker builds
 !package.json
 !*/package.json
 !**/package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!Dockerfile
+!*/Dockerfile
+!**/Dockerfile
