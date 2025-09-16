@@ -24,5 +24,5 @@ RUN ls -la apps/api/src/
 
 EXPOSE 3001
 
-# Try built version first, fall back to dev mode using pnpm script
-CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && pnpm dev; fi"]
+# Try built version first, fall back to dev mode using tsx directly
+CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && npx tsx src/server.ts; fi"]
