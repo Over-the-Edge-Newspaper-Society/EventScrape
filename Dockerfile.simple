@@ -5,8 +5,8 @@ WORKDIR /app
 # Copy everything
 COPY . .
 
-# Install pnpm and tsx
-RUN npm install -g pnpm tsx
+# Install pnpm and ts-node with ESM support
+RUN npm install -g pnpm ts-node
 
 # Install dependencies
 RUN pnpm install
@@ -21,5 +21,5 @@ RUN ls -la apps/api/src/
 
 EXPOSE 3001
 
-# Try built version first, fall back to TypeScript source
-CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && tsx src/server.ts; fi"]
+# Try built version first, fall back to TypeScript source with ESM support
+CMD ["sh", "-c", "if [ -f apps/api/dist/server.js ]; then node apps/api/dist/server.js; else cd apps/api && NODE_OPTIONS='--loader ts-node/esm' node src/server.ts; fi"]
