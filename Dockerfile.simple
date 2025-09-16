@@ -5,30 +5,36 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Copy repository files
-COPY . .
+# Copy core workspace manifests
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/admin/package.json ./apps/admin/
+COPY worker/package.json ./worker/
 
-# Install all dependencies (including dev) for building
+# Install dependencies using the workspace lockfile
 RUN pnpm install --frozen-lockfile
 
-# Build the API from its package directory to ensure scripts run
-RUN pnpm --dir apps/api run build
+# Copy the remainder of the repository (source files, configs, etc.)
+COPY . .
 
-# Verify the compiled output exists
-RUN ls -la apps/api && ls -la apps/api/dist
+# Build the API package
+RUN pnpm --filter @eventscrape/api build
 
 FROM node:18-alpine AS api
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Install pnpm for pruning dependencies
 RUN npm install -g pnpm
 
-# Copy everything from the builder stage, including built assets
-COPY --from=builder /app /app
+# Copy only what is required for runtime: manifests and built API
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/pnpm-workspace.yaml ./
+COPY --from=builder /app/pnpm-lock.yaml ./
+COPY --from=builder /app/apps/api/package.json ./apps/api/
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Remove dev-only dependencies to keep the image lean
-RUN pnpm prune --prod
+# Install production dependencies for just the API package
+RUN pnpm install --frozen-lockfile --prod
 
 EXPOSE 3001
 CMD ["node", "apps/api/dist/server.js"]
