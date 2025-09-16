@@ -1,13 +1,22 @@
 import { readdir } from 'fs/promises';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import type { ScraperModule } from '../types.js';
 
 export class ModuleLoader {
   private modules = new Map<string, ScraperModule>();
   private modulesDir: string;
 
-  constructor(modulesDir: string = join(process.cwd(), 'src/modules')) {
+  constructor(modulesDir: string = ModuleLoader.getDefaultModulesDir()) {
     this.modulesDir = resolve(modulesDir);
+  }
+
+  private static getDefaultModulesDir(): string {
+    const runtimeDir = dirname(fileURLToPath(import.meta.url));
+    const defaultDir = resolve(runtimeDir, '..', 'modules');
+    const envDir = process.env.WORKER_MODULES_DIR;
+
+    return resolve(envDir || defaultDir);
   }
 
   async loadModules(): Promise<void> {
