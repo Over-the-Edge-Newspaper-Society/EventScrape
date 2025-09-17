@@ -62,12 +62,12 @@ services:
       dockerfile: Dockerfile
       target: admin
       args:
-        ADMIN_API_URL: http://__HOST__:3001/api
+        ADMIN_API_URL: ${ADMIN_API_URL:-http://__HOST__:3001/api}
     container_name: eventscrape-admin
     ports:
       - "3000:3000"
     environment:
-      VITE_API_URL: http://api:3001/api
+      VITE_API_URL: ${VITE_API_URL:-http://api:3001/api}
       NODE_ENV: production
     depends_on:
       - api
