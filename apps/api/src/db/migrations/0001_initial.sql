@@ -1,4 +1,6 @@
 -- Create enums (skip if exists)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 DO $$ BEGIN
     CREATE TYPE run_status AS ENUM ('queued', 'running', 'success', 'partial', 'error');
 EXCEPTION
