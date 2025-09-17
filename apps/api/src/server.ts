@@ -25,6 +25,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   DATABASE_URL: z.string(),
   REDIS_URL: z.string(),
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
 });
 
 const env = envSchema.parse(process.env);
@@ -61,8 +62,28 @@ await fastify.register(helmet, {
   contentSecurityPolicy: env.NODE_ENV === 'development' ? false : undefined,
 });
 
+const allowedOrigins = env.NODE_ENV === 'development'
+  ? null
+  : (env.CORS_ALLOWED_ORIGINS?.split(',').map(origin => origin.trim()).filter(Boolean) ?? ['http://localhost:3000']);
+
+if (env.NODE_ENV !== 'development') {
+  fastify.log.info({ allowedOrigins }, 'Configured CORS allowed origins');
+}
+
 await fastify.register(cors, {
-  origin: env.NODE_ENV === 'development' ? true : ['http://localhost:3000'],
+  origin: env.NODE_ENV === 'development'
+    ? true
+    : (origin, cb) => {
+        if (!origin) {
+          cb(null, true);
+          return;
+        }
+        if (allowedOrigins?.includes(origin)) {
+          cb(null, true);
+          return;
+        }
+        cb(new Error(`Origin ${origin} not allowed`), false);
+      },
   credentials: true,
 });
 
