@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { migrationClient } from './connection.js';
 
-async function runMigrations() {
+const migrationPath = (fileName: string) => new URL(`./migrations/${fileName}`, import.meta.url);
+
+export async function runMigrations() {
   console.log('Running database migrations...');
   
   try {
@@ -17,8 +18,7 @@ async function runMigrations() {
 
     // Always attempt to apply baseline if not present
     if (!tableExists[0].exists) {
-      const sqlPath = join(process.cwd(), 'src/db/migrations/0001_initial.sql');
-      const sql = await readFile(sqlPath, 'utf-8');
+      const sql = await readFile(migrationPath('0001_initial.sql'), 'utf-8');
       await migrationClient.unsafe(sql);
       console.log('✅ Applied initial schema (0001)');
     } else {
@@ -27,8 +27,7 @@ async function runMigrations() {
 
     // Apply incremental migration 0002 (idempotent)
     try {
-      const sqlPath2 = join(process.cwd(), 'src/db/migrations/0002_event_tracking.sql');
-      const sql2 = await readFile(sqlPath2, 'utf-8');
+      const sql2 = await readFile(migrationPath('0002_event_tracking.sql'), 'utf-8');
       await migrationClient.unsafe(sql2);
       console.log('✅ Applied migration 0002 (event tracking columns)');
     } catch (e: any) {
@@ -42,8 +41,7 @@ async function runMigrations() {
 
     // Apply incremental migration 0003 (schedules)
     try {
-      const sqlPath3 = join(process.cwd(), 'src/db/migrations/0003_schedules.sql');
-      const sql3 = await readFile(sqlPath3, 'utf-8');
+      const sql3 = await readFile(migrationPath('0003_schedules.sql'), 'utf-8');
       await migrationClient.unsafe(sql3);
       console.log('✅ Applied migration 0003 (schedules)');
     } catch (e: any) {
