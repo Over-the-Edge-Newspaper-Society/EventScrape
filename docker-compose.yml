@@ -99,8 +99,6 @@ services:
     networks:
       - eventscrape
     restart: unless-stopped
-    profiles:
-      - with-worker
 
 networks:
   eventscrape:
