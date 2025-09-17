@@ -17,7 +17,7 @@ const resolveApiBaseUrl = () => {
   return 'http://localhost:3001/api'
 }
 
-const API_BASE_URL = resolveApiBaseUrl()
+export const API_BASE_URL = resolveApiBaseUrl()
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {

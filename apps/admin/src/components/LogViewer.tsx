@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Terminal, Play, Square, Trash2, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { API_BASE_URL } from '@/lib/api'
 
 interface LogEntry {
   id: string
@@ -55,7 +56,8 @@ export function LogViewer({ runId, className }: LogViewerProps) {
     // First, try to load historical logs
     loadHistoricalLogs()
 
-    const eventSource = new EventSource(`http://localhost:3001/api/logs/stream/${runId}`)
+    const base = API_BASE_URL.replace(/\/$/, '')
+    const eventSource = new EventSource(`${base}/logs/stream/${runId}`)
     eventSourceRef.current = eventSource
 
     eventSource.onopen = () => {
@@ -86,7 +88,8 @@ export function LogViewer({ runId, className }: LogViewerProps) {
 
   const loadHistoricalLogs = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/logs/history/${runId}`)
+      const base = API_BASE_URL.replace(/\/$/, '')
+      const response = await fetch(`${base}/logs/history/${runId}`)
       if (response.ok) {
         const data = await response.json()
         if (data.logs && data.logs.length > 0) {
