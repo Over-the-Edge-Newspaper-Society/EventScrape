@@ -33,7 +33,8 @@ RUN pnpm install --frozen-lockfile
 
 # Build API
 FROM base AS api-builder
-RUN pnpm --filter @eventscrape/api build
+RUN pnpm --filter @eventscrape/api build \
+    && test -f apps/api/dist/server.js
 
 # Build Admin
 FROM base AS admin-builder
