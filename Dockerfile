@@ -52,6 +52,8 @@ COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-workspace.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-lock.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/package.json ./apps/api/
+RUN mkdir -p /worker/src
+COPY --from=api-builder --chown=eventscrape:nodejs /app/worker/src/modules /worker/src/modules
 RUN pnpm install --frozen-lockfile --prod
 USER eventscrape
 EXPOSE 3001
