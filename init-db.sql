@@ -9,3 +9,6 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO eventscrape;
 
 -- Ensure eventscrape can create tables
 ALTER SCHEMA public OWNER TO eventscrape;
+
+-- Enable pgcrypto for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
