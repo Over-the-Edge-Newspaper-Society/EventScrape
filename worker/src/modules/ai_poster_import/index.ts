@@ -32,6 +32,10 @@ import { DateTime } from 'luxon'
 // }
 
 const DEFAULT_TZ = 'America/Vancouver'
+const INCLUDE_ADDITIONAL_INFO_IN_DESCRIPTION =
+  process.env.AI_POSTER_INCLUDE_ADDITIONAL_INFO === 'true'
+const INCLUDE_CONFIDENCE_IN_DESCRIPTION =
+  process.env.AI_POSTER_INCLUDE_CONFIDENCE === 'true'
 
 const aiPosterImport: ScraperModule = {
   key: 'ai_poster_import',
@@ -81,14 +85,17 @@ const aiPosterImport: ScraperModule = {
       throw e
     }
 
-    if (!data || !Array.isArray(data.events)) {
-      throw new Error('Invalid JSON: expected an "events" array')
+    const normalizedEvents = normalizeUploadPayload(data, logger)
+    if (!normalizedEvents.length) {
+      logger.warn('No events found in uploaded payload')
+      return []
     }
 
     const events: RawEvent[] = []
-    const extractionNotes = data.extractionConfidence?.notes || ''
+    const seenConfidenceLogs = new Set<string>()
+    const seenNoteLogs = new Set<string>()
 
-    for (const posterEvent of data.events) {
+    for (const { event: posterEvent, extractionConfidence, wrapperMeta } of normalizedEvents) {
       try {
         if (!posterEvent?.title || typeof posterEvent.title !== 'string') {
           logger.warn('Skipping entry without a valid title')
@@ -101,8 +108,11 @@ const aiPosterImport: ScraperModule = {
           ? constructIsoDateTime(posterEvent.endDate || posterEvent.startDate, posterEvent.endTime || posterEvent.startTime, tz)
           : undefined
 
-        const eventUrl = posterEvent.registrationUrl || generateSyntheticUrl(posterEvent.title)
-        const sourceEventId = `ai_poster_${slugify(posterEvent.title)}_${posterEvent.startDate || 'undated'}`
+        const eventUrl = wrapperMeta?.post?.url
+          || posterEvent.registrationUrl
+          || generateSyntheticUrl(posterEvent.title)
+
+        const sourceEventId = createSourceEventId(posterEvent.title, posterEvent.startDate, wrapperMeta)
 
         const venue = posterEvent.venue || {}
         const tags: string[] = Array.isArray(posterEvent.tags) ? [...posterEvent.tags] : []
@@ -111,10 +121,23 @@ const aiPosterImport: ScraperModule = {
           if (!tags.includes(cat)) tags.push(cat)
         }
 
+        const descriptionOptions = {
+          includeAdditionalInfoInDescription: resolveDescriptionOption(
+            posterEvent,
+            'includeAdditionalInfoInDescription',
+            INCLUDE_ADDITIONAL_INFO_IN_DESCRIPTION,
+          ),
+          includeConfidenceInDescription: resolveDescriptionOption(
+            posterEvent,
+            'includeConfidenceInDescription',
+            INCLUDE_CONFIDENCE_IN_DESCRIPTION,
+          ),
+        }
+
         const rawEvent: RawEvent = {
           sourceEventId,
           title: posterEvent.title,
-          descriptionHtml: formatDescriptionHtml(posterEvent, data?.extractionConfidence),
+          descriptionHtml: formatDescriptionHtml(posterEvent, extractionConfidence, descriptionOptions),
           start: startIso,
           end: endIso,
           venueName: venue.name || undefined,
@@ -122,7 +145,7 @@ const aiPosterImport: ScraperModule = {
           city: venue.city || 'Prince George',
           region: venue.region || 'BC',
           country: venue.country || 'Canada',
-          organizer: posterEvent.organizer || undefined,
+          organizer: posterEvent.organizer || wrapperMeta?.club?.name || undefined,
           category: posterEvent.category || 'Community',
           price: posterEvent.price || undefined,
           tags: tags.length ? tags : undefined,
@@ -131,32 +154,174 @@ const aiPosterImport: ScraperModule = {
           raw: {
             source: 'ai_poster_extraction',
             originalData: posterEvent,
-            extractionConfidence: data.extractionConfidence,
+            extractionConfidence: extractionConfidence,
             extractedAt: new Date().toISOString(),
-            extractionNotes,
+            extractionNotes: extractionConfidence?.notes,
+            massPosterMeta: wrapperMeta,
           },
         }
 
         events.push(rawEvent)
         logger.info(`Processed poster event: ${posterEvent.title}`)
+
+        if (extractionConfidence?.overall != null) {
+          const key = `confidence:${extractionConfidence.overall}`
+          if (!seenConfidenceLogs.has(key)) {
+            try {
+              const pct = (Number(extractionConfidence.overall) * 100).toFixed(0)
+              logger.info(`Extraction confidence: ${pct}%`)
+            } catch {}
+            seenConfidenceLogs.add(key)
+          }
+        }
+
+        if (extractionConfidence?.notes) {
+          const noteKey = `note:${extractionConfidence.notes}`
+          if (!seenNoteLogs.has(noteKey)) {
+            logger.info(`Extraction notes: ${extractionConfidence.notes}`)
+            seenNoteLogs.add(noteKey)
+          }
+        }
       } catch (err: any) {
         logger.error(`Failed to process poster event: ${err?.message || err}`)
       }
     }
-
-    if (data.extractionConfidence?.overall) {
-      try {
-        const pct = (Number(data.extractionConfidence.overall) * 100).toFixed(0)
-        logger.info(`Extraction confidence: ${pct}%`)
-      } catch {}
-    }
-    if (extractionNotes) logger.info(`Extraction notes: ${extractionNotes}`)
 
     return events
   },
 }
 
 export default aiPosterImport
+
+
+function normalizeUploadPayload(data: any, logger: any): {
+  event: any
+  extractionConfidence?: any
+  wrapperMeta?: {
+    club?: {
+      id?: number | string
+      name?: string
+      username?: string
+      profileUrl?: string
+      platform?: string
+    }
+    post?: {
+      dbId?: string
+      postId?: number | string
+      postInstagramId?: string
+      url?: string
+      caption?: string
+      imageUrl?: string
+      timestamp?: string
+    }
+  }
+}[] {
+  if (!data) return []
+
+  if (Array.isArray(data.events)) {
+    return data.events.map((event: any) => ({
+      event,
+      extractionConfidence: data.extractionConfidence,
+    }))
+  }
+
+  if (Array.isArray(data)) {
+    const normalized: {
+      event: any
+      extractionConfidence?: any
+      wrapperMeta?: any
+    }[] = []
+
+    for (const clubEntry of data) {
+      if (!clubEntry || typeof clubEntry !== 'object') continue
+
+      const clubMeta = {
+        id: clubEntry.club_id ?? clubEntry.clubId,
+        name: clubEntry.club_name ?? clubEntry.clubName,
+        username: clubEntry.club_username ?? clubEntry.clubUsername,
+        profileUrl: clubEntry.club_profile_url ?? clubEntry.clubProfileUrl,
+        platform: clubEntry.platform,
+      }
+
+      if (!Array.isArray(clubEntry.events)) continue
+
+      for (const eventWrapper of clubEntry.events) {
+        if (!eventWrapper || typeof eventWrapper !== 'object') continue
+
+        const postMeta = {
+          dbId: eventWrapper.db_id,
+          postId: eventWrapper.post_id,
+          postInstagramId: eventWrapper.post_instagram_id,
+          url: eventWrapper.post_url || eventWrapper.url,
+          caption: eventWrapper.post_caption,
+          imageUrl: eventWrapper.post_image_url,
+          timestamp: eventWrapper.post_timestamp,
+        }
+
+        const payload = eventWrapper.payload
+        const payloadEvents: any[] = Array.isArray(payload?.events) ? payload.events : []
+
+        if (!payloadEvents.length) {
+          logger?.warn?.('Skipping club event wrapper without payload events')
+          continue
+        }
+
+        const extractionConfidence = payload?.extractionConfidence
+          || (eventWrapper.extraction_confidence != null
+            ? { overall: eventWrapper.extraction_confidence }
+            : undefined)
+
+        for (const payloadEvent of payloadEvents) {
+          if (!payloadEvent || typeof payloadEvent !== 'object') continue
+
+          const mergedEvent = {
+            ...payloadEvent,
+          }
+
+          if (!mergedEvent.organizer && clubMeta.name) {
+            mergedEvent.organizer = clubMeta.name
+          }
+          if (!mergedEvent.imageUrl && postMeta.imageUrl) {
+            mergedEvent.imageUrl = postMeta.imageUrl
+          }
+
+          normalized.push({
+            event: mergedEvent,
+            extractionConfidence,
+            wrapperMeta: {
+              club: clubMeta,
+              post: postMeta,
+            },
+          })
+        }
+      }
+    }
+
+    return normalized
+  }
+
+  throw new Error('Invalid JSON: expected an object with events[] or an array of club entries')
+}
+
+function createSourceEventId(title: string, startDate: string | undefined, wrapperMeta?: {
+  post?: {
+    postInstagramId?: string
+    postId?: number | string
+    dbId?: string
+  }
+}): string {
+  const base = slugify(title) || 'event'
+  const tokens: string[] = [base]
+
+  const post = wrapperMeta?.post
+  if (post?.postInstagramId) tokens.push(slugify(String(post.postInstagramId)))
+  else if (post?.postId != null) tokens.push(slugify(String(post.postId)))
+  else if (post?.dbId) tokens.push(slugify(String(post.dbId)))
+  else if (startDate) tokens.push(slugify(String(startDate)))
+  else tokens.push('undated')
+
+  return `ai_poster_${tokens.filter(Boolean).join('_')}`
+}
 
 function constructIsoDateTime(date: string | undefined, time: string | undefined, timezone: string): string {
   // Default to today if no date
@@ -203,7 +368,14 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function formatDescriptionHtml(posterEvent: any, extractionConfidence?: any): string | undefined {
+function formatDescriptionHtml(
+  posterEvent: any,
+  extractionConfidence: any,
+  options: {
+    includeAdditionalInfoInDescription: boolean
+    includeConfidenceInDescription: boolean
+  },
+): string | undefined {
   const parts: string[] = []
 
   if (posterEvent.description) parts.push(`<p>${escapeHtml(String(posterEvent.description))}</p>`)
@@ -218,11 +390,11 @@ function formatDescriptionHtml(posterEvent: any, extractionConfidence?: any): st
     parts.push('</ul>')
   }
 
-  if (posterEvent.additionalInfo) {
+  if (options.includeAdditionalInfoInDescription && posterEvent.additionalInfo) {
     parts.push(`<p><strong>Additional Information:</strong> ${escapeHtml(String(posterEvent.additionalInfo))}</p>`)
   }
 
-  if (extractionConfidence?.overall != null) {
+  if (options.includeConfidenceInDescription && extractionConfidence?.overall != null) {
     try {
       const pct = (Number(extractionConfidence.overall) * 100).toFixed(0)
       parts.push(`<p><em>Extraction confidence: ${pct}%</em></p>`)
@@ -232,3 +404,18 @@ function formatDescriptionHtml(posterEvent: any, extractionConfidence?: any): st
   return parts.length ? parts.join('\n') : undefined
 }
 
+function resolveDescriptionOption(
+  event: any,
+  key: 'includeAdditionalInfoInDescription' | 'includeConfidenceInDescription',
+  defaultValue: boolean,
+): boolean {
+  const directValue = event?.[key]
+  if (typeof directValue === 'boolean') return directValue
+
+  const descriptionOptions = event?.descriptionOptions
+  if (descriptionOptions && typeof descriptionOptions[key] === 'boolean') {
+    return descriptionOptions[key]
+  }
+
+  return defaultValue
+}

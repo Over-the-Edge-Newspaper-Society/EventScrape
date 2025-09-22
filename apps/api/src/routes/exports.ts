@@ -64,6 +64,7 @@ function generateJSON(events: any[], fieldMap: Record<string, string>): string {
   const mappedEvents = events.map(event => {
     // If fieldMap is empty or undefined, use standard field names
     const useFieldMap = fieldMap && Object.keys(fieldMap).length > 0;
+    const posterMeta = extractPosterMeta(event.raw);
     
     if (useFieldMap) {
       const mapped: any = {};
@@ -79,6 +80,12 @@ function generateJSON(events: any[], fieldMap: Record<string, string>): string {
           case 'category': mapped[csvField] = event.category; break;
           case 'url': mapped[csvField] = event.url; break;
           case 'image': mapped[csvField] = event.imageUrl; break;
+          case 'clubName':
+            mapped[csvField] = posterMeta?.club?.name ?? null;
+            break;
+          case 'clubProfileUrl':
+            mapped[csvField] = posterMeta?.club?.profileUrl ?? null;
+            break;
         }
       }
       return mapped;
@@ -86,6 +93,7 @@ function generateJSON(events: any[], fieldMap: Record<string, string>): string {
       // Use standard JSON structure when no field mapping
       return {
         id: event.id,
+        sourceEventId: event.sourceEventId,
         title: event.title,
         description: event.descriptionHtml,
         startDatetime: event.startDatetime,
@@ -98,6 +106,8 @@ function generateJSON(events: any[], fieldMap: Record<string, string>): string {
         category: event.category,
         url: event.url,
         imageUrl: event.imageUrl,
+        club: posterMeta?.club ?? null,
+        post: posterMeta?.post ?? null,
       };
     }
   });
@@ -142,6 +152,57 @@ function escapeICS(text: string): string {
   return text.replace(/[\\,;]/g, '\\$&').replace(/\n/g, '\\n');
 }
 
+function extractPosterMeta(raw: any): {
+  club?: {
+    id?: string | number | null
+    name?: string | null
+    username?: string | null
+    profileUrl?: string | null
+    platform?: string | null
+  }
+  post?: {
+    dbId?: string | null
+    postId?: string | number | null
+    postInstagramId?: string | null
+    url?: string | null
+    caption?: string | null
+    imageUrl?: string | null
+    timestamp?: string | null
+  }
+} | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const massPosterMeta = raw.massPosterMeta;
+  if (!massPosterMeta || typeof massPosterMeta !== 'object') return null;
+
+  const result: any = {};
+
+  if (massPosterMeta.club && typeof massPosterMeta.club === 'object') {
+    const club = massPosterMeta.club;
+    result.club = {
+      id: club.id ?? null,
+      name: club.name ?? null,
+      username: club.username ?? null,
+      profileUrl: club.profileUrl ?? null,
+      platform: club.platform ?? null,
+    };
+  }
+
+  if (massPosterMeta.post && typeof massPosterMeta.post === 'object') {
+    const post = massPosterMeta.post;
+    result.post = {
+      dbId: post.dbId ?? null,
+      postId: post.postId ?? null,
+      postInstagramId: post.postInstagramId ?? null,
+      url: post.url ?? null,
+      caption: post.caption ?? null,
+      imageUrl: post.imageUrl ?? null,
+      timestamp: post.timestamp ?? null,
+    };
+  }
+
+  return Object.keys(result).length ? result : null;
+}
+
 // Process export function
 async function processExport(exportId: string, data: any): Promise<void> {
   // Query events based on filters
@@ -166,6 +227,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
   const events = await db
     .select({
       id: eventsRaw.id,
+      sourceEventId: eventsRaw.sourceEventId,
       title: eventsRaw.title,
       descriptionHtml: eventsRaw.descriptionHtml,
       startDatetime: eventsRaw.startDatetime,
@@ -178,6 +240,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
       category: eventsRaw.category,
       url: eventsRaw.url,
       imageUrl: eventsRaw.imageUrl,
+      raw: eventsRaw.raw,
     })
     .from(eventsRaw)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
