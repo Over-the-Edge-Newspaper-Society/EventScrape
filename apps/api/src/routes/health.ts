@@ -4,7 +4,7 @@ import { sql } from 'drizzle-orm';
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   // Health check endpoint
-  fastify.get('/health', async (request, reply) => {
+  fastify.get('/health', async (_request, reply) => {
     try {
       // Test database connection
       await db.execute(sql`SELECT 1`);
@@ -33,7 +33,7 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Ready check endpoint (for k8s)
-  fastify.get('/ready', async (request, reply) => {
+  fastify.get('/ready', async () => {
     return {
       status: 'ready',
       timestamp: new Date().toISOString(),

@@ -36,6 +36,8 @@ const INCLUDE_ADDITIONAL_INFO_IN_DESCRIPTION =
   process.env.AI_POSTER_INCLUDE_ADDITIONAL_INFO === 'true'
 const INCLUDE_CONFIDENCE_IN_DESCRIPTION =
   process.env.AI_POSTER_INCLUDE_CONFIDENCE === 'true'
+const INCLUDE_CATEGORY_IN_RAW =
+  process.env.AI_POSTER_INCLUDE_CATEGORY === 'true'
 
 const aiPosterImport: ScraperModule = {
   key: 'ai_poster_import',
@@ -146,7 +148,7 @@ const aiPosterImport: ScraperModule = {
           region: venue.region || 'BC',
           country: venue.country || 'Canada',
           organizer: posterEvent.organizer || wrapperMeta?.club?.name || undefined,
-          category: posterEvent.category || 'Community',
+          category: INCLUDE_CATEGORY_IN_RAW ? (posterEvent.category || undefined) : undefined,
           price: posterEvent.price || undefined,
           tags: tags.length ? tags : undefined,
           url: eventUrl,

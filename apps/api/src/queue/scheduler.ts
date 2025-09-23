@@ -3,7 +3,7 @@ import IORedis from 'ioredis'
 import { v4 as uuidv4 } from 'uuid'
 import { db } from '../db/connection.js'
 import { runs, sources, schedules } from '../db/schema.js'
-import { enqueueScrapeJob, scrapeQueue } from './queue.js'
+import { enqueueScrapeJob } from './queue.js'
 import { eq } from 'drizzle-orm'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
@@ -15,7 +15,7 @@ export const scheduleQueue = new Queue('schedule-queue', { connection })
 // Worker that receives schedule triggers and creates runs
 export function initScheduleWorker() {
   const worker = new Worker('schedule-queue', async (job) => {
-    const { scheduleId, sourceId } = job.data as { scheduleId: string; sourceId: string }
+    const { sourceId } = job.data as { scheduleId: string; sourceId: string }
     // Load source
     const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1)
     if (!source || !source.active) {
@@ -69,4 +69,3 @@ export async function syncSchedulesFromDb() {
     await registerSchedule({ id: s.id, sourceId: s.sourceId, cron: s.cron, timezone: s.timezone || undefined })
   }
 }
-

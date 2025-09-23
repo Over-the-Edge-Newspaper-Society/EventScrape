@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { exports as exportsTable, eventsRaw, sources } from '../db/schema.js';
+import { exports as exportsTable, eventsRaw } from '../db/schema.js';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -255,29 +255,24 @@ async function processExport(exportId: string, data: any): Promise<void> {
   // Generate export content
   let content: string;
   let filename: string;
-  let contentType: string;
 
   switch (data.format) {
     case 'csv':
       content = generateCSV(events, data.fieldMap);
       filename = `export-${exportId}.csv`;
-      contentType = 'text/csv';
       break;
     case 'json':
       content = generateJSON(events, data.fieldMap);
       filename = `export-${exportId}.json`;
-      contentType = 'application/json';
       break;
     case 'ics':
       content = generateICS(events);
       filename = `export-${exportId}.ics`;
-      contentType = 'text/calendar';
       break;
     case 'wp-rest':
       // For WordPress REST, we'll generate JSON but mark it specially
       content = generateJSON(events, data.fieldMap);
       filename = `export-${exportId}-wp.json`;
-      contentType = 'application/json';
       break;
     default:
       throw new Error(`Unsupported export format: ${data.format}`);
@@ -300,7 +295,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
 
 export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
   // Get export history
-  fastify.get('/', async (request, reply) => {
+  fastify.get('/', async () => {
     const exportHistory = await db
       .select()
       .from(exportsTable)

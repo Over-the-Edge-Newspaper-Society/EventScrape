@@ -3,7 +3,6 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { z } from 'zod';
-import pino from 'pino';
 
 // Route handlers
 import { eventsRoutes } from './routes/events.js';
@@ -29,18 +28,6 @@ const envSchema = z.object({
 });
 
 const env = envSchema.parse(process.env);
-
-const logger = pino({
-  level: env.NODE_ENV === 'development' ? 'debug' : 'info',
-  transport: env.NODE_ENV === 'development' ? {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'HH:MM:ss Z',
-      ignore: 'pid,hostname',
-    }
-  } : undefined,
-});
 
 const fastify = Fastify({
   logger: env.NODE_ENV === 'development' ? {
@@ -93,7 +80,7 @@ await fastify.register(rateLimit, {
 });
 
 // Add global error handler
-fastify.setErrorHandler((error, request, reply) => {
+fastify.setErrorHandler((error, _request, reply) => {
   fastify.log.error(error);
   
   if (error.validation) {

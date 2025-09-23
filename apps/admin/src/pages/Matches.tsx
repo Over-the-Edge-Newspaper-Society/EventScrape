@@ -770,7 +770,7 @@ export function Matches() {
                       <div className="space-y-1">
                         <p className="font-medium text-sm">{match.eventB.title}</p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(match.eventB.startDatetime).toLocaleDateString()} • Source B
+                          {new Date(match.eventB.startDatetime).toLocaleDateString()} • {match.sourceB?.name ?? 'Unknown source'}
                         </p>
                         {match.eventB.venueName && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1">

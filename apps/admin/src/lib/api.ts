@@ -325,6 +325,7 @@ export interface MatchWithEvents {
   eventA: Pick<EventRaw, 'id' | 'title' | 'startDatetime' | 'city' | 'venueName' | 'url'>
   eventB: Pick<EventRaw, 'id' | 'title' | 'startDatetime' | 'city' | 'venueName' | 'url'>
   sourceA: Pick<Source, 'name'>
+  sourceB: Pick<Source, 'name'>
 }
 
 export interface Export {

@@ -4,7 +4,7 @@ import { getQueueStatus, scrapeQueue, matchQueue, enqueueMatchJob } from '../que
 
 export const queueRoutes: FastifyPluginAsync = async (fastify) => {
   // Get queue status
-  fastify.get('/status', async (request, reply) => {
+  fastify.get('/status', async (_request, reply) => {
     try {
       const status = await getQueueStatus();
       return {
@@ -24,7 +24,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get jobs from scrape queue
-  fastify.get('/scrape/jobs', async (request, reply) => {
+  fastify.get('/scrape/jobs', async (_request, reply) => {
     try {
       const [waiting, active, completed, failed] = await Promise.all([
         scrapeQueue.getWaiting(0, 20),
@@ -96,7 +96,7 @@ export const queueRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Clean completed/failed jobs
-  fastify.post('/clean', async (request, reply) => {
+  fastify.post('/clean', async (_request, reply) => {
     try {
       const [scrapeCompleted, scrapeFailed, matchCompleted, matchFailed] = await Promise.all([
         scrapeQueue.clean(1000, 1000, 'completed'),

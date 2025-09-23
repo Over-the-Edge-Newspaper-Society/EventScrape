@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, asc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
+import { eq, desc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, eventsCanonical, sources, matches } from '../db/schema.js';
 
@@ -64,7 +64,6 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Determine sort column and order
       let orderByClause;
-      const sortDirection = query.sortOrder === 'asc' ? sql`ASC` : sql`DESC`;
       
       switch (query.sortBy) {
         case 'title':

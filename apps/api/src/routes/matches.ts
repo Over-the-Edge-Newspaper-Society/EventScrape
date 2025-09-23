@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../db/connection.js';
 import { matches, eventsRaw, sources, eventsCanonical } from '../db/schema.js';
 
@@ -38,16 +39,19 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', async (request, reply) => {
     try {
       const query = querySchema.parse(request.query);
-      
+
       const conditions = [];
-      
+
       if (query.status) {
         conditions.push(eq(matches.status, query.status));
       }
-      
+
       conditions.push(sql`${matches.score} >= ${query.minScore}`);
-      
+
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const eventsRawB = alias(eventsRaw, 'events_raw_b');
+      const sourcesB = alias(sources, 'sources_b');
 
       const matchesWithEvents = await db
         .select({
@@ -60,27 +64,26 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
             venueName: eventsRaw.venueName,
             url: eventsRaw.url,
           },
-          eventB: sql<{
-            id: string;
-            title: string;
-            startDatetime: Date;
-            city: string;
-            venueName: string;
-            url: string;
-          }>`(
-            SELECT row_to_json(eb.*) FROM (
-              SELECT id, title, start_datetime as "startDatetime", city, venue_name as "venueName", url
-              FROM events_raw
-              WHERE id = ${matches.rawIdB}
-            ) eb
-          )`,
+          eventB: {
+            id: eventsRawB.id,
+            title: eventsRawB.title,
+            startDatetime: eventsRawB.startDatetime,
+            city: eventsRawB.city,
+            venueName: eventsRawB.venueName,
+            url: eventsRawB.url,
+          },
           sourceA: {
             name: sources.name,
+          },
+          sourceB: {
+            name: sourcesB.name,
           },
         })
         .from(matches)
         .leftJoin(eventsRaw, eq(matches.rawIdA, eventsRaw.id))
         .leftJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .leftJoin(eventsRawB, eq(matches.rawIdB, eventsRawB.id))
+        .leftJoin(sourcesB, eq(eventsRawB.sourceId, sourcesB.id))
         .where(whereClause)
         .orderBy(desc(matches.score), desc(matches.createdAt))
         .limit(query.limit);
@@ -244,7 +247,7 @@ export const matchesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Trigger recomputation of matches
-  fastify.post('/recompute', async (request, reply) => {
+  fastify.post('/recompute', async (_request, reply) => {
     try {
       const { enqueueMatchJob } = await import('../queue/queue.js');
       
