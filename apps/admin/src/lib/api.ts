@@ -113,7 +113,7 @@ export const runsApi = {
     }
     return fetchApi<{ runs: RunWithSource[] }>(`/runs?${searchParams}`)
   },
-  getById: (id: string) => fetchApi<{ run: RunWithSource }>(`/runs/${id}`),
+  getById: (id: string) => fetchApi<{ run: RunWithSourceAndEvents }>(`/runs/${id}`),
   triggerScrape: (sourceKey: string, options?: any) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
     method: 'POST',
     body: options ? JSON.stringify(options) : undefined,
@@ -245,6 +245,26 @@ export interface Run {
 export interface RunWithSource {
   run: Run
   source: Pick<Source, 'id' | 'name' | 'moduleKey'>
+}
+
+export interface RunEventSummary {
+  id: string
+  title: string
+  startDatetime: string
+  endDatetime?: string | null
+  venueName?: string | null
+  venueAddress?: string | null
+  city?: string | null
+  region?: string | null
+  country?: string | null
+  url: string
+  category?: string | null
+  organizer?: string | null
+  sourceEventId?: string | null
+}
+
+export interface RunWithSourceAndEvents extends RunWithSource {
+  events: RunEventSummary[]
 }
 
 export interface EventRaw {

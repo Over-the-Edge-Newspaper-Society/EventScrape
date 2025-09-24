@@ -16,7 +16,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - postgres
     restart: unless-stopped
 
   redis:
@@ -30,7 +32,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - redis
     restart: unless-stopped
 
   api:
@@ -52,7 +56,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - api
     restart: unless-stopped
     volumes:
       - export_data:/data/exports
@@ -72,7 +78,9 @@ services:
     depends_on:
       - api
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - admin
     restart: unless-stopped
 
   worker:
@@ -92,7 +100,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - worker
     restart: unless-stopped
     volumes:
       - export_data:/data/exports
@@ -111,7 +121,9 @@ services:
       - admin
       - api
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - nginx
     restart: unless-stopped
     profiles:
       - with-nginx

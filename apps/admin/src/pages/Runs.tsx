@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Textarea } from '@/components/ui/textarea'
 import { runsApi, sourcesApi } from '@/lib/api'
+import type { RunEventSummary } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Clock, CheckCircle, XCircle, AlertCircle, RotateCcw, Eye, Zap, Activity, Calendar, Layers, FileSpreadsheet, Upload, Download, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
@@ -43,7 +44,7 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
     )
   }
 
-  const { run, source } = data.run
+  const { run, source, events } = data.run
   const startDate = new Date(run.startedAt)
   const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
   
@@ -54,6 +55,13 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
     : 0
   
   const durationFormatted = `${Math.floor(duration / 1000)}s`
+  const runEvents: RunEventSummary[] = events ?? []
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+  }
 
   return (
     <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
@@ -188,6 +196,87 @@ function RunDetails({ runId, onClose }: RunDetailsProps) {
                 </div>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Extracted Events */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Extracted Events</CardTitle>
+            <CardDescription>
+              {runEvents.length ? `${runEvents.length} event${runEvents.length === 1 ? '' : 's'} saved for this run` : 'No events were saved during this run'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {runEvents.length ? (
+              <div className="rounded-md border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="min-w-[220px]">Title</TableHead>
+                        <TableHead className="min-w-[180px]">Start</TableHead>
+                        <TableHead className="min-w-[200px]">Location</TableHead>
+                        <TableHead className="min-w-[160px]">Category / Organizer</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {runEvents.map((event) => (
+                        <TableRow key={event.id}>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <a
+                                href={event.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+                              >
+                                <span className="truncate" title={event.title}>{event.title}</span>
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                              {event.sourceEventId && (
+                                <span className="text-xs text-muted-foreground font-mono">ID: {event.sourceEventId}</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5 text-sm">
+                              <span>{formatDateTime(event.startDatetime)}</span>
+                              {event.endDatetime && (
+                                <span className="text-xs text-muted-foreground">Ends: {formatDateTime(event.endDatetime)}</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5 text-sm">
+                              <span>{event.venueName || '—'}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {[event.city, event.region, event.country].filter(Boolean).join(', ') || '—'}
+                              </span>
+                              {event.venueAddress && (
+                                <span className="text-xs text-muted-foreground" title={event.venueAddress}>
+                                  {event.venueAddress}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5 text-sm">
+                              <span>{event.category || '—'}</span>
+                              {event.organizer && (
+                                <span className="text-xs text-muted-foreground">{event.organizer}</span>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No events were captured for this run.</p>
+            )}
           </CardContent>
         </Card>
 

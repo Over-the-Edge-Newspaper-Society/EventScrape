@@ -250,30 +250,36 @@ const princeGeorgeModule: ScraperModule = {
   },
 
   async extractEventsFromCurrentMonth(page: any, logger: any, startDate: Date, endDate: Date): Promise<CalendarEventLink[]> {
-    // Check if events exist in month view first
-    const monthViewEvents = await page.$$('.fc-event');
-    logger.info(`Found ${monthViewEvents.length} events in month view`);
-    
     let useListView = false;
-    
-    if (monthViewEvents.length === 0) {
-      logger.info('No events in month view, trying list view...');
-      const listButton = await page.$('.fc-listMonth-button');
-      
-      if (listButton) {
-        logger.info('Switching to list view...');
-        await listButton.click();
-        await page.waitForTimeout(3000);
-        
-        try {
+
+    try {
+      const currentViewClass = await page.evaluate(() => {
+        const viewEl = document.querySelector('.fc-view');
+        return viewEl?.className ?? '';
+      });
+
+      if (currentViewClass.includes('fc-listMonth-view')) {
+        useListView = true;
+      } else {
+        const listButton = await page.$('.fc-listMonth-button');
+        if (listButton) {
+          logger.info('Switching to list view for consistent event parsing');
+          await listButton.click();
           await page.waitForSelector('.fc-list-table', { timeout: 10000 });
           useListView = true;
-          logger.info('Successfully switched to list view');
-        } catch (error) {
-          logger.warn('List view did not load');
-          useListView = false;
         }
       }
+    } catch (error) {
+      logger.warn(`Unable to switch to list view, falling back to month view: ${error instanceof Error ? error.message : error}`);
+    }
+
+    if (useListView) {
+      await page.waitForSelector('.fc-list-table', { timeout: 10000 });
+      const listCount = await page.$$eval('.fc-list-item', rows => rows.length);
+      logger.info(`Found ${listCount} events in list view`);
+    } else {
+      const monthViewCount = await page.$$eval('.fc-event', nodes => nodes.length);
+      logger.info(`Found ${monthViewCount} events in month view`);
     }
 
     // Extract event links from current month
@@ -313,73 +319,90 @@ const princeGeorgeModule: ScraperModule = {
         });
       } else {
         // Extract from month view
-        const eventElements = document.querySelectorAll('.fc-event');
-        
+        const eventElements = Array.from(document.querySelectorAll('.fc-event'));
+
+        const getElementChildren = (node: Element | null) => {
+          if (!node) return [] as HTMLElement[];
+          return Array.from(node.children) as HTMLElement[];
+        };
+
         eventElements.forEach((eventEl) => {
           const linkEl = eventEl as HTMLAnchorElement;
-          
-          // Check if this element itself is a link or contains a link
+
           let actualLink = linkEl;
           if (!linkEl.href) {
-            const linkChild = linkEl.querySelector('a') as HTMLAnchorElement;
+            const linkChild = linkEl.querySelector('a') as HTMLAnchorElement | null;
             if (linkChild?.href) {
               actualLink = linkChild;
             } else {
-              return; // Skip if no href found
+              return;
             }
           }
-          
-          // Get title and time from the fc-content div
-          const contentDiv = linkEl.querySelector('.fc-content');
-          const titleEl = contentDiv?.querySelector('.fc-title') || linkEl.querySelector('.fc-title');
-          const timeEl = contentDiv?.querySelector('.fc-time') || linkEl.querySelector('.fc-time');
-          
-          if (titleEl && actualLink.href) {
-            // Get the date from the parent cell
-            const dayCell = actualLink.closest('[data-date]') || linkEl.closest('[data-date]');
-            
-            const dateAttr = dayCell?.getAttribute('data-date') || '';
-            const rawDateText = (dayCell as HTMLElement | null)?.textContent?.trim() || null;
-            
-            // Use the raw date attribute for easier parsing
-            let dateText = dateAttr;
-            const dataStart = (actualLink as HTMLElement).getAttribute('data-start') || (actualLink as HTMLElement).getAttribute('data-date') || null;
-            const dataEnd = (actualLink as HTMLElement).getAttribute('data-end') || null;
 
-            if (!dateText && dateAttr) {
-              // Fallback to formatted date if data-date is empty but attribute exists
-              const dateObj = new Date(dateAttr);
-              if (!isNaN(dateObj.getTime())) {
-                dateText = dateObj.toLocaleDateString('en-US', { 
-                  weekday: 'long', 
-                  year: 'numeric', 
-                  month: 'long', 
-                  day: 'numeric' 
-                });
-              }
-            }
-            if (!dateText && dataStart) {
-              const startObj = new Date(dataStart);
-              if (!isNaN(startObj.getTime())) {
-                dateText = `${startObj.getFullYear()}-${(startObj.getMonth() + 1).toString().padStart(2, '0')}-${startObj.getDate().toString().padStart(2, '0')}`;
-              }
-            }
-            
-            // Debug: log what we found
-            if (!dateText) {
-              console.log(`DEBUG: No date for event ${titleEl.textContent?.trim()}, dateAttr: "${dateAttr}", dayCell:`, dayCell);
-            }
-            
-            links.push({
-              url: new URL(actualLink.href, window.location.origin).href,
-              title: titleEl.textContent?.trim() || '',
-              time: timeEl?.textContent?.trim() || '',
-              date: dateText,
-              dataStart,
-              dataEnd,
-              rawDateText,
-            });
+          const contentDiv = (eventEl as HTMLElement).querySelector('.fc-content');
+          const titleEl = contentDiv?.querySelector('.fc-title') || eventEl.querySelector('.fc-title');
+          const timeEl = contentDiv?.querySelector('.fc-time') || eventEl.querySelector('.fc-time');
+
+          if (!titleEl || !actualLink.href) {
+            return;
           }
+
+          let dateText = '';
+          let rawDateText: string | null = null;
+
+          const dayCell = actualLink.closest('[data-date]');
+          if (dayCell) {
+            dateText = dayCell.getAttribute('data-date') || '';
+            rawDateText = (dayCell as HTMLElement).textContent?.trim() || null;
+          }
+
+          if (!dateText) {
+            const td = actualLink.closest('td');
+            const row = td?.parentElement;
+            const siblingCells = getElementChildren(row ?? null);
+            const columnIndex = td ? siblingCells.indexOf(td as HTMLElement) : -1;
+
+            if (td && columnIndex >= 0) {
+              const fcRow = td.closest('.fc-row');
+              const bgRow = fcRow?.querySelector('.fc-bg tr');
+              if (bgRow) {
+                const bgCells = getElementChildren(bgRow);
+                let runningIndex = 0;
+                let targetCell: HTMLElement | undefined;
+
+                for (const cell of bgCells) {
+                  const span = parseInt(cell.getAttribute('colspan') || '1', 10) || 1;
+                  if (columnIndex < runningIndex + span) {
+                    targetCell = cell;
+                    break;
+                  }
+                  runningIndex += span;
+                }
+
+                if (!targetCell) {
+                  targetCell = bgCells[columnIndex];
+                }
+
+                if (targetCell) {
+                  dateText = targetCell.getAttribute('data-date') || '';
+                  rawDateText = rawDateText || targetCell.textContent?.trim() || null;
+                }
+              }
+            }
+          }
+
+          const dataStart = (actualLink as HTMLElement).getAttribute('data-start') || null;
+          const dataEnd = (actualLink as HTMLElement).getAttribute('data-end') || null;
+
+          links.push({
+            url: new URL(actualLink.href, window.location.origin).href,
+            title: titleEl.textContent?.trim() || '',
+            time: timeEl?.textContent?.trim() || '',
+            date: dateText,
+            dataStart,
+            dataEnd,
+            rawDateText,
+          });
         });
       }
       
@@ -466,31 +489,54 @@ const princeGeorgeModule: ScraperModule = {
             // Extract the start time from time ranges like "4:00pm - 7:00pm"
             let startTime = timeStr;
             let endTime = null;
-            if (timeStr.includes(' - ')) {
-              const parts = timeStr.split(' - ');
-              startTime = parts[0].trim();
-              endTime = parts[1]?.trim();
+            const rangePieces = timeStr.split(/\s?[–-]\s?/);
+            if (rangePieces.length === 2) {
+              startTime = rangePieces[0].trim();
+              endTime = rangePieces[1]?.trim() || null;
             }
             
             // Normalize time format: "11a" -> "11:00", "4:00pm" -> "16:00"
             const normalizeTimeToString = (time: string): string => {
-              if (/^\d+[ap]$/i.test(time)) {
-                // Handle "11a" format
-                const hour = parseInt(time.slice(0, -1));
-                const isPM = time.slice(-1).toLowerCase() === 'p';
+              const normalized = time.trim().toLowerCase();
+
+              if (normalized === 'all day' || normalized === 'all-day') {
+                return '09:00';
+              }
+              if (normalized === 'noon') {
+                return '12:00';
+              }
+              if (normalized === 'midnight') {
+                return '00:00';
+              }
+
+              const simpleMatch = normalized.match(/^(\d{1,2})\s*([ap])m?$/);
+              if (simpleMatch) {
+                const hour = parseInt(simpleMatch[1], 10);
+                const meridiem = simpleMatch[2];
+                const isPM = meridiem === 'p';
                 const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
                 return `${hour24.toString().padStart(2, '0')}:00`;
-              } else if (/^\d+:\d+\s*[ap]m?$/i.test(time)) {
-                // Handle "4:00pm" format
-                const match = time.match(/(\d+):(\d+)\s*([ap])m?/i);
-                if (match) {
-                  const hour = parseInt(match[1]);
-                  const min = match[2];
-                  const isPM = match[3].toLowerCase() === 'p';
-                  const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-                  return `${hour24.toString().padStart(2, '0')}:${min}`;
+              }
+
+              const detailedMatch = normalized.match(/^(\d{1,2}):(\d{2})\s*([ap])m?$/);
+              if (detailedMatch) {
+                const hour = parseInt(detailedMatch[1], 10);
+                const min = detailedMatch[2];
+                const meridiem = detailedMatch[3];
+                const isPM = meridiem === 'p';
+                const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
+                return `${hour24.toString().padStart(2, '0')}:${min}`;
+              }
+
+              const twentyFourHourMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?$/);
+              if (twentyFourHourMatch) {
+                const hour = parseInt(twentyFourHourMatch[1], 10);
+                const min = twentyFourHourMatch[2] ?? '00';
+                if (!Number.isNaN(hour)) {
+                  return `${hour.toString().padStart(2, '0')}:${min}`;
                 }
               }
+
               return '19:00'; // Default to 7 PM if parsing fails
             };
             
@@ -517,7 +563,8 @@ const princeGeorgeModule: ScraperModule = {
             // Handle end time if available
             if (endTime) {
               const endTimeNormalized = normalizeTimeToString(endTime);
-              eventEnd = `${dateOnlyStr} ${endTimeNormalized}`;
+              const isAllDay = endTime.trim().toLowerCase().startsWith('all');
+              eventEnd = `${dateOnlyStr} ${isAllDay ? '17:00' : endTimeNormalized}`;
               logger.info(`Created event end time: ${eventEnd}`);
             }
           }

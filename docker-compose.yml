@@ -18,7 +18,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - postgres
 
   redis:
     image: redis:7-alpine
@@ -33,7 +35,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - redis
 
   api:
     build:
@@ -58,7 +62,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - api
     restart: unless-stopped
 
   admin:
@@ -77,7 +83,9 @@ services:
     depends_on:
       - api
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - admin
     restart: unless-stopped
 
   worker:
@@ -100,7 +108,9 @@ services:
     volumes:
       - export_data:/data/exports
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - worker
     restart: unless-stopped
 
 networks:

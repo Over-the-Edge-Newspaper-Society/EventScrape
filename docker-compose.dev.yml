@@ -18,7 +18,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - postgres
 
   redis:
     image: redis:7-alpine
@@ -34,7 +36,9 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - redis
 
   api:
     image: node:18-alpine
@@ -58,7 +62,9 @@ services:
       - /app/apps/api/node_modules
     command: sh -c "npm install -g pnpm && pnpm install && cd apps/api && pnpm db:migrate && pnpm dev"
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - api
 
   admin:
     image: node:18-alpine
@@ -77,7 +83,9 @@ services:
       - /app/apps/admin/node_modules
     command: sh -c "npm install -g pnpm && pnpm install && cd apps/admin && pnpm dev --host 0.0.0.0"
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - admin
 
   worker:
     image: mcr.microsoft.com/playwright:v1.54.0
@@ -101,7 +109,9 @@ services:
       - export_data:/data/exports
     command: sh -c "npm install -g pnpm && cd /app && pnpm install && cd /app/worker && pnpm dev"
     networks:
-      - eventscrape
+      eventscrape:
+        aliases:
+          - worker
 
 networks:
   eventscrape:

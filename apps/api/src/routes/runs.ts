@@ -1,9 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, asc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
-import { runs, sources } from '../db/schema.js';
+import { runs, sources, eventsRaw } from '../db/schema.js';
 import { enqueueScrapeJob } from '../queue/queue.js';
 
 const querySchema = z.object({
@@ -77,7 +77,27 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
       return { error: 'Run not found' };
     }
 
-    return { run: result[0] };
+    const events = await db
+      .select({
+        id: eventsRaw.id,
+        title: eventsRaw.title,
+        startDatetime: eventsRaw.startDatetime,
+        endDatetime: eventsRaw.endDatetime,
+        venueName: eventsRaw.venueName,
+        venueAddress: eventsRaw.venueAddress,
+        city: eventsRaw.city,
+        region: eventsRaw.region,
+        country: eventsRaw.country,
+        url: eventsRaw.url,
+        category: eventsRaw.category,
+        organizer: eventsRaw.organizer,
+        sourceEventId: eventsRaw.sourceEventId,
+      })
+      .from(eventsRaw)
+      .where(eq(eventsRaw.runId, id))
+      .orderBy(asc(eventsRaw.startDatetime));
+
+    return { run: { ...result[0], events } };
   });
 
   // Trigger a new scrape run for a source

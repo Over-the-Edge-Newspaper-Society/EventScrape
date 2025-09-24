@@ -253,13 +253,16 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                   const levelInfo = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS] || LOG_LEVELS[30]
                   
                   return (
-                    <div key={log.id} className="flex items-start gap-3 py-1 hover:bg-slate-800/50 dark:hover:bg-slate-800/50 rounded px-2 -mx-2">
-                      <div className="text-slate-400 text-xs font-mono flex-shrink-0 w-12">
+                    <div
+                      key={log.id}
+                      className="flex flex-wrap items-start gap-3 py-1 hover:bg-slate-800/50 dark:hover:bg-slate-800/50 rounded px-2 -mx-2"
+                    >
+                      <div className="text-slate-400 text-xs font-mono flex-shrink-0 w-[96px] whitespace-nowrap">
                         {formatTimestamp(log.timestamp)}
                       </div>
                       
                       <div className={cn(
-                        'text-xs px-2 py-0.5 rounded font-medium uppercase flex-shrink-0 w-12 text-center',
+                        'text-xs px-2 py-0.5 rounded font-medium uppercase flex-shrink-0 min-w-[60px] text-center',
                         levelInfo.bg,
                         levelInfo.color
                       )}>
@@ -267,12 +270,12 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                       </div>
                       
                       {log.source && (
-                        <div className="text-blue-400 text-xs flex-shrink-0 w-16 truncate">
+                        <div className="text-blue-400 text-xs flex-shrink-0 min-w-[110px] truncate whitespace-nowrap">
                           {log.source}
                         </div>
                       )}
                       
-                      <div className="text-slate-100 flex-1 min-w-0">
+                      <div className="text-slate-100 flex-1 min-w-[200px] whitespace-pre-wrap break-words">
                         {log.msg}
                       </div>
                     </div>
