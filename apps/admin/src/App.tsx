@@ -13,6 +13,7 @@ import { Exports } from '@/pages/Exports'
 import { Runs } from '@/pages/Runs'
 import { PosterImport } from '@/pages/PosterImport'
 import { Schedules } from '@/pages/Schedules'
+import { WordPressSettings } from '@/pages/WordPressSettings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ export default function App() {
                 <Route path="/schedules" element={<Schedules />} />
                 <Route path="/poster-import" element={<PosterImport />} />
                 <Route path="/exports" element={<Exports />} />
+                <Route path="/wordpress" element={<WordPressSettings />} />
               </Routes>
             </Layout>
             <Toaster richColors />

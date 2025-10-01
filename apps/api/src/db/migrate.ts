@@ -52,6 +52,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0004 (wordpress settings)
+    try {
+      const sql4 = await readFile(migrationPath('0004_wordpress_settings.sql'), 'utf-8');
+      await migrationClient.unsafe(sql4);
+      console.log('✅ Applied migration 0004 (wordpress settings)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0004 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0004 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

@@ -1,16 +1,17 @@
 import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { 
-  Calendar, 
-  Database, 
-  Download, 
-  GitMerge, 
-  Home, 
-  Play, 
+import {
+  Calendar,
+  Database,
+  Download,
+  GitMerge,
+  Home,
+  Play,
   Settings,
   Upload,
-  Clock
+  Clock,
+  Globe
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -28,6 +29,7 @@ const navigation = [
   { name: 'Schedules', href: '/schedules', icon: Clock },
   { name: 'Poster Import', href: '/poster-import', icon: Upload },
   { name: 'Exports', href: '/exports', icon: Download },
+  { name: 'WordPress', href: '/wordpress', icon: Globe },
 ]
 
 export function Layout({ children }: LayoutProps) {

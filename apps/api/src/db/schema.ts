@@ -199,6 +199,18 @@ export const schedules = pgTable('schedules', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// WordPress integration settings
+export const wordpressSettings = pgTable('wordpress_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  siteUrl: text('site_url').notNull(),
+  username: text('username').notNull(),
+  applicationPassword: text('application_password').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Optional: Audit logs
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -239,3 +251,6 @@ export type NewUser = typeof users.$inferInsert;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+export type WordpressSettings = typeof wordpressSettings.$inferSelect;
+export type NewWordpressSettings = typeof wordpressSettings.$inferInsert;

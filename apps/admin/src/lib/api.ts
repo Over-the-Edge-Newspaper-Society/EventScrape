@@ -205,6 +205,31 @@ export const schedulesApi = {
   delete: (id: string) => fetchApi<void>(`/schedules/${id}`, { method: 'DELETE' }),
 }
 
+export const wordpressApi = {
+  getSettings: () => fetchApi<{ settings: WordPressSettings[] }>(`/wordpress/settings`),
+  createSetting: (data: NewWordPressSettings) =>
+    fetchApi<{ setting: WordPressSettings; message: string }>(`/wordpress/settings`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateSetting: (id: string, data: Partial<NewWordPressSettings>) =>
+    fetchApi<{ setting: WordPressSettings; message: string }>(`/wordpress/settings/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteSetting: (id: string) =>
+    fetchApi<{ message: string }>(`/wordpress/settings/${id}`, { method: 'DELETE' }),
+  testConnection: (id: string) =>
+    fetchApi<{ success: boolean; error?: string }>(`/wordpress/settings/${id}/test`, {
+      method: 'POST',
+    }),
+  uploadEvents: (data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }) =>
+    fetchApi<{ message: string; results: any[] }>(`/wordpress/upload`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
 // Types
 export interface Source {
   id: string
@@ -432,4 +457,22 @@ export interface CreateExportData {
     status?: 'new' | 'ready' | 'exported' | 'ignored'
   }
   fieldMap?: Record<string, string>
+}
+
+export interface WordPressSettings {
+  id: string
+  name: string
+  siteUrl: string
+  username: string
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NewWordPressSettings {
+  name: string
+  siteUrl: string
+  username: string
+  applicationPassword: string
+  active: boolean
 }
