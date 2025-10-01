@@ -182,25 +182,53 @@ export const queueApi = {
 // Schedules API
 export interface Schedule {
   id: string
-  sourceId: string
+  scheduleType: 'scrape' | 'wordpress_export'
+  sourceId: string | null
+  wordpressSettingsId: string | null
   cron: string
   timezone: string
   active: boolean
   repeatKey?: string | null
+  config?: any
   createdAt: string
   updatedAt: string
 }
 
 export interface ScheduleWithSource {
   schedule: Schedule
-  source: Pick<Source, 'id' | 'name' | 'moduleKey'>
+  source: Pick<Source, 'id' | 'name' | 'moduleKey'> | null
+  wordpressSettings: Pick<WordPressSettings, 'id' | 'name' | 'siteUrl'> | null
+}
+
+export type CreateScrapeSchedule = {
+  scheduleType: 'scrape'
+  sourceId: string
+  cron: string
+  timezone?: string
+  active?: boolean
+}
+
+export type CreateWordPressSchedule = {
+  scheduleType: 'wordpress_export'
+  wordpressSettingsId: string
+  cron: string
+  timezone?: string
+  active?: boolean
+  config?: {
+    sourceIds?: string[]
+    startDateOffset?: number
+    endDateOffset?: number
+    city?: string
+    category?: string
+    status?: 'publish' | 'draft' | 'pending'
+  }
 }
 
 export const schedulesApi = {
   getAll: () => fetchApi<{ schedules: ScheduleWithSource[] }>(`/schedules`),
-  create: (data: { sourceId: string; cron: string; timezone?: string; active?: boolean }) =>
+  create: (data: CreateScrapeSchedule | CreateWordPressSchedule) =>
     fetchApi<{ schedule: Schedule }>(`/schedules`, { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean }>) =>
+  update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean; config: any }>) =>
     fetchApi<{ schedule: Schedule }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => fetchApi<void>(`/schedules/${id}`, { method: 'DELETE' }),
 }

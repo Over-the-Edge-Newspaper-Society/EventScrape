@@ -1,21 +1,40 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/connection.js'
-import { schedules, sources } from '../db/schema.js'
+import { schedules, sources, wordpressSettings } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { registerSchedule, unregisterScheduleByKey } from '../queue/scheduler.js'
 
-const createSchema = z.object({
-  sourceId: z.string().uuid(),
-  cron: z.string().min(5),
-  timezone: z.string().optional().default('America/Vancouver'),
-  active: z.boolean().optional().default(true),
-})
+const createSchema = z.discriminatedUnion('scheduleType', [
+  z.object({
+    scheduleType: z.literal('scrape'),
+    sourceId: z.string().uuid(),
+    cron: z.string().min(5),
+    timezone: z.string().optional().default('America/Vancouver'),
+    active: z.boolean().optional().default(true),
+  }),
+  z.object({
+    scheduleType: z.literal('wordpress_export'),
+    wordpressSettingsId: z.string().uuid(),
+    cron: z.string().min(5),
+    timezone: z.string().optional().default('America/Vancouver'),
+    active: z.boolean().optional().default(true),
+    config: z.object({
+      sourceIds: z.array(z.string().uuid()).optional(),
+      startDateOffset: z.number().optional(), // Days from now, e.g., -7 for last 7 days
+      endDateOffset: z.number().optional(),
+      city: z.string().optional(),
+      category: z.string().optional(),
+      status: z.enum(['publish', 'draft', 'pending']).optional().default('draft'),
+    }).optional(),
+  }),
+])
 
 const updateSchema = z.object({
   cron: z.string().min(5).optional(),
   timezone: z.string().optional(),
   active: z.boolean().optional(),
+  config: z.any().optional(),
 })
 
 export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -25,9 +44,11 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
       .select({
         schedule: schedules,
         source: { id: sources.id, name: sources.name, moduleKey: sources.moduleKey },
+        wordpressSettings: { id: wordpressSettings.id, name: wordpressSettings.name, siteUrl: wordpressSettings.siteUrl },
       })
       .from(schedules)
       .leftJoin(sources, eq(schedules.sourceId, sources.id))
+      .leftJoin(wordpressSettings, eq(schedules.wordpressSettingsId, wordpressSettings.id))
     return { schedules: rows }
   })
 
@@ -35,15 +56,33 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/', async (request, reply) => {
     try {
       const data = createSchema.parse(request.body)
-      const [row] = await db.insert(schedules).values({
-        sourceId: data.sourceId,
+
+      const values: any = {
+        scheduleType: data.scheduleType,
         cron: data.cron,
         timezone: data.timezone,
         active: data.active,
-      }).returning()
+      }
+
+      if (data.scheduleType === 'scrape') {
+        values.sourceId = data.sourceId
+      } else {
+        values.wordpressSettingsId = data.wordpressSettingsId
+        values.config = data.config
+      }
+
+      const [row] = await db.insert(schedules).values(values).returning()
 
       if (row.active) {
-        await registerSchedule({ id: row.id, sourceId: row.sourceId, cron: row.cron, timezone: row.timezone || undefined })
+        await registerSchedule({
+          id: row.id,
+          scheduleType: row.scheduleType,
+          sourceId: row.sourceId || undefined,
+          wordpressSettingsId: row.wordpressSettingsId || undefined,
+          cron: row.cron,
+          timezone: row.timezone || undefined,
+          config: row.config || undefined,
+        })
       }
       reply.status(201)
       return { schedule: row }
@@ -70,11 +109,20 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
         cron: data.cron ?? existing.cron,
         timezone: data.timezone ?? existing.timezone,
         active: data.active ?? existing.active,
+        config: data.config ?? existing.config,
         updatedAt: new Date(),
       }).where(eq(schedules.id, id)).returning()
 
       if (updated.active) {
-        await registerSchedule({ id: updated.id, sourceId: updated.sourceId, cron: updated.cron, timezone: updated.timezone || undefined })
+        await registerSchedule({
+          id: updated.id,
+          scheduleType: updated.scheduleType,
+          sourceId: updated.sourceId || undefined,
+          wordpressSettingsId: updated.wordpressSettingsId || undefined,
+          cron: updated.cron,
+          timezone: updated.timezone || undefined,
+          config: updated.config || undefined,
+        })
       }
       return { schedule: updated }
     } catch (e: any) {

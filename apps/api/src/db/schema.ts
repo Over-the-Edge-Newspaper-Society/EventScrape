@@ -28,6 +28,11 @@ export const matchStatusEnum = pgEnum('match_status', [
   'rejected',
 ]);
 
+export const scheduleTypeEnum = pgEnum('schedule_type', [
+  'scrape',
+  'wordpress_export',
+]);
+
 export const canonicalStatusEnum = pgEnum('canonical_status', [
   'new',
   'ready',
@@ -190,11 +195,14 @@ export const users = pgTable('users', {
 // Automated run schedules
 export const schedules = pgTable('schedules', {
   id: uuid('id').primaryKey().defaultRandom(),
-  sourceId: uuid('source_id').notNull().references(() => sources.id),
+  scheduleType: scheduleTypeEnum('schedule_type').notNull().default('scrape'),
+  sourceId: uuid('source_id').references(() => sources.id),
+  wordpressSettingsId: uuid('wordpress_settings_id').references(() => wordpressSettings.id),
   cron: text('cron').notNull(),
   timezone: text('timezone').notNull().default('America/Vancouver'),
   active: boolean('active').notNull().default(true),
   repeatKey: text('repeat_key'),
+  config: jsonb('config'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

@@ -65,6 +65,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0005 (schedule types)
+    try {
+      const sql5 = await readFile(migrationPath('0005_schedule_types.sql'), 'utf-8');
+      await migrationClient.unsafe(sql5);
+      console.log('✅ Applied migration 0005 (schedule types)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0005 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0005 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
