@@ -221,6 +221,7 @@ export type CreateWordPressSchedule = {
     city?: string
     category?: string
     status?: 'publish' | 'draft' | 'pending'
+    updateIfExists?: boolean
   }
 }
 
@@ -485,6 +486,8 @@ export interface CreateExportData {
     status?: 'new' | 'ready' | 'exported' | 'ignored'
   }
   fieldMap?: Record<string, string>
+  wpSiteId?: string
+  wpPostStatus?: 'publish' | 'draft' | 'pending'
 }
 
 export interface WordPressSettings {

@@ -27,6 +27,7 @@ export function WordPressSchedules() {
   const [endDateOffset, setEndDateOffset] = useState<number>(30)
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
   const [postStatus, setPostStatus] = useState<'draft' | 'pending' | 'publish'>('draft')
+  const [updateIfExists, setUpdateIfExists] = useState(false)
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -41,6 +42,7 @@ export function WordPressSchedules() {
           endDateOffset,
           sourceIds: selectedSourceIds.length > 0 ? selectedSourceIds : undefined,
           status: postStatus,
+          updateIfExists,
         },
       }),
     onSuccess: () => {
@@ -130,6 +132,17 @@ export function WordPressSchedules() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="updateIfExists"
+              checked={updateIfExists}
+              onCheckedChange={setUpdateIfExists}
+            />
+            <Label htmlFor="updateIfExists" className="cursor-pointer">
+              Update existing events (if already exported)
+            </Label>
           </div>
 
           <div className="space-y-3">

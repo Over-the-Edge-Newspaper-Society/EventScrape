@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/DatePicker'
-import { exportsApi, sourcesApi, CreateExportData } from '@/lib/api'
+import { exportsApi, sourcesApi, wordpressApi, CreateExportData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle } from 'lucide-react'
+import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle, ExternalLink } from 'lucide-react'
+import { Label } from '@/components/ui/label'
 
 interface ExportWizardProps {
   onClose: () => void
@@ -26,6 +27,8 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
     fieldMap: {},
   })
   const [allData, setAllData] = useState(false)
+  const [wpSiteId, setWpSiteId] = useState('')
+  const [wpPostStatus, setWpPostStatus] = useState<'publish' | 'draft' | 'pending'>('draft')
 
   // Fetch sources for the source filter
   const { data: sources, isLoading: sourcesLoading } = useQuery({
@@ -33,12 +36,19 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
     queryFn: () => sourcesApi.getAll(),
   })
 
+  // Fetch WordPress settings for wp-rest format
+  const { data: wpSettings } = useQuery({
+    queryKey: ['wordpress-settings'],
+    queryFn: () => wordpressApi.getSettings(),
+    enabled: exportData.format === 'wp-rest',
+  })
+
   const handleNext = () => {
     if (step < 3) {
       setStep(step + 1)
     } else {
       // Clear date filters if "All Data" is selected
-      const finalExportData = allData ? {
+      let finalExportData = allData ? {
         ...exportData,
         filters: {
           ...exportData.filters,
@@ -46,7 +56,16 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
           endDate: undefined,
         }
       } : exportData
-      
+
+      // Add WordPress settings if wp-rest format
+      if (exportData.format === 'wp-rest') {
+        finalExportData = {
+          ...finalExportData,
+          wpSiteId,
+          wpPostStatus,
+        } as any
+      }
+
       onExport(finalExportData)
       onClose()
     }
@@ -325,54 +344,122 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
           </div>
         )}
 
-        {/* Step 3: Field Mapping (for CSV/WordPress) */}
+        {/* Step 3: WordPress Settings or Field Mapping */}
         {step === 3 && (
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Field Mapping</h3>
-            {exportData.format === 'csv' || exportData.format === 'wp-rest' ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  Map event fields to {exportData.format === 'csv' ? 'CSV columns' : 'WordPress fields'}
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { key: 'title', label: 'Event Title', default: 'post_title' },
-                    { key: 'description', label: 'Description', default: 'post_content' },
-                    { key: 'start', label: 'Start Date/Time', default: 'event_start' },
-                    { key: 'end', label: 'End Date/Time', default: 'event_end' },
-                    { key: 'venue', label: 'Venue Name', default: 'venue_name' },
-                    { key: 'city', label: 'City', default: 'city' },
-                    { key: 'organizer', label: 'Organizer', default: 'organizer' },
-                    { key: 'category', label: 'Category', default: 'category' },
-                  ].map((field) => (
-                    <div key={field.key}>
-                      <label className="text-sm font-medium">{field.label}</label>
-                      <Input
-                        placeholder={field.default}
-                        value={exportData.fieldMap?.[field.key] || field.default}
-                        onChange={(e) =>
-                          setExportData(prev => ({
-                            ...prev,
-                            fieldMap: {
-                              ...prev.fieldMap,
-                              [field.key]: e.target.value || field.default,
-                            },
-                          }))
-                        }
-                      />
+            {exportData.format === 'wp-rest' ? (
+              <>
+                <h3 className="text-lg font-semibold">WordPress Settings</h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>WordPress Site</Label>
+                    <Select value={wpSiteId} onValueChange={setWpSiteId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose WordPress site..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {wpSettings?.settings
+                          .filter((s) => s.active)
+                          .map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              <div className="flex items-center gap-2">
+                                <Globe className="h-4 w-4" />
+                                {s.name} - {s.siteUrl}
+                              </div>
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {!wpSettings?.settings.length && (
+                      <p className="text-xs text-muted-foreground">
+                        No WordPress sites configured. Add one in Settings → WordPress.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Post Status</Label>
+                    <Select value={wpPostStatus} onValueChange={(v: any) => setWpPostStatus(v)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft (for review)</SelectItem>
+                        <SelectItem value="pending">Pending Review</SelectItem>
+                        <SelectItem value="publish">Publish Immediately</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+                    <div className="flex items-start gap-3">
+                      <Globe className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div className="space-y-1">
+                        <h4 className="font-medium text-sm text-blue-900">Direct WordPress Upload</h4>
+                        <p className="text-sm text-blue-700">
+                          Events will be uploaded directly to your WordPress site via REST API with:
+                        </p>
+                        <ul className="text-sm text-blue-700 list-disc list-inside space-y-1 mt-2">
+                          <li>UTC to local timezone conversion</li>
+                          <li>Automatic club/organization linking</li>
+                          <li>Duplicate detection (won't create duplicates)</li>
+                          <li>Image uploads</li>
+                        </ul>
+                      </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              </>
+            ) : exportData.format === 'csv' ? (
+              <>
+                <h3 className="text-lg font-semibold">Field Mapping</h3>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Map event fields to CSV columns
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { key: 'title', label: 'Event Title', default: 'post_title' },
+                      { key: 'description', label: 'Description', default: 'post_content' },
+                      { key: 'start', label: 'Start Date/Time', default: 'event_start' },
+                      { key: 'end', label: 'End Date/Time', default: 'event_end' },
+                      { key: 'venue', label: 'Venue Name', default: 'venue_name' },
+                      { key: 'city', label: 'City', default: 'city' },
+                      { key: 'organizer', label: 'Organizer', default: 'organizer' },
+                      { key: 'category', label: 'Category', default: 'category' },
+                    ].map((field) => (
+                      <div key={field.key}>
+                        <label className="text-sm font-medium">{field.label}</label>
+                        <Input
+                          placeholder={field.default}
+                          value={exportData.fieldMap?.[field.key] || field.default}
+                          onChange={(e) =>
+                            setExportData(prev => ({
+                              ...prev,
+                              fieldMap: {
+                                ...prev.fieldMap,
+                                [field.key]: e.target.value || field.default,
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : (
-              <div className="text-center py-8">
-                <Settings className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  {exportData.format === 'json'
-                    ? 'JSON exports use standard field names'
-                    : 'ICS exports use calendar-standard field mapping'}
-                </p>
-              </div>
+              <>
+                <h3 className="text-lg font-semibold">Export Configuration</h3>
+                <div className="text-center py-8">
+                  <Settings className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">
+                    {exportData.format === 'json'
+                      ? 'JSON exports use standard field names'
+                      : 'ICS exports use calendar-standard field mapping'}
+                  </p>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -394,6 +481,8 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
 export function Exports() {
   const queryClient = useQueryClient()
   const [showWizard, setShowWizard] = useState(false)
+  const [selectedExport, setSelectedExport] = useState<any | null>(null)
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false)
 
   const { data: exports, isLoading } = useQuery({
     queryKey: ['exports'],
@@ -580,9 +669,44 @@ export function Exports() {
                           </Button>
                         )}
                         {exportRecord.format === 'wp-rest' && exportRecord.status === 'success' && (
-                          <Badge variant="secondary" className="text-xs">
-                            Ready for WP
-                          </Badge>
+                          <>
+                            <div className="flex flex-col gap-1 text-xs">
+                              {exportRecord.params?.wpResults ? (
+                                <>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="success" className="text-xs">
+                                      ✓ {exportRecord.params.wpResults.createdCount || 0} created
+                                    </Badge>
+                                    {exportRecord.params.wpResults.skippedCount > 0 && (
+                                      <Badge variant="outline" className="text-xs">
+                                        ⊘ {exportRecord.params.wpResults.skippedCount} skipped
+                                      </Badge>
+                                    )}
+                                    {exportRecord.params.wpResults.failedCount > 0 && (
+                                      <Badge variant="destructive" className="text-xs">
+                                        ✗ {exportRecord.params.wpResults.failedCount} failed
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => {
+                                      setSelectedExport(exportRecord)
+                                      setShowDetailsDialog(true)
+                                    }}
+                                  >
+                                    View Details →
+                                  </Button>
+                                </>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">
+                                  Uploaded to WordPress
+                                </Badge>
+                              )}
+                            </div>
+                          </>
                         )}
                         {exportRecord.status === 'error' && (
                           <Badge variant="destructive" className="text-xs">
@@ -651,6 +775,125 @@ export function Exports() {
           </div>
         </CardContent>
       </Card>
+
+      {/* WordPress Export Details Dialog */}
+      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>WordPress Export Details</DialogTitle>
+            <DialogDescription>
+              Detailed results from WordPress upload
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedExport?.params?.wpResults && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">
+                        {selectedExport.params.wpResults.createdCount || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Created</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {selectedExport.params.wpResults.updatedCount || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Updated</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-gray-600">
+                        {selectedExport.params.wpResults.skippedCount || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Skipped</div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-600">
+                        {selectedExport.params.wpResults.failedCount || 0}
+                      </div>
+                      <div className="text-sm text-muted-foreground">Failed</div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Detailed Results Table */}
+              <div>
+                <h3 className="font-semibold mb-2">Event-by-Event Results</h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Event Title</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>WordPress Link</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedExport.params.wpResults.results.map((result: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell className="max-w-md">
+                            <div className="truncate" title={result.eventTitle}>
+                              {result.eventTitle}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {result.success ? (
+                              <Badge variant={
+                                result.action === 'created' ? 'success' :
+                                result.action === 'updated' ? 'default' :
+                                'outline'
+                              }>
+                                {result.action === 'created' && '✓ Created'}
+                                {result.action === 'updated' && '↻ Updated'}
+                                {result.action === 'skipped' && '⊘ Skipped (exists)'}
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive">✗ Failed</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {result.postUrl ? (
+                              <a
+                                href={result.postUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline flex items-center gap-1"
+                              >
+                                View in WordPress
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            ) : result.error ? (
+                              <span className="text-xs text-red-600">{result.error}</span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

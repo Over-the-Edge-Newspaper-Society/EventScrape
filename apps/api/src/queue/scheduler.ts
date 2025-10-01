@@ -89,10 +89,12 @@ export function initScheduleWorker() {
       const client = new WordPressClient(wpSettings)
       const results = await client.uploadEvents(
         events.map((e) => ({
+          id: e.id,
           title: e.title,
           descriptionHtml: e.descriptionHtml || undefined,
           startDatetime: e.startDatetime,
           endDatetime: e.endDatetime || undefined,
+          timezone: e.timezone || undefined,
           venueName: e.venueName || undefined,
           venueAddress: e.venueAddress || undefined,
           city: e.city || undefined,
@@ -100,7 +102,12 @@ export function initScheduleWorker() {
           category: e.category || undefined,
           url: e.url,
           imageUrl: e.imageUrl || undefined,
-        }))
+          raw: e.raw,
+        })),
+        {
+          status: (config?.postStatus as 'publish' | 'draft' | 'pending') || 'draft',
+          updateIfExists: config?.updateIfExists || false,
+        }
       )
 
       const successCount = results.filter((r) => r.result.success).length

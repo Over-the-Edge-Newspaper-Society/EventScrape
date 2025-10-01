@@ -278,10 +278,12 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
       const client = new WordPressClient(setting);
       const results = await client.uploadEvents(
         events.map((e) => ({
+          id: e.id,
           title: e.title,
           descriptionHtml: e.descriptionHtml || undefined,
           startDatetime: e.startDatetime,
           endDatetime: e.endDatetime || undefined,
+          timezone: e.timezone || undefined,
           venueName: e.venueName || undefined,
           venueAddress: e.venueAddress || undefined,
           city: e.city || undefined,
@@ -289,7 +291,12 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           category: e.category || undefined,
           url: e.url,
           imageUrl: e.imageUrl || undefined,
-        }))
+          raw: e.raw,
+        })),
+        {
+          status: data.status || 'draft',
+          updateIfExists: false,
+        }
       );
 
       const successCount = results.filter((r) => r.result.success).length;

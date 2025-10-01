@@ -2,10 +2,11 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { exports as exportsTable, eventsRaw } from '../db/schema.js';
+import { exports as exportsTable, eventsRaw, wordpressSettings } from '../db/schema.js';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { WordPressClient } from '../services/wordpress-client.js';
 
 const exportSchema = z.object({
   format: z.enum(['csv', 'json', 'ics', 'wp-rest']),
@@ -17,7 +18,7 @@ const exportSchema = z.object({
     }),
     endDate: z.string().optional().transform(val => {
       if (!val) return undefined;
-      // Handle both date (YYYY-MM-DD) and datetime formats  
+      // Handle both date (YYYY-MM-DD) and datetime formats
       return val.includes('T') ? val : `${val}T23:59:59.999Z`;
     }),
     city: z.string().optional(),
@@ -26,6 +27,8 @@ const exportSchema = z.object({
     status: z.enum(['new', 'ready', 'exported', 'ignored']).optional(),
   }).default({}),
   fieldMap: z.record(z.string()).optional().default({}),
+  wpSiteId: z.string().uuid().optional(),
+  wpPostStatus: z.enum(['publish', 'draft', 'pending']).optional().default('draft'),
 });
 
 // Helper functions for export formats
@@ -252,45 +255,124 @@ async function processExport(exportId: string, data: any): Promise<void> {
     await mkdir(exportDir, { recursive: true });
   }
 
-  // Generate export content
-  let content: string;
-  let filename: string;
+  // Generate export content or upload to WordPress
+  if (data.format === 'wp-rest') {
+    // Handle WordPress direct upload
+    if (!data.wpSiteId) {
+      throw new Error('WordPress site ID is required for wp-rest format');
+    }
 
-  switch (data.format) {
-    case 'csv':
-      content = generateCSV(events, data.fieldMap);
-      filename = `export-${exportId}.csv`;
-      break;
-    case 'json':
-      content = generateJSON(events, data.fieldMap);
-      filename = `export-${exportId}.json`;
-      break;
-    case 'ics':
-      content = generateICS(events);
-      filename = `export-${exportId}.ics`;
-      break;
-    case 'wp-rest':
-      // For WordPress REST, we'll generate JSON but mark it specially
-      content = generateJSON(events, data.fieldMap);
-      filename = `export-${exportId}-wp.json`;
-      break;
-    default:
-      throw new Error(`Unsupported export format: ${data.format}`);
+    // Fetch WordPress settings
+    const [wpSetting] = await db
+      .select()
+      .from(wordpressSettings)
+      .where(eq(wordpressSettings.id, data.wpSiteId))
+      .limit(1);
+
+    if (!wpSetting) {
+      throw new Error('WordPress site not found');
+    }
+
+    // Upload to WordPress
+    const client = new WordPressClient(wpSetting);
+    const results = await client.uploadEvents(
+      events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        descriptionHtml: e.descriptionHtml || undefined,
+        startDatetime: e.startDatetime,
+        endDatetime: e.endDatetime || undefined,
+        timezone: e.timezone || undefined,
+        venueName: e.venueName || undefined,
+        venueAddress: e.venueAddress || undefined,
+        city: e.city || undefined,
+        organizer: e.organizer || undefined,
+        category: e.category || undefined,
+        url: e.url,
+        imageUrl: e.imageUrl || undefined,
+        raw: e.raw,
+      })),
+      {
+        status: data.wpPostStatus || 'draft',
+        updateIfExists: false,
+      }
+    );
+
+    const successCount = results.filter((r) => r.result.success).length;
+    const failedCount = results.length - successCount;
+    const skippedCount = results.filter((r) => r.result.action === 'skipped').length;
+    const createdCount = results.filter((r) => r.result.action === 'created').length;
+    const updatedCount = results.filter((r) => r.result.action === 'updated').length;
+
+    // Prepare detailed results for storage
+    const wpResults = {
+      totalEvents: results.length,
+      successCount,
+      failedCount,
+      createdCount,
+      updatedCount,
+      skippedCount,
+      results: results.map((r) => ({
+        eventId: r.event.id,
+        eventTitle: r.event.title,
+        success: r.result.success,
+        action: r.result.action,
+        postId: r.result.postId,
+        postUrl: r.result.postUrl,
+        error: r.result.error,
+      })),
+    };
+
+    // Update export record with WordPress upload results
+    await db
+      .update(exportsTable)
+      .set({
+        status: 'success',
+        itemCount: successCount,
+        filePath: null, // No file for direct WordPress uploads
+        errorMessage: failedCount > 0 ? `${failedCount} events failed to upload` : null,
+        params: {
+          ...data,
+          wpResults,
+        },
+      })
+      .where(eq(exportsTable.id, exportId));
+  } else {
+    // Generate file exports (CSV, JSON, ICS)
+    let content: string;
+    let filename: string;
+
+    switch (data.format) {
+      case 'csv':
+        content = generateCSV(events, data.fieldMap);
+        filename = `export-${exportId}.csv`;
+        break;
+      case 'json':
+        content = generateJSON(events, data.fieldMap);
+        filename = `export-${exportId}.json`;
+        break;
+      case 'ics':
+        content = generateICS(events);
+        filename = `export-${exportId}.ics`;
+        break;
+      default:
+        throw new Error(`Unsupported export format: ${data.format}`);
+    }
+
+    // Write file
+    const filePath = join(exportDir, filename);
+    await writeFile(filePath, content, 'utf8');
+
+    // Update export record
+    await db
+      .update(exportsTable)
+      .set({
+        status: 'success',
+        itemCount: events.length,
+        filePath: filePath,
+      })
+      .where(eq(exportsTable.id, exportId));
   }
-
-  // Write file
-  const filePath = join(exportDir, filename);
-  await writeFile(filePath, content, 'utf8');
-
-  // Update export record
-  await db
-    .update(exportsTable)
-    .set({
-      status: 'success',
-      itemCount: events.length,
-      filePath: filePath,
-    })
-    .where(eq(exportsTable.id, exportId));
 }
 
 export const exportsRoutes: FastifyPluginAsync = async (fastify) => {

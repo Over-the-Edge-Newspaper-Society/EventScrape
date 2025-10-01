@@ -1,4 +1,6 @@
 import { WordpressSettings } from '../db/schema.js';
+import { db } from '../db/connection.js';
+import { sql } from 'drizzle-orm';
 
 export interface WordPressEvent {
   title: string;
@@ -6,17 +8,17 @@ export interface WordPressEvent {
   status?: 'publish' | 'draft' | 'pending';
   excerpt?: string;
   meta?: {
-    event_start_date?: string;
-    event_end_date?: string;
-    event_start_time?: string;
-    event_end_time?: string;
-    event_venue?: string;
-    event_address?: string;
-    event_city?: string;
-    event_organizer?: string;
-    event_category?: string;
-    event_url?: string;
-    event_image_url?: string;
+    external_id?: string;
+    [key: string]: any;
+  };
+  event_meta?: {
+    date?: string;
+    start_time?: string;
+    end_time?: string;
+    location?: string;
+    cost?: string;
+    organization?: string;
+    featured?: boolean;
     [key: string]: any;
   };
   featured_media?: number;
@@ -29,6 +31,15 @@ export interface WordPressUploadResult {
   postId?: number;
   postUrl?: string;
   error?: string;
+  action?: 'created' | 'updated' | 'skipped';
+}
+
+interface ClubData {
+  id?: string | number | null;
+  name?: string | null;
+  username?: string | null;
+  profileUrl?: string | null;
+  platform?: string | null;
 }
 
 export class WordPressClient {
@@ -127,12 +138,201 @@ export class WordPressClient {
   }
 
   /**
+   * Match event to WordPress organization by Instagram username/URL
+   */
+  private async matchOrganization(clubData?: ClubData): Promise<string | null> {
+    if (!clubData) {
+      return null;
+    }
+
+    try {
+      // Query WordPress for organizations with org_instagram field
+      const response = await fetch(
+        `${this.siteUrl}/wp-json/wp/v2/organization?per_page=100&_fields=id,org_instagram`,
+        {
+          method: 'GET',
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        console.warn('Failed to fetch organizations from WordPress:', response.status);
+        return null;
+      }
+
+      const organizations = (await response.json()) as Array<{
+        id: number;
+        org_instagram?: string;
+      }>;
+
+      console.log(`Found ${organizations.length} organizations in WordPress for club: ${clubData.username}, profileUrl: ${clubData.profileUrl}`);
+
+      // Normalize the club's Instagram URL for comparison
+      const normalizedClubUrl = clubData.profileUrl
+        ? this.normalizeInstagramUrl(clubData.profileUrl)
+        : null;
+
+      // Try to match by Instagram URL (PRIMARY METHOD)
+      for (const org of organizations) {
+        // Access org_instagram field (registered via register_rest_field)
+        const orgInstagram = org.org_instagram
+          ? String(org.org_instagram).trim()
+          : null;
+
+        if (!orgInstagram) {
+          continue;
+        }
+
+        console.log(`Checking org ${org.id}: org_instagram="${orgInstagram}"`);
+
+        // Normalize the org's Instagram URL
+        const normalizedOrgUrl = this.normalizeInstagramUrl(orgInstagram);
+
+        console.log(`  Comparing URLs: club="${normalizedClubUrl}" vs org="${normalizedOrgUrl}"`);
+
+        // Match by full URL (BEST match)
+        if (normalizedClubUrl && normalizedOrgUrl === normalizedClubUrl) {
+          console.log(`✓ Matched organization ${org.id} by URL match`);
+          return org.id.toString();
+        }
+
+        // Fallback: Extract and match by username if URL match didn't work
+        if (clubData.username) {
+          const normalizedUsername = clubData.username.replace(/^@/, '').toLowerCase().trim();
+
+          // Extract username from org's Instagram (could be URL or username)
+          let orgUsername = orgInstagram.toLowerCase();
+          if (orgInstagram.includes('instagram.com')) {
+            const match = orgInstagram.match(/instagram\.com\/([^\/\?]+)/);
+            if (match) {
+              orgUsername = match[1].toLowerCase().trim();
+            }
+          } else {
+            orgUsername = orgInstagram.replace(/^@/, '').toLowerCase().trim();
+          }
+
+          console.log(`  Comparing usernames: club="${normalizedUsername}" vs org="${orgUsername}"`);
+
+          if (orgUsername === normalizedUsername) {
+            console.log(`✓ Matched organization ${org.id} by username`);
+            return org.id.toString();
+          }
+        }
+      }
+
+      console.log(`✗ No matching organization found for club: ${clubData.username || 'unknown'}`);
+      return null;
+    } catch (error: any) {
+      console.error('Error matching organization:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Normalize Instagram URL for comparison
+   */
+  private normalizeInstagramUrl(url: string): string {
+    return url
+      .replace(/^https?:\/\/(www\.)?instagram\.com\//, '')
+      .replace(/\/$/, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  /**
+   * Convert UTC datetime to local date and time
+   */
+  private convertToLocalDateTime(
+    utcDatetime: Date,
+    timezone: string = 'UTC'
+  ): { date: string; time: string } {
+    try {
+      // Format: YYYY-MM-DD for date, HH:mm:ss for time
+      const localDatetime = new Date(utcDatetime.toLocaleString('en-US', { timeZone: timezone }));
+
+      const year = localDatetime.getFullYear();
+      const month = String(localDatetime.getMonth() + 1).padStart(2, '0');
+      const day = String(localDatetime.getDate()).padStart(2, '0');
+      const hours = String(localDatetime.getHours()).padStart(2, '0');
+      const minutes = String(localDatetime.getMinutes()).padStart(2, '0');
+      const seconds = String(localDatetime.getSeconds()).padStart(2, '0');
+
+      return {
+        date: `${year}-${month}-${day}`,
+        time: `${hours}:${minutes}:${seconds}`,
+      };
+    } catch (error) {
+      // Fallback to UTC if timezone conversion fails
+      const year = utcDatetime.getUTCFullYear();
+      const month = String(utcDatetime.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(utcDatetime.getUTCDate()).padStart(2, '0');
+      const hours = String(utcDatetime.getUTCHours()).padStart(2, '0');
+      const minutes = String(utcDatetime.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(utcDatetime.getUTCSeconds()).padStart(2, '0');
+
+      return {
+        date: `${year}-${month}-${day}`,
+        time: `${hours}:${minutes}:${seconds}`,
+      };
+    }
+  }
+
+  /**
+   * Check if event already exists in WordPress by external_id
+   */
+  private async findExistingEvent(externalId: string): Promise<number | null> {
+    try {
+      // Fetch all events with external_id field and filter client-side
+      // Note: WordPress meta_key/meta_value query is unreliable with empty values
+      const response = await fetch(
+        `${this.siteUrl}/wp-json/wp/v2/events?per_page=100&_fields=id,external_id`,
+        {
+          method: 'GET',
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const events = (await response.json()) as Array<{ id: number; external_id?: string }>;
+
+      // Find event with matching external_id
+      const matchingEvent = events.find(event => event.external_id === externalId);
+      return matchingEvent ? matchingEvent.id : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * Create a new event post in WordPress
    */
-  async createEvent(event: WordPressEvent): Promise<WordPressUploadResult> {
+  async createEvent(event: WordPressEvent, updateIfExists: boolean = false): Promise<WordPressUploadResult> {
     try {
-      const response = await fetch(`${this.siteUrl}/wp-json/wp/v2/posts`, {
-        method: 'POST',
+      // Check if event already exists
+      let existingEventId: number | null = null;
+      if (event.meta?.external_id) {
+        existingEventId = await this.findExistingEvent(event.meta.external_id);
+      }
+
+      if (existingEventId && !updateIfExists) {
+        return {
+          success: true,
+          postId: existingEventId,
+          action: 'skipped',
+        };
+      }
+
+      const endpoint = existingEventId
+        ? `${this.siteUrl}/wp-json/wp/v2/events/${existingEventId}`
+        : `${this.siteUrl}/wp-json/wp/v2/events`;
+
+      const method = existingEventId ? 'PUT' : 'POST';
+
+      const response = await fetch(endpoint, {
+        method,
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           title: event.title,
@@ -140,6 +340,7 @@ export class WordPressClient {
           status: event.status || 'draft',
           excerpt: event.excerpt,
           meta: event.meta,
+          event_meta: event.event_meta,
           featured_media: event.featured_media,
           categories: event.categories,
           tags: event.tags,
@@ -150,7 +351,7 @@ export class WordPressClient {
         const error = await response.text();
         return {
           success: false,
-          error: `Post creation failed: ${response.status} - ${error}`,
+          error: `Post ${existingEventId ? 'update' : 'creation'} failed: ${response.status} - ${error}`,
         };
       }
 
@@ -159,11 +360,12 @@ export class WordPressClient {
         success: true,
         postId: post.id,
         postUrl: post.link,
+        action: existingEventId ? 'updated' : 'created',
       };
     } catch (error: any) {
       return {
         success: false,
-        error: `Post creation error: ${error.message}`,
+        error: `Post operation error: ${error.message}`,
       };
     }
   }
@@ -173,7 +375,8 @@ export class WordPressClient {
    */
   async uploadEventWithImage(
     event: WordPressEvent,
-    imageUrl?: string
+    imageUrl?: string,
+    updateIfExists: boolean = false
   ): Promise<WordPressUploadResult> {
     let featuredMediaId: number | undefined;
 
@@ -195,7 +398,7 @@ export class WordPressClient {
     return this.createEvent({
       ...event,
       featured_media: featuredMediaId,
-    });
+    }, updateIfExists);
   }
 
   /**
@@ -203,10 +406,12 @@ export class WordPressClient {
    */
   async uploadEvents(
     events: Array<{
+      id: string;
       title: string;
       descriptionHtml?: string;
       startDatetime: string | Date;
       endDatetime?: string | Date;
+      timezone?: string;
       venueName?: string;
       venueAddress?: string;
       city?: string;
@@ -214,7 +419,12 @@ export class WordPressClient {
       category?: string;
       url?: string;
       imageUrl?: string;
-    }>
+      raw?: any;
+    }>,
+    options: {
+      status?: 'publish' | 'draft' | 'pending';
+      updateIfExists?: boolean;
+    } = {}
   ): Promise<
     Array<{
       event: any;
@@ -224,26 +434,50 @@ export class WordPressClient {
     const results = [];
 
     for (const event of events) {
+      // Extract club data from raw metadata if available
+      let clubData: ClubData | undefined;
+      if (event.raw?.massPosterMeta?.club) {
+        clubData = event.raw.massPosterMeta.club;
+      }
+
+      // Match organization
+      const organizationId = await this.matchOrganization(clubData);
+
+      // Convert UTC to local timezone
+      const startDate = new Date(event.startDatetime);
+      const endDate = event.endDatetime ? new Date(event.endDatetime) : null;
+
+      const localStart = this.convertToLocalDateTime(
+        startDate,
+        event.timezone || 'UTC'
+      );
+      const localEnd = endDate
+        ? this.convertToLocalDateTime(endDate, event.timezone || 'UTC')
+        : null;
+
       const wpEvent: WordPressEvent = {
         title: event.title,
         content: event.descriptionHtml || '',
-        status: 'draft', // Default to draft for review
+        status: options.status || 'draft',
         meta: {
-          event_start_date: new Date(event.startDatetime).toISOString(),
-          event_end_date: event.endDatetime
-            ? new Date(event.endDatetime).toISOString()
-            : undefined,
-          event_venue: event.venueName,
-          event_address: event.venueAddress,
-          event_city: event.city,
-          event_organizer: event.organizer,
-          event_category: event.category,
-          event_url: event.url,
-          event_image_url: event.imageUrl,
+          external_id: event.id,
+        },
+        event_meta: {
+          date: localStart.date,
+          start_time: localStart.time,
+          end_time: localEnd?.time || '',
+          location: event.venueName || '',
+          cost: '',
+          organization: organizationId || '',
+          featured: false,
         },
       };
 
-      const result = await this.uploadEventWithImage(wpEvent, event.imageUrl);
+      const result = await this.uploadEventWithImage(
+        wpEvent,
+        event.imageUrl,
+        options.updateIfExists || false
+      );
       results.push({ event, result });
 
       // Add delay to avoid rate limiting

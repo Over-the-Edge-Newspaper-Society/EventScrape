@@ -6,9 +6,12 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { eventsApi, EventsQueryParams } from '@/lib/api'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { eventsApi, wordpressApi, EventsQueryParams } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Search, Filter, Calendar, MapPin, ExternalLink, Package, Eye, FileText, Trash2 } from 'lucide-react'
+import { Search, Filter, Calendar, MapPin, ExternalLink, Package, Eye, FileText, Trash2, Globe } from 'lucide-react'
+import { toast } from 'sonner'
 
 export function CanonicalEvents() {
   const queryClient = useQueryClient()
@@ -18,10 +21,18 @@ export function CanonicalEvents() {
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set())
+  const [showWpUploadDialog, setShowWpUploadDialog] = useState(false)
+  const [selectedWpSite, setSelectedWpSite] = useState('')
+  const [wpPostStatus, setWpPostStatus] = useState<'publish' | 'draft' | 'pending'>('draft')
 
   const { data: events, isLoading } = useQuery({
     queryKey: ['events', 'canonical', filters],
     queryFn: () => eventsApi.getCanonical(filters),
+  })
+
+  const { data: wpSettings } = useQuery({
+    queryKey: ['wordpress-settings'],
+    queryFn: () => wordpressApi.getSettings(),
   })
 
   const deleteCanonicalMutation = useMutation({
@@ -29,6 +40,20 @@ export function CanonicalEvents() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['events', 'canonical'] })
       setSelectedEvents(new Set()) // Clear selection
+    },
+  })
+
+  const uploadToWordPressMutation = useMutation({
+    mutationFn: (data: { settingsId: string; eventIds: string[]; status: 'publish' | 'draft' | 'pending' }) =>
+      wordpressApi.uploadEvents(data),
+    onSuccess: () => {
+      toast.success(`Successfully uploaded ${selectedEvents.size} events to WordPress!`)
+      setShowWpUploadDialog(false)
+      setSelectedEvents(new Set())
+      queryClient.invalidateQueries({ queryKey: ['events', 'canonical'] })
+    },
+    onError: (error: any) => {
+      toast.error(`WordPress upload failed: ${error.message}`)
     },
   })
 
@@ -68,10 +93,20 @@ export function CanonicalEvents() {
 
   const handleDelete = () => {
     if (selectedEvents.size === 0) return
-    
+
     if (confirm(`Are you sure you want to delete ${selectedEvents.size} canonical event(s)? This action cannot be undone.`)) {
       deleteCanonicalMutation.mutate(Array.from(selectedEvents))
     }
+  }
+
+  const handleWordPressUpload = () => {
+    if (!selectedWpSite || selectedEvents.size === 0) return
+
+    uploadToWordPressMutation.mutate({
+      settingsId: selectedWpSite,
+      eventIds: Array.from(selectedEvents),
+      status: wpPostStatus,
+    })
   }
 
   const getStatusBadge = (status: string) => {
@@ -125,6 +160,75 @@ export function CanonicalEvents() {
               >
                 Mark as Exported
               </Button>
+              <Dialog open={showWpUploadDialog} onOpenChange={setShowWpUploadDialog}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="default"
+                    disabled={selectedEvents.size === 0}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Globe className="h-4 w-4" />
+                    Upload to WordPress ({selectedEvents.size})
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Upload to WordPress</DialogTitle>
+                    <DialogDescription>
+                      Upload {selectedEvents.size} selected event(s) to your WordPress site
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>WordPress Site</Label>
+                      <Select value={selectedWpSite} onValueChange={setSelectedWpSite}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose WordPress site..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {wpSettings?.settings
+                            .filter((s) => s.active)
+                            .map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name} - {s.siteUrl}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {!wpSettings?.settings.length && (
+                        <p className="text-xs text-muted-foreground">
+                          No WordPress sites configured. Add one in Settings → WordPress.
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Post Status</Label>
+                      <Select value={wpPostStatus} onValueChange={(v: any) => setWpPostStatus(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="draft">Draft (for review)</SelectItem>
+                          <SelectItem value="pending">Pending Review</SelectItem>
+                          <SelectItem value="publish">Publish Immediately</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowWpUploadDialog(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleWordPressUpload}
+                      disabled={!selectedWpSite || uploadToWordPressMutation.isPending}
+                    >
+                      {uploadToWordPressMutation.isPending ? 'Uploading...' : 'Upload'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <Button
                 variant="destructive"
                 disabled={selectedEvents.size === 0}
