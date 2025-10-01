@@ -19,6 +19,9 @@ export interface WordPressEvent {
     cost?: string;
     organization?: string;
     featured?: boolean;
+    website?: string;
+    virtual_link?: string;
+    registration_link?: string;
     [key: string]: any;
   };
   featured_media?: number;
@@ -470,6 +473,7 @@ export class WordPressClient {
           cost: '',
           organization: organizationId || '',
           featured: false,
+          website: event.url || '',
         },
       };
 
