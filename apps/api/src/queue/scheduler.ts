@@ -103,10 +103,12 @@ export function initScheduleWorker() {
           url: e.url,
           imageUrl: e.imageUrl || undefined,
           raw: e.raw,
+          sourceId: e.sourceId,
         })),
         {
           status: (config?.postStatus as 'publish' | 'draft' | 'pending') || 'draft',
           updateIfExists: config?.updateIfExists || false,
+          sourceCategoryMappings: wpSettings.sourceCategoryMappings as Record<string, number> || {},
         }
       )
 
