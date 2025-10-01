@@ -7,8 +7,8 @@ export interface WordPressEvent {
   content: string;
   status?: 'publish' | 'draft' | 'pending';
   excerpt?: string;
+  external_id?: string;
   meta?: {
-    external_id?: string;
     [key: string]: any;
   };
   event_meta?: {
@@ -94,6 +94,37 @@ export class WordPressClient {
         success: false,
         error: `Connection error: ${error.message}`,
       };
+    }
+  }
+
+  /**
+   * Fetch all event categories from WordPress
+   */
+  async getCategories(): Promise<Array<{ id: number; name: string; slug: string }>> {
+    try {
+      const response = await fetch(
+        `${this.siteUrl}/wp-json/wp/v2/event_category?per_page=100&_fields=id,name,slug`,
+        {
+          method: 'GET',
+          headers: this.getAuthHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        console.error('Failed to fetch categories:', response.status);
+        return [];
+      }
+
+      const categories = (await response.json()) as Array<{
+        id: number;
+        name: string;
+        slug: string;
+      }>;
+
+      return categories;
+    } catch (error: any) {
+      console.error('Error fetching categories:', error.message);
+      return [];
     }
   }
 
@@ -301,8 +332,10 @@ export class WordPressClient {
 
       const events = (await response.json()) as Array<{ id: number; external_id?: string }>;
 
-      // Find event with matching external_id
-      const matchingEvent = events.find(event => event.external_id === externalId);
+      // Find event with matching external_id (only match if both IDs exist and are non-empty)
+      const matchingEvent = events.find(
+        event => event.external_id && event.external_id === externalId
+      );
       return matchingEvent ? matchingEvent.id : null;
     } catch (error) {
       return null;
@@ -316,8 +349,8 @@ export class WordPressClient {
     try {
       // Check if event already exists
       let existingEventId: number | null = null;
-      if (event.meta?.external_id) {
-        existingEventId = await this.findExistingEvent(event.meta.external_id);
+      if (event.external_id) {
+        existingEventId = await this.findExistingEvent(event.external_id);
       }
 
       if (existingEventId && !updateIfExists) {
@@ -342,6 +375,7 @@ export class WordPressClient {
           content: event.content,
           status: event.status || 'draft',
           excerpt: event.excerpt,
+          external_id: event.external_id,
           meta: event.meta,
           event_meta: event.event_meta,
           featured_media: event.featured_media,
@@ -423,10 +457,12 @@ export class WordPressClient {
       url?: string;
       imageUrl?: string;
       raw?: any;
+      sourceId?: string;
     }>,
     options: {
       status?: 'publish' | 'draft' | 'pending';
       updateIfExists?: boolean;
+      sourceCategoryMappings?: Record<string, number>;
     } = {}
   ): Promise<
     Array<{
@@ -458,13 +494,17 @@ export class WordPressClient {
         ? this.convertToLocalDateTime(endDate, event.timezone || 'UTC')
         : null;
 
+      // Get category ID from source-category mappings if available
+      let categoryId: number | undefined;
+      if (event.sourceId && options.sourceCategoryMappings) {
+        categoryId = options.sourceCategoryMappings[event.sourceId];
+      }
+
       const wpEvent: WordPressEvent = {
         title: event.title,
         content: event.descriptionHtml || '',
         status: options.status || 'draft',
-        meta: {
-          external_id: event.id,
-        },
+        external_id: event.id,
         event_meta: {
           date: localStart.date,
           start_time: localStart.time,
@@ -475,6 +515,7 @@ export class WordPressClient {
           featured: false,
           website: event.url || '',
         },
+        categories: categoryId ? [categoryId] : undefined,
       };
 
       const result = await this.uploadEventWithImage(

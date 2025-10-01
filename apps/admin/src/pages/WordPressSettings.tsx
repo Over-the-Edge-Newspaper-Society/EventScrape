@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -7,9 +7,10 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatRelativeTime } from '@/lib/utils'
 import { wordpressApi, type WordPressSettings, type NewWordPressSettings } from '@/lib/api'
-import { Plus, Settings, Trash2, CheckCircle2, XCircle, TestTube2 } from 'lucide-react'
+import { Plus, Settings, Trash2, CheckCircle2, XCircle, TestTube2, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 function SettingsDialog({
@@ -26,7 +27,38 @@ function SettingsDialog({
     username: setting?.username || '',
     applicationPassword: '',
     active: setting?.active ?? true,
+    sourceCategoryMappings: setting?.sourceCategoryMappings || {},
   })
+
+  // Update form data when setting changes
+  useEffect(() => {
+    if (setting) {
+      setFormData({
+        name: setting.name,
+        siteUrl: setting.siteUrl,
+        username: setting.username,
+        applicationPassword: '',
+        active: setting.active,
+        sourceCategoryMappings: setting.sourceCategoryMappings || {},
+      })
+    }
+  }, [setting])
+
+  // Fetch sources for mapping
+  const { data: sourcesData } = useQuery({
+    queryKey: ['wordpress-sources'],
+    queryFn: wordpressApi.getSources,
+  })
+
+  // Fetch categories when setting is provided
+  const { data: categoriesData } = useQuery({
+    queryKey: ['wordpress-categories', setting?.id],
+    queryFn: () => wordpressApi.getCategories(setting!.id),
+    enabled: !!setting?.id,
+  })
+
+  const sources = sourcesData?.sources || []
+  const categories = categoriesData?.categories || []
 
   const createMutation = useMutation({
     mutationFn: wordpressApi.createSetting,
@@ -68,7 +100,7 @@ function SettingsDialog({
   }
 
   return (
-    <DialogContent className="max-w-md">
+    <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>
           {setting ? 'Edit WordPress Settings' : 'Add WordPress Settings'}
@@ -79,69 +111,121 @@ function SettingsDialog({
       </DialogHeader>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="name">Name</Label>
-          <Input
-            id="name"
-            placeholder="My WordPress Site"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left column - Main settings */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                placeholder="My WordPress Site"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
+            </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="siteUrl">Site URL</Label>
-          <Input
-            id="siteUrl"
-            type="text"
-            placeholder="http://host.docker.internal:10003"
-            value={formData.siteUrl}
-            onChange={(e) => setFormData({ ...formData, siteUrl: e.target.value })}
-            required
-          />
-          <p className="text-xs text-muted-foreground">
-            <strong>For local WordPress:</strong> Use <code className="px-1 py-0.5 bg-muted rounded">http://host.docker.internal:10003</code>
-            <br />
-            <strong>For remote WordPress:</strong> Use full URL like <code className="px-1 py-0.5 bg-muted rounded">https://yoursite.com</code>
-          </p>
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="siteUrl">Site URL</Label>
+              <Input
+                id="siteUrl"
+                type="text"
+                placeholder="http://host.docker.internal:10003"
+                value={formData.siteUrl}
+                onChange={(e) => setFormData({ ...formData, siteUrl: e.target.value })}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                <strong>For local WordPress:</strong> Use <code className="px-1 py-0.5 bg-muted rounded">http://host.docker.internal:10003</code>
+                <br />
+                <strong>For remote WordPress:</strong> Use full URL like <code className="px-1 py-0.5 bg-muted rounded">https://yoursite.com</code>
+              </p>
+            </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="username">Username</Label>
-          <Input
-            id="username"
-            placeholder="admin"
-            value={formData.username}
-            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-            required
-          />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                placeholder="admin"
+                value={formData.username}
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                required
+              />
+            </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="password">Application Password</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder={setting ? 'Leave blank to keep current' : 'em3W id3v iPDq 9FBH coan dtAf'}
-            value={formData.applicationPassword}
-            onChange={(e) => setFormData({ ...formData, applicationPassword: e.target.value })}
-            required={!setting}
-          />
-          <p className="text-xs text-muted-foreground">
-            Generate this in WordPress under Users → Profile → Application Passwords
-          </p>
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Application Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder={setting ? 'Leave blank to keep current' : 'em3W id3v iPDq 9FBH coan dtAf'}
+                value={formData.applicationPassword}
+                onChange={(e) => setFormData({ ...formData, applicationPassword: e.target.value })}
+                required={!setting}
+              />
+              <p className="text-xs text-muted-foreground">
+                Generate this in WordPress under Users → Profile → Application Passwords
+              </p>
+            </div>
 
-        <div className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            id="active"
-            checked={formData.active}
-            onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-            className="rounded border-gray-300"
-          />
-          <Label htmlFor="active">Active</Label>
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="active"
+                checked={formData.active}
+                onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="active">Active</Label>
+            </div>
+          </div>
+
+          {/* Right column - Source category mappings */}
+          {setting && categories.length > 0 && (
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Link2 className="h-4 w-4" />
+                  <Label>Source to Category Mapping</Label>
+                </div>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Automatically assign categories to events based on their source
+                </p>
+              </div>
+
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                {sources.filter(s => s.active).map((source) => (
+                  <div key={source.id} className="space-y-1">
+                    <Label className="text-sm font-normal">{source.name}</Label>
+                    <Select
+                      value={formData.sourceCategoryMappings?.[source.id]?.toString() || '__none__'}
+                      onValueChange={(value) => {
+                        const mappings = { ...formData.sourceCategoryMappings }
+                        if (value && value !== '__none__') {
+                          mappings[source.id] = parseInt(value)
+                        } else {
+                          delete mappings[source.id]
+                        }
+                        setFormData({ ...formData, sourceCategoryMappings: mappings })
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="No category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No category</SelectItem>
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.id.toString()}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter>

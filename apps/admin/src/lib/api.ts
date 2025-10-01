@@ -235,7 +235,9 @@ export const schedulesApi = {
 }
 
 export const wordpressApi = {
+  getSources: () => fetchApi<{ sources: Source[] }>(`/wordpress/sources`),
   getSettings: () => fetchApi<{ settings: WordPressSettings[] }>(`/wordpress/settings`),
+  getCategories: (id: string) => fetchApi<{ categories: WordPressCategory[] }>(`/wordpress/settings/${id}/categories`),
   createSetting: (data: NewWordPressSettings) =>
     fetchApi<{ setting: WordPressSettings; message: string }>(`/wordpress/settings`, {
       method: 'POST',
@@ -496,6 +498,7 @@ export interface WordPressSettings {
   siteUrl: string
   username: string
   active: boolean
+  sourceCategoryMappings?: Record<string, number>
   createdAt: string
   updatedAt: string
 }
@@ -506,4 +509,11 @@ export interface NewWordPressSettings {
   username: string
   applicationPassword: string
   active: boolean
+  sourceCategoryMappings?: Record<string, number>
+}
+
+export interface WordPressCategory {
+  id: number
+  name: string
+  slug: string
 }

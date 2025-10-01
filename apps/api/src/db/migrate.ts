@@ -78,6 +78,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0006 (source category mappings)
+    try {
+      const sql6 = await readFile(migrationPath('0006_source_category_mappings.sql'), 'utf-8');
+      await migrationClient.unsafe(sql6);
+      console.log('✅ Applied migration 0006 (source category mappings)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0006 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0006 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

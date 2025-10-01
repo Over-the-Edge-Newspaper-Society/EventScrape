@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { wordpressSettings, eventsRaw } from '../db/schema.js';
+import { wordpressSettings, eventsRaw, sources } from '../db/schema.js';
 import { WordPressClient } from '../services/wordpress-client.js';
 
 const wpSettingsSchema = z.object({
@@ -11,6 +11,7 @@ const wpSettingsSchema = z.object({
   username: z.string().min(1),
   applicationPassword: z.string().min(1),
   active: z.boolean().default(true),
+  sourceCategoryMappings: z.record(z.string(), z.number()).optional(),
 });
 
 const wpUploadSchema = z.object({
@@ -20,6 +21,21 @@ const wpUploadSchema = z.object({
 });
 
 export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
+  // Get all sources (for source-category mapping)
+  fastify.get('/sources', async () => {
+    const allSources = await db
+      .select({
+        id: sources.id,
+        name: sources.name,
+        moduleKey: sources.moduleKey,
+        active: sources.active,
+      })
+      .from(sources)
+      .orderBy(sources.name);
+
+    return { sources: allSources };
+  });
+
   // Get all WordPress settings
   fastify.get('/settings', async () => {
     const settings = await db
@@ -30,6 +46,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         username: wordpressSettings.username,
         // Don't return the application password for security
         active: wordpressSettings.active,
+        sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
         createdAt: wordpressSettings.createdAt,
         updatedAt: wordpressSettings.updatedAt,
       })
@@ -50,6 +67,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         siteUrl: wordpressSettings.siteUrl,
         username: wordpressSettings.username,
         active: wordpressSettings.active,
+        sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
         createdAt: wordpressSettings.createdAt,
         updatedAt: wordpressSettings.updatedAt,
       })
@@ -79,6 +97,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         createdAt: new Date(),
         updatedAt: new Date(),
         name: data.name,
+        sourceCategoryMappings: data.sourceCategoryMappings || {},
       });
 
       const testResult = await testClient.testConnection();
@@ -95,6 +114,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           username: data.username,
           applicationPassword: data.applicationPassword,
           active: data.active,
+          sourceCategoryMappings: data.sourceCategoryMappings || {},
         })
         .returning({
           id: wordpressSettings.id,
@@ -102,6 +122,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           siteUrl: wordpressSettings.siteUrl,
           username: wordpressSettings.username,
           active: wordpressSettings.active,
+          sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
           createdAt: wordpressSettings.createdAt,
           updatedAt: wordpressSettings.updatedAt,
         });
@@ -166,6 +187,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           siteUrl: wordpressSettings.siteUrl,
           username: wordpressSettings.username,
           active: wordpressSettings.active,
+          sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
           createdAt: wordpressSettings.createdAt,
           updatedAt: wordpressSettings.updatedAt,
         });
@@ -227,6 +249,26 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return result;
+  });
+
+  // Get event categories from WordPress
+  fastify.get('/settings/:id/categories', async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [setting] = await db
+      .select()
+      .from(wordpressSettings)
+      .where(eq(wordpressSettings.id, id));
+
+    if (!setting) {
+      reply.status(404);
+      return { error: 'WordPress setting not found' };
+    }
+
+    const client = new WordPressClient(setting);
+    const categories = await client.getCategories();
+
+    return { categories };
   });
 
   // Upload events to WordPress
@@ -292,10 +334,12 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           url: e.url,
           imageUrl: e.imageUrl || undefined,
           raw: e.raw,
+          sourceId: e.sourceId,
         })),
         {
           status: data.status || 'draft',
           updateIfExists: false,
+          sourceCategoryMappings: setting.sourceCategoryMappings as Record<string, number> || {},
         }
       );
 
