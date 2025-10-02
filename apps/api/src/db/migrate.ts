@@ -91,6 +91,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0007 (export schedule_id)
+    try {
+      const sql7 = await readFile(migrationPath('0007_export_schedule_id.sql'), 'utf-8');
+      await migrationClient.unsafe(sql7);
+      console.log('✅ Applied migration 0007 (export schedule_id)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0007 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0007 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
