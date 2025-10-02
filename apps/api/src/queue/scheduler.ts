@@ -215,3 +215,27 @@ export async function syncSchedulesFromDb() {
     })
   }
 }
+
+export async function triggerScheduleNow(data: {
+  scheduleId: string
+  scheduleType: 'scrape' | 'wordpress_export'
+  sourceId?: string
+  wordpressSettingsId?: string
+  config?: any
+}) {
+  // Add job to queue to trigger immediately (no repeat)
+  await scheduleQueue.add(
+    'trigger-manual',
+    {
+      scheduleId: data.scheduleId,
+      scheduleType: data.scheduleType,
+      sourceId: data.sourceId,
+      wordpressSettingsId: data.wordpressSettingsId,
+      config: data.config,
+    },
+    {
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 100 },
+    }
+  )
+}

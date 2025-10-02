@@ -72,6 +72,17 @@ export function WordPressSchedules() {
     },
   })
 
+  const triggerMutation = useMutation({
+    mutationFn: (id: string) => schedulesApi.trigger(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exports'] })
+      toast.success('Schedule triggered successfully')
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to trigger schedule')
+    },
+  })
+
   const formatDateOffset = (offset: number) => {
     if (offset === 0) return 'Today'
     if (offset > 0) return `${offset} days from now`
@@ -358,20 +369,36 @@ export function WordPressSchedules() {
                           }}
                         />
                       </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={async () => {
-                            try {
-                              await deleteMutation.mutateAsync(row.schedule.id)
-                            } catch {
-                              toast.error('Delete failed')
-                            }
-                          }}
-                        >
-                          Delete
-                        </Button>
+                      <TableCell className="text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await triggerMutation.mutateAsync(row.schedule.id)
+                              } catch {
+                                toast.error('Trigger failed')
+                              }
+                            }}
+                            disabled={triggerMutation.isPending}
+                          >
+                            {triggerMutation.isPending ? 'Running...' : 'Run Now'}
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await deleteMutation.mutateAsync(row.schedule.id)
+                              } catch {
+                                toast.error('Delete failed')
+                              }
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )

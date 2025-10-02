@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db/connection.js'
 import { schedules, sources, wordpressSettings } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
-import { registerSchedule, unregisterScheduleByKey } from '../queue/scheduler.js'
+import { registerSchedule, unregisterScheduleByKey, triggerScheduleNow } from '../queue/scheduler.js'
 
 const createSchema = z.discriminatedUnion('scheduleType', [
   z.object({
@@ -140,6 +140,33 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
     await db.delete(schedules).where(eq(schedules.id, id))
     reply.status(204)
     return
+  })
+
+  // Trigger schedule now
+  fastify.post('/:id/trigger', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      const [schedule] = await db.select().from(schedules).where(eq(schedules.id, id)).limit(1)
+      if (!schedule) {
+        reply.status(404)
+        return { error: 'Schedule not found' }
+      }
+
+      // Trigger the schedule immediately
+      await triggerScheduleNow({
+        scheduleId: schedule.id,
+        scheduleType: schedule.scheduleType,
+        sourceId: schedule.sourceId || undefined,
+        wordpressSettingsId: schedule.wordpressSettingsId || undefined,
+        config: schedule.config || undefined,
+      })
+
+      reply.status(200)
+      return { message: 'Schedule triggered successfully', scheduleId: schedule.id }
+    } catch (e: any) {
+      reply.status(500)
+      return { error: e?.message || 'Failed to trigger schedule' }
+    }
   })
 }
 

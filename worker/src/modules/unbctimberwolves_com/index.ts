@@ -662,51 +662,43 @@ const unbcTimberwolvesModule: ScraperModule = {
           let eventEnd = '';
           
           try {
-            // Parse start date and time by constructing explicit UTC date that preserves the local time
+            // Parse start date and time in local timezone (Pacific Time)
             if (startDate && startTime) {
               const parsedDate = new Date(startDate);
               if (!isNaN(parsedDate.getTime())) {
                 // Parse time string (e.g., "7:00PM", "10:00 PM")
                 let hours = 0;
                 let minutes = 0;
-                
+
                 const timeMatch = startTime.match(/^(\d+):?(\d*)\s*(AM|PM)$/i);
                 if (timeMatch) {
                   hours = parseInt(timeMatch[1]);
                   minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
                   const isPM = timeMatch[3].toUpperCase() === 'PM';
-                  
+
                   // Convert to 24-hour format
                   if (isPM && hours !== 12) hours += 12;
                   if (!isPM && hours === 12) hours = 0;
                 }
-                
-                // Create UTC date with the exact local time values (no timezone conversion)
-                const eventDate = new Date(Date.UTC(
-                  parsedDate.getFullYear(),
-                  parsedDate.getMonth(),
-                  parsedDate.getDate(),
-                  hours,
-                  minutes,
-                  0,
-                  0
-                ));
-                
-                eventStart = eventDate.toISOString();
+
+                // Format as YYYY-MM-DD HH:MM (local time string without timezone)
+                const year = parsedDate.getFullYear();
+                const month = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+                const day = parsedDate.getDate().toString().padStart(2, '0');
+
+                eventStart = `${year}-${month}-${day} ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
                 logger.debug(`Parsed start time for ${eventTitle}: ${startDate} ${startTime} -> ${eventStart}`);
               }
             }
-            
+
             if (!eventStart && startDate) {
               // Fallback to date-only
               const dateOnly = new Date(startDate);
               if (!isNaN(dateOnly.getTime())) {
-                eventStart = new Date(Date.UTC(
-                  dateOnly.getFullYear(),
-                  dateOnly.getMonth(),
-                  dateOnly.getDate(),
-                  0, 0, 0, 0
-                )).toISOString();
+                const year = dateOnly.getFullYear();
+                const month = (dateOnly.getMonth() + 1).toString().padStart(2, '0');
+                const day = dateOnly.getDate().toString().padStart(2, '0');
+                eventStart = `${year}-${month}-${day} 00:00`;
                 logger.warn(`Using date-only for ${eventTitle}: ${startDate}`);
               }
             }

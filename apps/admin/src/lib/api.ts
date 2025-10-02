@@ -232,6 +232,7 @@ export const schedulesApi = {
   update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean; config: any }>) =>
     fetchApi<{ schedule: Schedule }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => fetchApi<void>(`/schedules/${id}`, { method: 'DELETE' }),
+  trigger: (id: string) => fetchApi<{ message: string; scheduleId: string }>(`/schedules/${id}/trigger`, { method: 'POST' }),
 }
 
 export const wordpressApi = {
