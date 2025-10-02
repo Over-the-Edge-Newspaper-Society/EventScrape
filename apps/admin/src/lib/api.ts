@@ -161,7 +161,7 @@ export const matchesApi = {
 
 // Exports API
 export const exportsApi = {
-  getAll: () => fetchApi<{ exports: Export[] }>('/exports'),
+  getAll: () => fetchApi<{ exports: ExportWithSchedule[] }>('/exports'),
   getById: (id: string) => fetchApi<{ export: Export }>(`/exports/${id}`),
   create: (data: CreateExportData) => fetchApi<{ message: string; export: Export }>('/exports', {
     method: 'POST',
@@ -413,6 +413,24 @@ export interface Export {
   params: any
   status: 'success' | 'error'
   errorMessage?: string
+  scheduleId?: string
+}
+
+export interface ExportWithSchedule {
+  export: Export
+  schedule?: {
+    id: string
+    scheduleType: 'scrape' | 'wordpress_export'
+    cron: string
+    timezone: string
+    active: boolean
+    config?: any
+  }
+  wordpressSettings?: {
+    id: string
+    name: string
+    siteUrl: string
+  }
 }
 
 export interface EventsQueryParams {

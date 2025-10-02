@@ -177,10 +177,12 @@ export const exports = pgTable('exports', {
   params: jsonb('params').notNull(),
   status: exportStatusEnum('status').notNull(),
   errorMessage: text('error_message'),
+  scheduleId: uuid('schedule_id').references(() => schedules.id),
 }, (table) => ({
   createdAtIdx: index('exports_created_at_idx').on(table.createdAt),
   formatIdx: index('exports_format_idx').on(table.format),
   statusIdx: index('exports_status_idx').on(table.status),
+  scheduleIdIdx: index('exports_schedule_id_idx').on(table.scheduleId),
 }));
 
 // Optional: Users table for future auth

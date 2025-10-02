@@ -2,7 +2,7 @@ import { Queue, Worker } from 'bullmq'
 import IORedis from 'ioredis'
 import { v4 as uuidv4 } from 'uuid'
 import { db } from '../db/connection.js'
-import { runs, sources, schedules, wordpressSettings, eventsRaw } from '../db/schema.js'
+import { runs, sources, schedules, wordpressSettings, eventsRaw, exports } from '../db/schema.js'
 import { enqueueScrapeJob } from './queue.js'
 import { eq, gte, lte, inArray, and } from 'drizzle-orm'
 import { WordPressClient } from '../services/wordpress-client.js'
@@ -114,6 +114,42 @@ export function initScheduleWorker() {
 
       const successCount = results.filter((r) => r.result.success).length
       console.log(`Scheduled WordPress export completed: ${successCount}/${events.length} events uploaded`)
+
+      // Create export record
+      const createdCount = results.filter((r) => r.result.action === 'created').length
+      const updatedCount = results.filter((r) => r.result.action === 'updated').length
+      const skippedCount = results.filter((r) => r.result.action === 'skipped').length
+      const failedCount = results.filter((r) => !r.result.success).length
+
+      await db.insert(exports).values({
+        format: 'wp-rest',
+        itemCount: events.length,
+        status: failedCount === events.length ? 'error' : 'success',
+        errorMessage: failedCount === events.length ? 'All events failed to upload' : undefined,
+        scheduleId: scheduleId,
+        params: {
+          wpSiteId: wordpressSettingsId,
+          wpPostStatus: config?.postStatus || 'draft',
+          filters: {
+            startDateOffset: config?.startDateOffset,
+            endDateOffset: config?.endDateOffset,
+            sourceIds: config?.sourceIds,
+          },
+          wpResults: {
+            createdCount,
+            updatedCount,
+            skippedCount,
+            failedCount,
+            results: results.map((r) => ({
+              eventTitle: r.event.title,
+              success: r.result.success,
+              action: r.result.action,
+              postUrl: r.result.postUrl,
+              error: r.result.error,
+            })),
+          },
+        },
+      })
     }
   }, { connection })
   worker.on('failed', (job, err) => {

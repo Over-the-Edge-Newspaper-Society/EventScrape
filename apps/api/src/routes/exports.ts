@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { exports as exportsTable, eventsRaw, wordpressSettings } from '../db/schema.js';
+import { exports as exportsTable, eventsRaw, wordpressSettings, schedules } from '../db/schema.js';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -379,8 +379,14 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
   // Get export history
   fastify.get('/', async () => {
     const exportHistory = await db
-      .select()
+      .select({
+        export: exportsTable,
+        schedule: schedules,
+        wordpressSettings: wordpressSettings,
+      })
       .from(exportsTable)
+      .leftJoin(schedules, eq(exportsTable.scheduleId, schedules.id))
+      .leftJoin(wordpressSettings, eq(schedules.wordpressSettingsId, wordpressSettings.id))
       .orderBy(desc(exportsTable.createdAt))
       .limit(50);
 

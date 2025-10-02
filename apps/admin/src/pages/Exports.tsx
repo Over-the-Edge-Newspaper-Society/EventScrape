@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/DatePicker'
 import { exportsApi, sourcesApi, wordpressApi, CreateExportData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle, ExternalLink } from 'lucide-react'
+import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings, AlertCircle, ExternalLink, Clock } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 
 interface ExportWizardProps {
@@ -599,6 +599,7 @@ export function Exports() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Format</TableHead>
+                  <TableHead>Source</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Items</TableHead>
                   <TableHead>Status</TableHead>
@@ -606,21 +607,42 @@ export function Exports() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {exports.exports.map((exportRecord) => (
-                  <TableRow key={exportRecord.id}>
+                {exports.exports.map((row) => (
+                  <TableRow key={row.export.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {getFormatIcon(exportRecord.format)}
+                        {getFormatIcon(row.export.format)}
                         <span className="font-medium capitalize">
-                          {exportRecord.format.toUpperCase()}
+                          {row.export.format.toUpperCase()}
                         </span>
                       </div>
                     </TableCell>
                     <TableCell>
+                      {row.schedule ? (
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-blue-600" />
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="text-xs">
+                              Automated
+                            </Badge>
+                            {row.wordpressSettings && (
+                              <div className="text-xs text-muted-foreground">
+                                {row.wordpressSettings.name}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">
+                          Manual
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">{formatRelativeTime(exportRecord.createdAt)}</p>
+                        <p className="text-sm font-medium">{formatRelativeTime(row.export.createdAt)}</p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(exportRecord.createdAt).toLocaleDateString('en-US', {
+                          {new Date(row.export.createdAt).toLocaleDateString('en-US', {
                             month: 'short',
                             day: 'numeric',
                             year: 'numeric',
@@ -632,32 +654,32 @@ export function Exports() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">
-                        {exportRecord.itemCount} events
+                        {row.export.itemCount} events
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(exportRecord.status)}
-                      {exportRecord.status === 'error' && exportRecord.errorMessage && (
+                      {getStatusBadge(row.export.status)}
+                      {row.export.status === 'error' && row.export.errorMessage && (
                         <p className="text-xs text-red-600 mt-1">
-                          {exportRecord.errorMessage}
+                          {row.export.errorMessage}
                         </p>
                       )}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-2">
-                        {exportRecord.status === 'success' && exportRecord.filePath && (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
+                        {row.export.status === 'success' && row.export.filePath && (
+                          <Button
+                            size="sm"
+                            variant="outline"
                             className="flex items-center gap-1 h-8"
                             onClick={() => {
                               const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-                              const downloadUrl = `${apiUrl}/exports/${exportRecord.id}/download`;
-                              
+                              const downloadUrl = `${apiUrl}/exports/${row.export.id}/download`;
+
                               // Create temporary anchor element to trigger download with proper filename
                               const link = document.createElement('a');
                               link.href = downloadUrl;
-                              link.download = getDownloadFilename(exportRecord.id, exportRecord.format);
+                              link.download = getDownloadFilename(row.export.id, row.export.format);
                               link.target = '_blank';
                               document.body.appendChild(link);
                               link.click();
@@ -668,23 +690,23 @@ export function Exports() {
                             Download
                           </Button>
                         )}
-                        {exportRecord.format === 'wp-rest' && exportRecord.status === 'success' && (
+                        {row.export.format === 'wp-rest' && row.export.status === 'success' && (
                           <>
                             <div className="flex flex-col gap-1 text-xs">
-                              {exportRecord.params?.wpResults ? (
+                              {row.export.params?.wpResults ? (
                                 <>
                                   <div className="flex items-center gap-2">
                                     <Badge variant="success" className="text-xs">
-                                      ✓ {exportRecord.params.wpResults.createdCount || 0} created
+                                      ✓ {row.export.params.wpResults.createdCount || 0} created
                                     </Badge>
-                                    {exportRecord.params.wpResults.skippedCount > 0 && (
+                                    {row.export.params.wpResults.skippedCount > 0 && (
                                       <Badge variant="outline" className="text-xs">
-                                        ⊘ {exportRecord.params.wpResults.skippedCount} skipped
+                                        ⊘ {row.export.params.wpResults.skippedCount} skipped
                                       </Badge>
                                     )}
-                                    {exportRecord.params.wpResults.failedCount > 0 && (
+                                    {row.export.params.wpResults.failedCount > 0 && (
                                       <Badge variant="destructive" className="text-xs">
-                                        ✗ {exportRecord.params.wpResults.failedCount} failed
+                                        ✗ {row.export.params.wpResults.failedCount} failed
                                       </Badge>
                                     )}
                                   </div>
@@ -693,7 +715,7 @@ export function Exports() {
                                     size="sm"
                                     className="h-7 text-xs"
                                     onClick={() => {
-                                      setSelectedExport(exportRecord)
+                                      setSelectedExport(row.export)
                                       setShowDetailsDialog(true)
                                     }}
                                   >
@@ -708,7 +730,7 @@ export function Exports() {
                             </div>
                           </>
                         )}
-                        {exportRecord.status === 'error' && (
+                        {row.export.status === 'error' && (
                           <Badge variant="destructive" className="text-xs">
                             Failed
                           </Badge>
