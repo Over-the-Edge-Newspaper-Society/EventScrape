@@ -367,21 +367,26 @@ export class WordPressClient {
 
       const method = existingEventId ? 'PUT' : 'POST';
 
+      const requestBody = {
+        title: event.title,
+        content: event.content,
+        status: event.status || 'draft',
+        excerpt: event.excerpt,
+        external_id: event.external_id,
+        meta: event.meta,
+        event_meta: event.event_meta,
+        featured_media: event.featured_media,
+        event_category: event.categories, // WordPress expects taxonomy name as field name
+        tags: event.tags,
+      };
+
+      console.log(`[WordPress Client] ${method} ${endpoint}`);
+      console.log(`[WordPress Client] Request body:`, JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(endpoint, {
         method,
         headers: this.getAuthHeaders(),
-        body: JSON.stringify({
-          title: event.title,
-          content: event.content,
-          status: event.status || 'draft',
-          excerpt: event.excerpt,
-          external_id: event.external_id,
-          meta: event.meta,
-          event_meta: event.event_meta,
-          featured_media: event.featured_media,
-          categories: event.categories,
-          tags: event.tags,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -495,9 +500,18 @@ export class WordPressClient {
         : null;
 
       // Get category ID from source-category mappings if available
+      // Handle case where mappings might be a JSON string from database
+      const mappings = typeof options.sourceCategoryMappings === 'string'
+        ? JSON.parse(options.sourceCategoryMappings)
+        : options.sourceCategoryMappings;
+
       let categoryId: number | undefined;
-      if (event.sourceId && options.sourceCategoryMappings) {
-        categoryId = options.sourceCategoryMappings[event.sourceId];
+      if (event.sourceId && mappings) {
+        categoryId = mappings[event.sourceId];
+        console.log(`Event "${event.title}" - sourceId: ${event.sourceId}, categoryId from mapping: ${categoryId}`);
+        console.log(`Available mappings:`, mappings);
+      } else {
+        console.log(`Event "${event.title}" - No category mapping. sourceId: ${event.sourceId}, has mappings: ${!!mappings}`);
       }
 
       const wpEvent: WordPressEvent = {
@@ -517,6 +531,8 @@ export class WordPressClient {
         },
         categories: categoryId ? [categoryId] : undefined,
       };
+
+      console.log(`Uploading event "${event.title}" with categories:`, wpEvent.categories);
 
       const result = await this.uploadEventWithImage(
         wpEvent,
