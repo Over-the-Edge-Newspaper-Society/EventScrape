@@ -218,6 +218,7 @@ export const wordpressSettings = pgTable('wordpress_settings', {
   applicationPassword: text('application_password').notNull(),
   active: boolean('active').notNull().default(true),
   sourceCategoryMappings: jsonb('source_category_mappings').notNull().default('{}'),
+  includeMedia: boolean('include_media').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

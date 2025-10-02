@@ -418,12 +418,13 @@ export class WordPressClient {
   async uploadEventWithImage(
     event: WordPressEvent,
     imageUrl?: string,
-    updateIfExists: boolean = false
+    updateIfExists: boolean = false,
+    includeMedia: boolean = true
   ): Promise<WordPressUploadResult> {
     let featuredMediaId: number | undefined;
 
-    // Upload image if provided
-    if (imageUrl) {
+    // Upload image if provided and includeMedia is true
+    if (imageUrl && includeMedia) {
       const mediaResult = await this.uploadMedia(
         imageUrl,
         `event-${Date.now()}.jpg`
@@ -433,14 +434,46 @@ export class WordPressClient {
         console.warn(`Image upload failed: ${mediaResult.error}`);
       } else {
         featuredMediaId = mediaResult.mediaId;
+        console.log(`[WordPress Client] Uploaded media ID: ${featuredMediaId} for image: ${imageUrl}`);
       }
     }
 
     // Create the post
-    return this.createEvent({
+    const result = await this.createEvent({
       ...event,
       featured_media: featuredMediaId,
     }, updateIfExists);
+
+    // If post was created/updated successfully and we have a media ID, attach it
+    if (result.success && result.postId && featuredMediaId) {
+      await this.attachMediaToPost(result.postId, featuredMediaId);
+    }
+
+    return result;
+  }
+
+  /**
+   * Attach media to a post (for custom post types that don't auto-attach)
+   */
+  private async attachMediaToPost(postId: number, mediaId: number): Promise<void> {
+    try {
+      const response = await fetch(`${this.siteUrl}/wp-json/wp/v2/media/${mediaId}`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          post: postId,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.warn(`Failed to attach media ${mediaId} to post ${postId}: ${error}`);
+      } else {
+        console.log(`[WordPress Client] Successfully attached media ${mediaId} to post ${postId}`);
+      }
+    } catch (error: any) {
+      console.warn(`Error attaching media ${mediaId} to post ${postId}: ${error.message}`);
+    }
   }
 
   /**
@@ -468,6 +501,7 @@ export class WordPressClient {
       status?: 'publish' | 'draft' | 'pending';
       updateIfExists?: boolean;
       sourceCategoryMappings?: Record<string, number>;
+      includeMedia?: boolean;
     } = {}
   ): Promise<
     Array<{
@@ -537,7 +571,8 @@ export class WordPressClient {
       const result = await this.uploadEventWithImage(
         wpEvent,
         event.imageUrl,
-        options.updateIfExists || false
+        options.updateIfExists || false,
+        options.includeMedia !== false // Default to true if not specified
       );
       results.push({ event, result });
 

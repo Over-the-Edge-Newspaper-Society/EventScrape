@@ -28,6 +28,7 @@ function SettingsDialog({
     applicationPassword: '',
     active: setting?.active ?? true,
     sourceCategoryMappings: setting?.sourceCategoryMappings || {},
+    includeMedia: setting?.includeMedia ?? true,
   })
 
   // Update form data when setting changes
@@ -40,6 +41,7 @@ function SettingsDialog({
         applicationPassword: '',
         active: setting.active,
         sourceCategoryMappings: setting.sourceCategoryMappings || {},
+        includeMedia: setting.includeMedia ?? true,
       })
     }
   }, [setting])
@@ -178,6 +180,20 @@ function SettingsDialog({
               />
               <Label htmlFor="active">Active</Label>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="includeMedia"
+                checked={formData.includeMedia}
+                onChange={(e) => setFormData({ ...formData, includeMedia: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              <Label htmlFor="includeMedia">Include Media/Images</Label>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2 ml-6">
+              When enabled, event images will be uploaded to WordPress media library and attached to events
+            </p>
           </div>
 
           {/* Right column - Source category mappings */}

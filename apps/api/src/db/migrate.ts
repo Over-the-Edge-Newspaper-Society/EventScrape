@@ -104,6 +104,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0008 (include_media setting)
+    try {
+      const sql8 = await readFile(migrationPath('0008_include_media_setting.sql'), 'utf-8');
+      await migrationClient.unsafe(sql8);
+      console.log('✅ Applied migration 0008 (include_media setting)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0008 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0008 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

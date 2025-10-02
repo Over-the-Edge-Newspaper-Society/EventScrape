@@ -12,6 +12,7 @@ const wpSettingsSchema = z.object({
   applicationPassword: z.string().min(1),
   active: z.boolean().default(true),
   sourceCategoryMappings: z.record(z.string(), z.number()).optional(),
+  includeMedia: z.boolean().default(true),
 });
 
 const wpUploadSchema = z.object({
@@ -47,6 +48,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         // Don't return the application password for security
         active: wordpressSettings.active,
         sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
+        includeMedia: wordpressSettings.includeMedia,
         createdAt: wordpressSettings.createdAt,
         updatedAt: wordpressSettings.updatedAt,
       })
@@ -68,6 +70,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         username: wordpressSettings.username,
         active: wordpressSettings.active,
         sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
+        includeMedia: wordpressSettings.includeMedia,
         createdAt: wordpressSettings.createdAt,
         updatedAt: wordpressSettings.updatedAt,
       })
@@ -98,6 +101,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
         updatedAt: new Date(),
         name: data.name,
         sourceCategoryMappings: data.sourceCategoryMappings || {},
+        includeMedia: data.includeMedia,
       });
 
       const testResult = await testClient.testConnection();
@@ -115,6 +119,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           applicationPassword: data.applicationPassword,
           active: data.active,
           sourceCategoryMappings: data.sourceCategoryMappings || {},
+          includeMedia: data.includeMedia,
         })
         .returning({
           id: wordpressSettings.id,
@@ -123,6 +128,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           username: wordpressSettings.username,
           active: wordpressSettings.active,
           sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
+          includeMedia: wordpressSettings.includeMedia,
           createdAt: wordpressSettings.createdAt,
           updatedAt: wordpressSettings.updatedAt,
         });
@@ -188,6 +194,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           username: wordpressSettings.username,
           active: wordpressSettings.active,
           sourceCategoryMappings: wordpressSettings.sourceCategoryMappings,
+          includeMedia: wordpressSettings.includeMedia,
           createdAt: wordpressSettings.createdAt,
           updatedAt: wordpressSettings.updatedAt,
         });
@@ -340,6 +347,7 @@ export const wordpressRoutes: FastifyPluginAsync = async (fastify) => {
           status: data.status || 'draft',
           updateIfExists: false,
           sourceCategoryMappings: setting.sourceCategoryMappings as Record<string, number> || {},
+          includeMedia: setting.includeMedia,
         }
       );
 

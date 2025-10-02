@@ -519,6 +519,7 @@ export interface WordPressSettings {
   username: string
   active: boolean
   sourceCategoryMappings?: Record<string, number>
+  includeMedia: boolean
   createdAt: string
   updatedAt: string
 }
@@ -530,6 +531,7 @@ export interface NewWordPressSettings {
   applicationPassword: string
   active: boolean
   sourceCategoryMappings?: Record<string, number>
+  includeMedia: boolean
 }
 
 export interface WordPressCategory {

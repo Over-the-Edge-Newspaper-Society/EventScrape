@@ -299,6 +299,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
         status: data.status || data.wpPostStatus || 'draft', // Prefer 'status', fallback to 'wpPostStatus' for backwards compatibility
         updateIfExists: false,
         sourceCategoryMappings: wpSetting.sourceCategoryMappings as Record<string, number> || {},
+        includeMedia: wpSetting.includeMedia,
       }
     );
 
