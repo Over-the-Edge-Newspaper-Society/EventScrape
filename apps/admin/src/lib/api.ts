@@ -508,7 +508,8 @@ export interface CreateExportData {
   }
   fieldMap?: Record<string, string>
   wpSiteId?: string
-  wpPostStatus?: 'publish' | 'draft' | 'pending'
+  status?: 'publish' | 'draft' | 'pending' // Unified field name for WordPress post status
+  wpPostStatus?: 'publish' | 'draft' | 'pending' // Deprecated: keep for backwards compatibility
 }
 
 export interface WordPressSettings {

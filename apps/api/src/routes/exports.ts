@@ -28,7 +28,8 @@ const exportSchema = z.object({
   }).default({}),
   fieldMap: z.record(z.string()).optional().default({}),
   wpSiteId: z.string().uuid().optional(),
-  wpPostStatus: z.enum(['publish', 'draft', 'pending']).optional().default('draft'),
+  wpPostStatus: z.enum(['publish', 'draft', 'pending']).optional().default('draft'), // Keep for backwards compatibility
+  status: z.enum(['publish', 'draft', 'pending']).optional(), // New unified field name
 });
 
 // Helper functions for export formats
@@ -231,6 +232,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
     .select({
       id: eventsRaw.id,
       sourceEventId: eventsRaw.sourceEventId,
+      sourceId: eventsRaw.sourceId,
       title: eventsRaw.title,
       descriptionHtml: eventsRaw.descriptionHtml,
       startDatetime: eventsRaw.startDatetime,
@@ -291,10 +293,12 @@ async function processExport(exportId: string, data: any): Promise<void> {
         url: e.url,
         imageUrl: e.imageUrl || undefined,
         raw: e.raw,
+        sourceId: e.sourceId,
       })),
       {
-        status: data.wpPostStatus || 'draft',
+        status: data.status || data.wpPostStatus || 'draft', // Prefer 'status', fallback to 'wpPostStatus' for backwards compatibility
         updateIfExists: false,
+        sourceCategoryMappings: wpSetting.sourceCategoryMappings as Record<string, number> || {},
       }
     );
 

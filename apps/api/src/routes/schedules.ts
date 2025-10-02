@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { db } from '../db/connection.js'
-import { schedules, sources, wordpressSettings } from '../db/schema.js'
+import { schedules, sources, wordpressSettings, exports } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { registerSchedule, unregisterScheduleByKey, triggerScheduleNow } from '../queue/scheduler.js'
 
@@ -134,12 +134,26 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
   // Delete schedule
   fastify.delete('/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
-    const [existing] = await db.select().from(schedules).where(eq(schedules.id, id)).limit(1)
-    if (!existing) { reply.status(404); return { error: 'Schedule not found' } }
-    if (existing.repeatKey) await unregisterScheduleByKey(existing.repeatKey)
-    await db.delete(schedules).where(eq(schedules.id, id))
-    reply.status(204)
-    return
+    try {
+      const [existing] = await db.select().from(schedules).where(eq(schedules.id, id)).limit(1)
+      if (!existing) { reply.status(404); return { error: 'Schedule not found' } }
+
+      // Unregister from queue
+      if (existing.repeatKey) await unregisterScheduleByKey(existing.repeatKey)
+
+      // First, set schedule_id to NULL in any related exports to preserve export history
+      await db.update(exports).set({ scheduleId: null }).where(eq(exports.scheduleId, id))
+
+      // Now delete the schedule
+      await db.delete(schedules).where(eq(schedules.id, id))
+
+      reply.status(204)
+      return
+    } catch (e: any) {
+      fastify.log.error(e)
+      reply.status(500)
+      return { error: e?.message || 'Failed to delete schedule' }
+    }
   })
 
   // Trigger schedule now

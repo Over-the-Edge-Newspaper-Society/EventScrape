@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { schedulesApi, sourcesApi, wordpressApi, ScheduleWithSource } from '@/lib/api'
-import { Globe, Calendar, Filter } from 'lucide-react'
+import { Globe, Calendar, Filter, Edit } from 'lucide-react'
 
 export function WordPressSchedules() {
   const queryClient = useQueryClient()
@@ -28,6 +28,7 @@ export function WordPressSchedules() {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([])
   const [postStatus, setPostStatus] = useState<'draft' | 'pending' | 'publish'>('draft')
   const [updateIfExists, setUpdateIfExists] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -47,14 +48,66 @@ export function WordPressSchedules() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] })
-      setWordpressSettingsId('')
-      setSelectedSourceIds([])
+      resetForm()
       toast.success('WordPress export schedule created')
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to create schedule')
     },
   })
+
+  const resetForm = () => {
+    setWordpressSettingsId('')
+    setSelectedSourceIds([])
+    setPostStatus('draft')
+    setUpdateIfExists(false)
+    setStartDateOffset(0)
+    setEndDateOffset(30)
+    setCron('0 2 * * *')
+    setTimezone('America/Vancouver')
+    setEditingId(null)
+  }
+
+  const loadScheduleForEdit = (schedule: ScheduleWithSource) => {
+    const config = schedule.schedule.config || {}
+    setEditingId(schedule.schedule.id)
+    setWordpressSettingsId(schedule.schedule.wordpressSettingsId || '')
+    setCron(schedule.schedule.cron)
+    setTimezone(schedule.schedule.timezone || 'America/Vancouver')
+    setStartDateOffset(config.startDateOffset || 0)
+    setEndDateOffset(config.endDateOffset || 30)
+    setSelectedSourceIds(config.sourceIds || [])
+    setPostStatus(config.status || 'draft')
+    setUpdateIfExists(config.updateIfExists || false)
+
+    // Scroll to top of form
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const saveEdit = async () => {
+    if (!editingId) return
+
+    try {
+      await updateMutation.mutateAsync({
+        id: editingId,
+        data: {
+          cron,
+          timezone,
+          config: {
+            startDateOffset,
+            endDateOffset,
+            sourceIds: selectedSourceIds.length > 0 ? selectedSourceIds : undefined,
+            status: postStatus,
+            updateIfExists,
+          },
+        },
+      })
+      resetForm()
+      toast.success('Schedule updated successfully')
+    } catch {
+      toast.error('Failed to update schedule')
+    }
+  }
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => schedulesApi.update(id, data),
@@ -99,8 +152,12 @@ export function WordPressSchedules() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Create WordPress Export Schedule</CardTitle>
-          <CardDescription>Automatically export events to WordPress on a schedule</CardDescription>
+          <CardTitle>{editingId ? 'Edit WordPress Export Schedule' : 'Create WordPress Export Schedule'}</CardTitle>
+          <CardDescription>
+            {editingId
+              ? 'Update your WordPress export schedule settings'
+              : 'Automatically export events to WordPress on a schedule'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -261,7 +318,12 @@ export function WordPressSchedules() {
               <Label>Timezone</Label>
               <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/Vancouver" />
             </div>
-            <div className="flex items-end">
+            <div className="flex items-end gap-2">
+              {editingId && (
+                <Button variant="outline" onClick={resetForm}>
+                  Cancel
+                </Button>
+              )}
               <Button
                 onClick={async () => {
                   if (!wordpressSettingsId || !cron) {
@@ -269,14 +331,24 @@ export function WordPressSchedules() {
                     return
                   }
                   try {
-                    await createMutation.mutateAsync()
+                    if (editingId) {
+                      await saveEdit()
+                    } else {
+                      await createMutation.mutateAsync()
+                    }
                   } catch {
-                    toast.error('Failed to create schedule')
+                    toast.error(editingId ? 'Failed to update schedule' : 'Failed to create schedule')
                   }
                 }}
-                disabled={createMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending}
               >
-                {createMutation.isPending ? 'Creating...' : 'Add Schedule'}
+                {editingId
+                  ? updateMutation.isPending
+                    ? 'Updating...'
+                    : 'Update Schedule'
+                  : createMutation.isPending
+                  ? 'Creating...'
+                  : 'Add Schedule'}
               </Button>
             </div>
           </div>
@@ -371,6 +443,14 @@ export function WordPressSchedules() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => loadScheduleForEdit(row)}
+                            title="Edit schedule"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"

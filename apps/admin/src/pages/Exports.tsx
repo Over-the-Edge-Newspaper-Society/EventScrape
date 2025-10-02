@@ -62,7 +62,7 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
         finalExportData = {
           ...finalExportData,
           wpSiteId,
-          wpPostStatus,
+          status: wpPostStatus, // Use unified 'status' field
         } as any
       }
 
@@ -154,7 +154,7 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
             <h3 className="text-lg font-semibold">Apply Filters</h3>
             
             {/* All Data Checkbox */}
-            <div className="flex items-center space-x-2 p-3 border rounded-lg bg-blue-50 border-blue-200">
+            <div className="flex items-center space-x-2 p-3 border rounded-lg bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
               <Checkbox
                 id="all-data"
                 checked={allData}
@@ -173,7 +173,7 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
                   }
                 }}
               />
-              <label htmlFor="all-data" className="text-sm font-medium cursor-pointer">
+              <label htmlFor="all-data" className="text-sm font-medium cursor-pointer dark:text-blue-100">
                 Export All Data (no date restrictions)
               </label>
             </div>
@@ -269,7 +269,7 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
               {sourcesLoading ? (
                 <div className="text-sm text-muted-foreground">Loading sources...</div>
               ) : sources?.sources?.length ? (
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border dark:border-gray-700 rounded-md p-3 scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-200 dark:scrollbar-track-gray-800">
                   {sources.sources.map((source) => (
                     <div key={source.id} className="flex items-center space-x-2">
                       <Checkbox
@@ -391,15 +391,15 @@ function ExportWizard({ onClose, onExport }: ExportWizardProps) {
                     </Select>
                   </div>
 
-                  <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4">
                     <div className="flex items-start gap-3">
-                      <Globe className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <Globe className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                       <div className="space-y-1">
-                        <h4 className="font-medium text-sm text-blue-900">Direct WordPress Upload</h4>
-                        <p className="text-sm text-blue-700">
+                        <h4 className="font-medium text-sm text-blue-900 dark:text-blue-100">Direct WordPress Upload</h4>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">
                           Events will be uploaded directly to your WordPress site via REST API with:
                         </p>
-                        <ul className="text-sm text-blue-700 list-disc list-inside space-y-1 mt-2">
+                        <ul className="text-sm text-blue-700 dark:text-blue-300 list-disc list-inside space-y-1 mt-2">
                           <li>UTC to local timezone conversion</li>
                           <li>Automatic club/organization linking</li>
                           <li>Duplicate detection (won't create duplicates)</li>
@@ -800,7 +800,7 @@ export function Exports() {
 
       {/* WordPress Export Details Dialog */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-200 dark:scrollbar-track-gray-800">
           <DialogHeader>
             <DialogTitle>WordPress Export Details</DialogTitle>
             <DialogDescription>
@@ -857,7 +857,7 @@ export function Exports() {
               {/* Detailed Results Table */}
               <div>
                 <h3 className="font-semibold mb-2">Event-by-Event Results</h3>
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border dark:border-gray-700 rounded-lg overflow-hidden max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-200 dark:scrollbar-track-gray-800">
                   <Table>
                     <TableHeader>
                       <TableRow>

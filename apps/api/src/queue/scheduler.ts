@@ -106,7 +106,7 @@ export function initScheduleWorker() {
           sourceId: e.sourceId,
         })),
         {
-          status: (config?.postStatus as 'publish' | 'draft' | 'pending') || 'draft',
+          status: (config?.status as 'publish' | 'draft' | 'pending') || 'draft',
           updateIfExists: config?.updateIfExists || false,
           sourceCategoryMappings: wpSettings.sourceCategoryMappings as Record<string, number> || {},
         }
@@ -129,7 +129,7 @@ export function initScheduleWorker() {
         scheduleId: scheduleId,
         params: {
           wpSiteId: wordpressSettingsId,
-          wpPostStatus: config?.postStatus || 'draft',
+          wpPostStatus: config?.status || 'draft',
           filters: {
             startDateOffset: config?.startDateOffset,
             endDateOffset: config?.endDateOffset,
