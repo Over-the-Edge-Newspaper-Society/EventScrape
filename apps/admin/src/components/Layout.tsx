@@ -11,7 +11,8 @@ import {
   Settings,
   Upload,
   Clock,
-  Globe
+  Globe,
+  HardDrive
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -30,6 +31,7 @@ const navigation = [
   { name: 'Poster Import', href: '/poster-import', icon: Upload },
   { name: 'Exports', href: '/exports', icon: Download },
   { name: 'WordPress', href: '/wordpress', icon: Globe },
+  { name: 'Settings', href: '/settings', icon: HardDrive },
 ]
 
 export function Layout({ children }: LayoutProps) {

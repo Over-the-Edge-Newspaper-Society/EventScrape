@@ -453,26 +453,27 @@ export class WordPressClient {
   }
 
   /**
-   * Attach media to a post (for custom post types that don't auto-attach)
+   * Attach media to a post as featured image (for custom post types that don't auto-attach)
    */
   private async attachMediaToPost(postId: number, mediaId: number): Promise<void> {
     try {
-      const response = await fetch(`${this.siteUrl}/wp-json/wp/v2/media/${mediaId}`, {
+      // Update the post to set the featured_media
+      const response = await fetch(`${this.siteUrl}/wp-json/wp/v2/events/${postId}`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
-          post: postId,
+          featured_media: mediaId,
         }),
       });
 
       if (!response.ok) {
         const error = await response.text();
-        console.warn(`Failed to attach media ${mediaId} to post ${postId}: ${error}`);
+        console.warn(`Failed to attach featured media ${mediaId} to post ${postId}: ${error}`);
       } else {
-        console.log(`[WordPress Client] Successfully attached media ${mediaId} to post ${postId}`);
+        console.log(`[WordPress Client] Successfully set featured media ${mediaId} for post ${postId}`);
       }
     } catch (error: any) {
-      console.warn(`Error attaching media ${mediaId} to post ${postId}: ${error.message}`);
+      console.warn(`Error attaching featured media ${mediaId} to post ${postId}: ${error.message}`);
     }
   }
 

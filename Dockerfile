@@ -45,6 +45,14 @@ RUN pnpm --filter @eventscrape/admin build
 FROM node:18-bullseye-slim AS api
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-15 \
+    && apt-get purge -y --auto-remove curl gnupg \
+    && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
 RUN npm install -g pnpm
 COPY --from=api-builder --chown=eventscrape:nodejs /app/package.json ./
@@ -52,9 +60,9 @@ COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-workspace.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-lock.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/package.json ./apps/api/
-RUN mkdir -p /worker/src /data/exports
+RUN mkdir -p /worker/src /data/exports /data/backups
 COPY --from=api-builder --chown=eventscrape:nodejs /app/worker/src/modules /worker/src/modules
-RUN chown -R eventscrape:nodejs /data/exports
+RUN chown -R eventscrape:nodejs /data/exports /data/backups
 RUN pnpm install --frozen-lockfile --prod
 USER eventscrape
 EXPOSE 3001

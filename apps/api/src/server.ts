@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { z } from 'zod';
 
 // Route handlers
@@ -17,6 +18,7 @@ import { uploadsRoutes } from './routes/uploads.js';
 import { posterImportRoutes } from './routes/poster-import.js';
 import { schedulesRoutes } from './routes/schedules.js';
 import { wordpressRoutes } from './routes/wordpress.js';
+import { databaseRoutes } from './routes/database.js';
 import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 import { runMigrations } from './db/migrate.js';
 
@@ -80,6 +82,12 @@ await fastify.register(rateLimit, {
   timeWindow: '1 minute',
 });
 
+await fastify.register(multipart, {
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB max file size for database backups
+  },
+});
+
 // Add global error handler
 fastify.setErrorHandler((error, _request, reply) => {
   fastify.log.error(error);
@@ -128,6 +136,7 @@ await fastify.register(uploadsRoutes, { prefix: '/api/uploads' });
 await fastify.register(posterImportRoutes, { prefix: '/api/poster-import' });
 await fastify.register(schedulesRoutes, { prefix: '/api/schedules' });
 await fastify.register(wordpressRoutes, { prefix: '/api/wordpress' });
+await fastify.register(databaseRoutes, { prefix: '/api/database' });
 
 // Initialize schedule worker and sync schedules
 await runMigrations();
