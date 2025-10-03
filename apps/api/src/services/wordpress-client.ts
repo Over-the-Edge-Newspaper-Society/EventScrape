@@ -313,59 +313,77 @@ export class WordPressClient {
 
   /**
    * Check if event already exists in WordPress by external_id
+   * Uses in-memory cache to avoid repeated API calls
    */
-  private async findExistingEvent(externalId: string): Promise<number | null> {
-    try {
-      // Fetch all events with external_id field and filter client-side
-      // Note: WordPress meta_key/meta_value query is unreliable with empty values
-      const response = await fetch(
-        `${this.siteUrl}/wp-json/wp/v2/events?per_page=100&_fields=id,external_id`,
-        {
-          method: 'GET',
-          headers: this.getAuthHeaders(),
-        }
-      );
+  private externalIdCache = new Map<string, number | null>();
 
-      if (!response.ok) {
-        return null;
+  private async findExistingEvent(externalId: string): Promise<number | null> {
+    // Check cache first
+    if (this.externalIdCache.has(externalId)) {
+      return this.externalIdCache.get(externalId) || null;
+    }
+
+    try {
+      // Fetch all events with external_id using pagination
+      let page = 1;
+      const perPage = 100;
+      let allEvents: Array<{ id: number; external_id?: string }> = [];
+
+      while (true) {
+        const response = await fetch(
+          `${this.siteUrl}/wp-json/wp/v2/events?per_page=${perPage}&page=${page}&_fields=id,external_id`,
+          {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+          }
+        );
+
+        if (!response.ok) {
+          break;
+        }
+
+        const events = (await response.json()) as Array<{ id: number; external_id?: string }>;
+
+        if (events.length === 0) {
+          break; // No more pages
+        }
+
+        allEvents = allEvents.concat(events);
+
+        // Check if there are more pages
+        const totalPages = parseInt(response.headers.get('x-wp-totalpages') || '1');
+        if (page >= totalPages) {
+          break;
+        }
+
+        page++;
       }
 
-      const events = (await response.json()) as Array<{ id: number; external_id?: string }>;
+      // Cache all external_ids we found
+      for (const event of allEvents) {
+        if (event.external_id) {
+          this.externalIdCache.set(event.external_id, event.id);
+        }
+      }
 
-      // Find event with matching external_id (only match if both IDs exist and are non-empty)
-      const matchingEvent = events.find(
-        event => event.external_id && event.external_id === externalId
-      );
-      return matchingEvent ? matchingEvent.id : null;
+      // Return the matching event
+      return this.externalIdCache.get(externalId) || null;
     } catch (error) {
+      console.error(`Error finding existing event with external_id ${externalId}:`, error);
       return null;
     }
   }
 
   /**
    * Create a new event post in WordPress
+   * Note: Duplicate detection is now handled by WordPress plugin via external_id
    */
   async createEvent(event: WordPressEvent, updateIfExists: boolean = false): Promise<WordPressUploadResult> {
     try {
-      // Check if event already exists
-      let existingEventId: number | null = null;
-      if (event.external_id) {
-        existingEventId = await this.findExistingEvent(event.external_id);
-      }
-
-      if (existingEventId && !updateIfExists) {
-        return {
-          success: true,
-          postId: existingEventId,
-          action: 'skipped',
-        };
-      }
-
-      const endpoint = existingEventId
-        ? `${this.siteUrl}/wp-json/wp/v2/events/${existingEventId}`
-        : `${this.siteUrl}/wp-json/wp/v2/events`;
-
-      const method = existingEventId ? 'PUT' : 'POST';
+      // WordPress plugin will automatically detect duplicates via external_id
+      // and convert INSERT to UPDATE, so we always POST to the events endpoint
+      const endpoint = `${this.siteUrl}/wp-json/wp/v2/events`;
+      const method = 'POST';
 
       const requestBody = {
         title: event.title,
@@ -393,16 +411,19 @@ export class WordPressClient {
         const error = await response.text();
         return {
           success: false,
-          error: `Post ${existingEventId ? 'update' : 'creation'} failed: ${response.status} - ${error}`,
+          error: `Post creation/update failed: ${response.status} - ${error}`,
         };
       }
 
       const post = (await response.json()) as { id: number; link: string };
+
+      // Note: We can't easily detect if it was created vs updated since WordPress
+      // plugin handles this transparently. We'll just report it as 'created'.
       return {
         success: true,
         postId: post.id,
         postUrl: post.link,
-        action: existingEventId ? 'updated' : 'created',
+        action: 'created', // WordPress handles update internally if external_id exists
       };
     } catch (error: any) {
       return {

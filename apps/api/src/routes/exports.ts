@@ -6,6 +6,7 @@ import { exports as exportsTable, eventsRaw, wordpressSettings, schedules } from
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { createHash } from 'crypto';
 import { WordPressClient } from '../services/wordpress-client.js';
 
 const exportSchema = z.object({
@@ -279,7 +280,9 @@ async function processExport(exportId: string, data: any): Promise<void> {
     const client = new WordPressClient(wpSetting);
     const results = await client.uploadEvents(
       events.map((e) => ({
-        id: e.id,
+        id: e.sourceEventId
+          ? createHash('sha256').update(`${e.sourceId}:${e.sourceEventId}`).digest('hex').substring(0, 32)
+          : e.id, // Use hash of source+sourceEventId for stable deduplication across scrapes
         title: e.title,
         descriptionHtml: e.descriptionHtml || undefined,
         startDatetime: e.startDatetime,
