@@ -584,9 +584,9 @@ const princeGeorgeModule: ScraperModule = {
           logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
         }
 
-        // Create unique sourceEventId combining URL and calendar date
+        // For now, use URL with date as sourceEventId (will be updated later if it's a recurring event)
         const calendarDateString = eventLink.date || new Date(eventStart).toDateString();
-        const sourceEventId = `${eventLink.url}#${calendarDateString}`;
+        let sourceEventId = `${eventLink.url}#${calendarDateString}`;
 
         // Base event from calendar data
         const baseEvent: RawEvent = {
@@ -662,19 +662,22 @@ const princeGeorgeModule: ScraperModule = {
               const imageUrl = imageEl?.src;
 
               // Extract ALL date instances (series) from the when field
-              const dateItems = Array.from(document.querySelectorAll('.field--name-field-when .field__item')) as HTMLElement[];
+              // Look for all time elements with datetime attribute - they're separated by <br> tags
+              const timeElements = Array.from(document.querySelectorAll('.views-field-field-when time[datetime]')) as HTMLElement[];
               const dates: Array<{ start?: string | null; end?: string | null; rawText?: string | null }> = [];
-              dateItems.forEach(item => {
-                const times = item.querySelectorAll('time[datetime]');
-                const textContent = item.textContent?.replace(/\s+/g, ' ').trim() || null;
-                if (times.length >= 1) {
-                  const start = times[0].getAttribute('datetime');
-                  const endAttr = times[1]?.getAttribute('datetime') || null;
-                  dates.push({ start: start || null, end: endAttr, rawText: textContent });
-                } else if (textContent) {
-                  dates.push({ start: null, end: null, rawText: textContent });
+
+              // Process pairs of time elements (start and end times)
+              for (let i = 0; i < timeElements.length; i += 2) {
+                const startEl = timeElements[i];
+                const endEl = timeElements[i + 1];
+
+                if (startEl) {
+                  const start = startEl.getAttribute('datetime');
+                  const endAttr = endEl?.getAttribute('datetime') || null;
+                  const rawText = (startEl.textContent || '') + (endEl ? ' - ' + (endEl.textContent || '') : '');
+                  dates.push({ start: start || null, end: endAttr, rawText: rawText.trim() || null });
                 }
-              });
+              }
 
               return {
                 eventType,
@@ -801,6 +804,12 @@ const princeGeorgeModule: ScraperModule = {
               enhancedFromDetailPage: true,
             };
 
+            // For recurring events, use just the URL as sourceEventId (without date hash)
+            if (validSeries.length > 1) {
+              baseEvent.sourceEventId = eventLink.url;
+              logger.info(`Set recurring event sourceEventId to URL: ${eventLink.url}`);
+            }
+
             logger.info(`Enhanced event with details: ${eventLink.title}`);
             
           } catch (detailError) {
@@ -812,8 +821,8 @@ const princeGeorgeModule: ScraperModule = {
             };
           }
         } else {
-          logger.info(`Detail page already processed, using calendar data only: ${eventLink.url}`);
-          // If we cached series dates for this URL, align this instance to the correct date
+          logger.info(`Detail page already processed, using cached data: ${eventLink.url}`);
+          // If we cached series dates for this URL, use them
           const eventDateYMD = normalizeToYMD(eventLink.date) || normalizeToYMD(eventLink.dataStart || '');
           const series = seriesCache[eventLink.url];
           if (eventDateYMD && series?.length) {
@@ -827,6 +836,11 @@ const princeGeorgeModule: ScraperModule = {
               logger.info(`Applied cached series match for ${eventLink.title} on ${eventDateYMD}`);
             }
             baseEvent.raw.seriesDates = series;
+
+            // For recurring events, use just the URL as sourceEventId
+            if (series.length > 1) {
+              baseEvent.sourceEventId = eventLink.url;
+            }
           }
           baseEvent.raw = {
             ...baseEvent.raw,
@@ -835,8 +849,22 @@ const princeGeorgeModule: ScraperModule = {
           };
         }
 
-        events.push(baseEvent);
-        logger.info(`Created calendar event: ${eventLink.title} on ${eventLink.date}`);
+        // For recurring events with seriesDates, only keep the first occurrence
+        // The seriesDates array already contains all occurrences
+        if (baseEvent.raw?.seriesDates && Array.isArray(baseEvent.raw.seriesDates) && baseEvent.raw.seriesDates.length > 1) {
+          // This is a recurring event - check if we've already added it
+          const alreadyAdded = events.some(e => e.url === eventLink.url);
+          if (!alreadyAdded) {
+            events.push(baseEvent);
+            logger.info(`Created recurring event with ${baseEvent.raw.seriesDates.length} occurrences: ${eventLink.title}`);
+          } else {
+            logger.info(`Skipping duplicate calendar entry for recurring event: ${eventLink.title}`);
+          }
+        } else {
+          // Not a recurring event - add it normally
+          events.push(baseEvent);
+          logger.info(`Created single event: ${eventLink.title} on ${eventLink.date}`);
+        }
 
       } catch (eventError) {
         logger.warn(`Failed to process calendar event ${eventLink.title}: ${eventError}`);

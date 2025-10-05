@@ -27,6 +27,22 @@ export interface WordPressEvent {
   featured_media?: number;
   categories?: number[];
   tags?: number[];
+  // New: Series and occurrence data
+  series_data?: {
+    occurrence_type?: 'single' | 'multi_day' | 'all_day' | 'recurring' | 'virtual';
+    recurrence_type?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+    recurrence_pattern?: string;
+    is_all_day?: boolean;
+    is_virtual?: boolean;
+    event_status?: 'scheduled' | 'canceled' | 'postponed';
+    status_reason?: string;
+  };
+  occurrences?: Array<{
+    sequence: number;
+    start_datetime: string;
+    end_datetime?: string;
+    is_provisional?: boolean;
+  }>;
 }
 
 export interface WordPressUploadResult {
@@ -495,6 +511,72 @@ export class WordPressClient {
       }
     } catch (error: any) {
       console.warn(`Error attaching featured media ${mediaId} to post ${postId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Import event with series and occurrence data using the new CampusManager endpoint
+   */
+  async importEventWithOccurrences(
+    event: WordPressEvent,
+    imageUrl?: string
+  ): Promise<WordPressUploadResult> {
+    try {
+      const endpoint = `${this.siteUrl}/wp-json/unbc-events/v1/import-event`;
+
+      const requestBody = {
+        event: {
+          title: event.title,
+          description: event.content,
+          status: event.status || 'publish',
+          external_id: event.external_id,
+          meta: event.event_meta || event.meta,
+          series_data: event.series_data,
+          occurrences: event.occurrences,
+          featured_media_url: imageUrl,
+          categories: event.categories,
+        },
+      };
+
+      console.log(`[WordPress Client] POST ${endpoint} (with occurrences)`);
+      console.log(`[WordPress Client] Series type: ${event.series_data?.occurrence_type}, Occurrences: ${event.occurrences?.length || 0}`);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return {
+          success: false,
+          error: `Event import failed: ${response.status} - ${error}`,
+        };
+      }
+
+      const result = (await response.json()) as {
+        success: boolean;
+        action: 'created' | 'updated';
+        post_id: number;
+        post_url: string;
+        series_created: boolean;
+        occurrences_created: number;
+      };
+
+      console.log(`[WordPress Client] Import successful: ${result.action} post ${result.post_id}, series: ${result.series_created}, occurrences: ${result.occurrences_created}`);
+
+      return {
+        success: true,
+        postId: result.post_id,
+        postUrl: result.post_url,
+        action: result.action,
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Event import error: ${error.message}`,
+      };
     }
   }
 

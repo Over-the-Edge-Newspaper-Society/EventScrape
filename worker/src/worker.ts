@@ -6,6 +6,7 @@ import { ModuleLoader } from './lib/module-loader.js';
 import { BrowserPool } from './lib/browser-pool.js';
 import { EventMatcher } from './lib/matcher.js';
 import { normalizeEvent, RateLimiter } from './lib/utils.js';
+import { saveEventWithOccurrences, saveToEventsRaw } from './lib/occurrence-db.js';
 import type { ScrapeJobData, MatchJobData, RunContext } from './types.js';
 import 'dotenv/config';
 
@@ -246,142 +247,37 @@ class EventScraperWorker {
         );
         contextLogger.info(`✅ Processed ${processedEvents.length} events`);
 
-        // Save events to database with insert/update/unchanged stats
-        contextLogger.info('💾 Saving events to database...');
+        // Save events to database using new series/occurrences system
+        contextLogger.info('💾 Saving events to database (series + occurrences)...');
         let savedCount = 0; // kept for backward-compat logs
         const stats = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 } as const;
         // mutable copy
         const counters: Record<keyof typeof stats, number> = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
         for (const event of processedEvents) {
           try {
-            // Debug logging: check for undefined values before database insertion
-            const fieldsToCheck = {
-              source_id: source.id,
-              run_id: jobData.runId,
-              source_event_id: event.sourceEventId,
-              title: event.title,
-              description_html: event.descriptionHtml,
-              start_datetime: event.startDatetime,
-              end_datetime: event.endDatetime,
-              timezone: event.timezone,
-              venue_name: event.venueName,
-              venue_address: event.venueAddress,
-              city: event.city,
-              region: event.region,
-              country: event.country,
-              lat: event.lat,
-              lon: event.lon,
-              organizer: event.organizer,
-              category: event.category,
-              price: event.price,
-              tags: event.tags,
-              url: event.url,
-              image_url: event.imageUrl,
-              scraped_at: event.scrapedAt,
-              raw: event.raw,
-              content_hash: event.contentHash
-            };
-
-            const undefinedFields = Object.entries(fieldsToCheck)
-              .filter(([key, value]) => value === undefined)
-              .map(([key]) => key);
-
-            if (undefinedFields.length > 0) {
-              contextLogger.warn(`Event "${event.title}" has undefined fields: ${undefinedFields.join(', ')}`);
-              contextLogger.debug('Full event object:', JSON.stringify(event, null, 2));
-            }
             counters.processed++;
 
-            // If no stable source_event_id, always insert (will create a new row)
-            if (!event.sourceEventId) {
-              await db`
-                INSERT INTO events_raw (
-                  source_id, run_id, source_event_id, title, description_html,
-                  start_datetime, end_datetime, timezone, venue_name, venue_address,
-                  city, region, country, lat, lon, organizer, category, price, tags,
-                  url, image_url, scraped_at, raw, content_hash, last_seen_at
-                ) VALUES (
-                  ${source.id}, ${jobData.runId}, ${null}, ${event.title}, ${event.descriptionHtml || null},
-                  ${event.startDatetime}, ${event.endDatetime || null}, ${event.timezone}, ${event.venueName || null}, ${event.venueAddress || null},
-                  ${event.city || null}, ${event.region || null}, ${event.country || null}, ${event.lat || null}, ${event.lon || null}, ${event.organizer || null},
-                  ${event.category || null}, ${event.price || null}, ${event.tags ? JSON.stringify(event.tags) : null},
-                  ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}, NOW()
-                )
-              `;
+            // Save to new series/occurrences tables
+            const { action, seriesId } = await saveEventWithOccurrences(event, source.id, jobData.runId);
+
+            // Also save to events_raw for backward compatibility
+            await saveToEventsRaw(event, source.id, jobData.runId, seriesId);
+
+            // Track stats
+            if (action === 'inserted') {
               counters.inserted++;
               savedCount++;
-              continue;
-            }
-
-            // 1) Try insert
-            const inserted = await db`
-              INSERT INTO events_raw (
-                source_id, run_id, source_event_id, title, description_html,
-                start_datetime, end_datetime, timezone, venue_name, venue_address,
-                city, region, country, lat, lon, organizer, category, price, tags,
-                url, image_url, scraped_at, raw, content_hash, last_seen_at
-              ) VALUES (
-                ${source.id}, ${jobData.runId}, ${event.sourceEventId}, ${event.title}, ${event.descriptionHtml || null},
-                ${event.startDatetime}, ${event.endDatetime || null}, ${event.timezone}, ${event.venueName || null}, ${event.venueAddress || null},
-                ${event.city || null}, ${event.region || null}, ${event.country || null}, ${event.lat || null}, ${event.lon || null}, ${event.organizer || null}, 
-                ${event.category || null}, ${event.price || null}, ${event.tags ? JSON.stringify(event.tags) : null},
-                ${event.url}, ${event.imageUrl || null}, ${event.scrapedAt}, ${JSON.stringify(event.raw)}, ${event.contentHash}, NOW()
-              ) ON CONFLICT (source_id, source_event_id)
-              WHERE source_event_id IS NOT NULL
-              DO NOTHING
-              RETURNING id
-            `;
-
-            if (inserted.length > 0) {
-              counters.inserted++;
-              savedCount++;
-              continue;
-            }
-
-            // 2) If exists, try content update when hash changed
-            const updated = await db`
-              UPDATE events_raw
-              SET 
-                title = ${event.title},
-                description_html = ${event.descriptionHtml || null},
-                start_datetime = ${event.startDatetime},
-                end_datetime = ${event.endDatetime || null},
-                timezone = ${event.timezone},
-                venue_name = ${event.venueName || null},
-                venue_address = ${event.venueAddress || null},
-                city = ${event.city || null},
-                region = ${event.region || null},
-                country = ${event.country || null},
-                lat = ${event.lat || null},
-                lon = ${event.lon || null},
-                organizer = ${event.organizer || null},
-                category = ${event.category || null},
-                price = ${event.price || null},
-                tags = ${event.tags ? JSON.stringify(event.tags) : null},
-                url = ${event.url},
-                image_url = ${event.imageUrl || null},
-                raw = ${JSON.stringify(event.raw)},
-                content_hash = ${event.contentHash},
-                last_updated_by_run_id = ${jobData.runId},
-                last_seen_at = NOW()
-              WHERE source_id = ${source.id}
-                AND source_event_id = ${event.sourceEventId}
-                AND content_hash IS DISTINCT FROM ${event.contentHash}
-              RETURNING id
-            `;
-
-            if (updated.length > 0) {
+            } else if (action === 'updated') {
               counters.updated++;
               savedCount++;
             } else {
-              // 3) Unchanged: only touch last_seen_at
-              await db`
-                UPDATE events_raw
-                SET last_seen_at = NOW()
-                WHERE source_id = ${source.id}
-                  AND source_event_id = ${event.sourceEventId}
-              `;
               counters.unchanged++;
+            }
+
+            // Log series info if available
+            const seriesDates = event.raw?.seriesDates;
+            if (seriesDates && Array.isArray(seriesDates) && seriesDates.length > 1) {
+              contextLogger.info(`📅 Series event "${event.title}": ${seriesDates.length} occurrences`);
             }
           } catch (dbError) {
             contextLogger.warn(`Failed to save event "${event.title}": ${dbError}`);

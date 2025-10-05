@@ -117,6 +117,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0009 (event occurrences)
+    try {
+      const sql9 = await readFile(migrationPath('0009_event_occurrences.sql'), 'utf-8');
+      await migrationClient.unsafe(sql9);
+      console.log('✅ Applied migration 0009 (event occurrences)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0009 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0009 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

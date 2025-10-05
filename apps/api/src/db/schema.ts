@@ -52,6 +52,30 @@ export const exportFormatEnum = pgEnum('export_format', [
   'wp-rest',
 ]);
 
+// New enums for event occurrences
+export const occurrenceTypeEnum = pgEnum('occurrence_type', [
+  'single',
+  'multi_day',
+  'all_day',
+  'recurring',
+  'virtual',
+]);
+
+export const recurrenceTypeEnum = pgEnum('recurrence_type', [
+  'none',
+  'daily',
+  'weekly',
+  'monthly',
+  'yearly',
+  'custom',
+]);
+
+export const eventStatusTypeEnum = pgEnum('event_status_type', [
+  'scheduled',
+  'canceled',
+  'postponed',
+]);
+
 // Tables
 export const sources = pgTable('sources', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -108,6 +132,9 @@ export const eventsRaw = pgTable('events_raw', {
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow(),
   raw: jsonb('raw').notNull(),
   contentHash: text('content_hash').notNull(),
+  // New fields for backwards compatibility with new occurrence system
+  seriesId: uuid('series_id').references(() => eventSeries.id),
+  occurrenceId: uuid('occurrence_id').references(() => eventOccurrences.id),
 }, (table) => ({
   sourceEventIdIdx: uniqueIndex('events_raw_source_event_id_idx')
     .on(table.sourceId, table.sourceEventId)
@@ -116,6 +143,8 @@ export const eventsRaw = pgTable('events_raw', {
     .on(table.startDatetime, table.city),
   rawGinIdx: index('events_raw_raw_gin_idx').on(table.raw),
   contentHashIdx: index('events_raw_content_hash_idx').on(table.contentHash),
+  seriesIdIdx: index('events_raw_series_id_idx').on(table.seriesId),
+  occurrenceIdIdx: index('events_raw_occurrence_id_idx').on(table.occurrenceId),
 }));
 
 export const matches = pgTable('matches', {
@@ -223,6 +252,131 @@ export const wordpressSettings = pgTable('wordpress_settings', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// Event Series table (parent/master events)
+export const eventSeries = pgTable('event_series', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourceId: uuid('source_id').notNull().references(() => sources.id),
+  runId: uuid('run_id').notNull().references(() => runs.id),
+  lastUpdatedByRunId: uuid('last_updated_by_run_id').references(() => runs.id),
+
+  // Source identification
+  sourceEventId: text('source_event_id'),
+
+  // Basic event info
+  title: text('title').notNull(),
+  descriptionHtml: text('description_html'),
+
+  // Event classification
+  occurrenceType: occurrenceTypeEnum('occurrence_type').notNull().default('single'),
+  eventStatus: eventStatusTypeEnum('event_status').notNull().default('scheduled'),
+  statusReason: text('status_reason'),
+
+  // Recurrence info
+  recurrenceType: recurrenceTypeEnum('recurrence_type').notNull().default('none'),
+  recurrencePattern: text('recurrence_pattern'),
+
+  // All-day flag
+  isAllDay: boolean('is_all_day').notNull().default(false),
+
+  // Virtual event info
+  isVirtual: boolean('is_virtual').notNull().default(false),
+  virtualUrl: text('virtual_url'),
+
+  // Location info
+  venueName: text('venue_name'),
+  venueAddress: text('venue_address'),
+  city: text('city'),
+  region: text('region'),
+  country: text('country'),
+  lat: doublePrecision('lat'),
+  lon: doublePrecision('lon'),
+
+  // Organization info
+  organizer: text('organizer'),
+  category: text('category'),
+  price: text('price'),
+  tags: jsonb('tags'),
+
+  // URLs
+  urlPrimary: text('url_primary').notNull(),
+  imageUrl: text('image_url'),
+
+  // Metadata
+  raw: jsonb('raw').notNull(),
+  contentHash: text('content_hash').notNull(),
+
+  // Timestamps
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sourceEventIdIdx: uniqueIndex('event_series_source_event_id_idx')
+    .on(table.sourceId, table.sourceEventId)
+    .where(sql`${table.sourceEventId} IS NOT NULL`),
+  sourceIdIdx: index('event_series_source_id_idx').on(table.sourceId),
+  runIdIdx: index('event_series_run_id_idx').on(table.runId),
+  occurrenceTypeIdx: index('event_series_occurrence_type_idx').on(table.occurrenceType),
+  recurrenceTypeIdx: index('event_series_recurrence_type_idx').on(table.recurrenceType),
+  eventStatusIdx: index('event_series_event_status_idx').on(table.eventStatus),
+  isVirtualIdx: index('event_series_is_virtual_idx').on(table.isVirtual),
+  cityIdx: index('event_series_city_idx').on(table.city),
+  contentHashIdx: index('event_series_content_hash_idx').on(table.contentHash),
+  createdAtIdx: index('event_series_created_at_idx').on(table.createdAt),
+}));
+
+// Event Occurrences table (individual instances)
+export const eventOccurrences = pgTable('event_occurrences', {
+  id: uuid('id').primaryKey().defaultRandom(),
+
+  // Series relationship
+  seriesId: uuid('series_id').notNull().references(() => eventSeries.id),
+
+  // Occurrence identification
+  occurrenceHash: text('occurrence_hash').notNull().unique(),
+  sequence: integer('sequence').notNull().default(1),
+
+  // Date/time info (local timezone)
+  startDatetime: timestamp('start_datetime', { withTimezone: true }).notNull(),
+  endDatetime: timestamp('end_datetime', { withTimezone: true }),
+
+  // Date/time info (UTC)
+  startDatetimeUtc: timestamp('start_datetime_utc', { withTimezone: true }).notNull(),
+  endDatetimeUtc: timestamp('end_datetime_utc', { withTimezone: true }),
+
+  // Duration
+  durationSeconds: integer('duration_seconds'),
+
+  // Timezone
+  timezone: text('timezone').notNull(),
+
+  // Recurrence metadata
+  hasRecurrence: boolean('has_recurrence').notNull().default(false),
+  isProvisional: boolean('is_provisional').notNull().default(false),
+
+  // Override fields (can override series defaults)
+  titleOverride: text('title_override'),
+  descriptionOverride: text('description_override'),
+  venueNameOverride: text('venue_name_override'),
+  venueAddressOverride: text('venue_address_override'),
+  eventStatusOverride: eventStatusTypeEnum('event_status_override'),
+  statusReasonOverride: text('status_reason_override'),
+
+  // Source-specific metadata
+  raw: jsonb('raw'),
+
+  // Tracking
+  scrapedAt: timestamp('scraped_at', { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  seriesIdIdx: index('event_occurrences_series_id_idx').on(table.seriesId),
+  startDatetimeIdx: index('event_occurrences_start_datetime_idx').on(table.startDatetime),
+  startDatetimeUtcIdx: index('event_occurrences_start_datetime_utc_idx').on(table.startDatetimeUtc),
+  sequenceIdx: index('event_occurrences_sequence_idx').on(table.sequence),
+  timezoneIdx: index('event_occurrences_timezone_idx').on(table.timezone),
+  scrapedAtIdx: index('event_occurrences_scraped_at_idx').on(table.scrapedAt),
+  seriesSequenceIdx: index('event_occurrences_series_sequence_idx').on(table.seriesId, table.sequence),
+  startCityIdx: index('event_occurrences_start_city_idx').on(table.startDatetimeUtc, table.seriesId),
+}));
+
 // Optional: Audit logs
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -266,3 +420,9 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 
 export type WordpressSettings = typeof wordpressSettings.$inferSelect;
 export type NewWordpressSettings = typeof wordpressSettings.$inferInsert;
+
+export type EventSeries = typeof eventSeries.$inferSelect;
+export type NewEventSeries = typeof eventSeries.$inferInsert;
+
+export type EventOccurrence = typeof eventOccurrences.$inferSelect;
+export type NewEventOccurrence = typeof eventOccurrences.$inferInsert;
