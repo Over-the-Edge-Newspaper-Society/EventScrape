@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { DatePicker } from '@/components/DatePicker'
-import { CreateExportData, wordpressApi } from '@/lib/api'
+import { CreateExportData, wordpressApi, sourcesApi } from '@/lib/api'
 import { FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, Settings } from 'lucide-react'
 
 interface ExportWizardProps {
@@ -31,6 +31,11 @@ export function ExportWizard({ onClose, onExport, selectedEventIds }: ExportWiza
     queryKey: ['wordpress-settings'],
     queryFn: () => wordpressApi.getSettings(),
     enabled: exportData.format === 'wp-rest',
+  })
+
+  const { data: sources } = useQuery({
+    queryKey: ['sources'],
+    queryFn: () => sourcesApi.getAll(),
   })
 
   const handleNext = () => {
@@ -170,6 +175,29 @@ export function ExportWizard({ onClose, onExport, selectedEventIds }: ExportWiza
                   placeholder={allData ? "All data selected" : "Select end date"}
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Filter by Source (optional)</Label>
+              <Select
+                value={exportData.filters?.sourceIds?.[0] || ''}
+                onValueChange={(value) => setExportData(prev => ({
+                  ...prev,
+                  filters: { ...prev.filters, sourceIds: value ? [value] : undefined }
+                }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All sources</SelectItem>
+                  {sources?.sources.map(source => (
+                    <SelectItem key={source.id} value={source.id}>
+                      {source.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         )}

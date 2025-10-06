@@ -153,6 +153,25 @@ export class WordPressClient {
     filename?: string
   ): Promise<{ mediaId?: number; error?: string }> {
     try {
+      // Check if media with this filename already exists (deduplication)
+      if (filename) {
+        const searchResponse = await fetch(
+          `${this.siteUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(filename)}&per_page=1`,
+          {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+          }
+        );
+
+        if (searchResponse.ok) {
+          const existingMedia = await searchResponse.json() as Array<{ id: number }>;
+          if (existingMedia.length > 0) {
+            console.log(`[WordPress Client] Reusing existing media ID ${existingMedia[0].id} for ${filename}`);
+            return { mediaId: existingMedia[0].id };
+          }
+        }
+      }
+
       // Download the image
       const imageResponse = await fetch(imageUrl);
       if (!imageResponse.ok) {
