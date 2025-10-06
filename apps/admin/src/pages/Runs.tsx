@@ -15,7 +15,7 @@ import { runsApi, sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { toast } from 'sonner'
 import { DatePicker } from '@/components/ui/date-picker'
-import { Play, CheckCircle2, XCircle, Clock, Filter, Eye, Activity, CheckCircle, RotateCcw, AlertCircle, Calendar, Layers, FileSpreadsheet, Upload, Download, ExternalLink, Zap } from 'lucide-react'
+import { XCircle, Clock, Eye, Activity, CheckCircle, RotateCcw, AlertCircle, Calendar, Layers, FileSpreadsheet, Upload, Download, ExternalLink, Zap } from 'lucide-react'
 import { RunDetailDialog } from '@/components/runs/RunDetailDialog'
 export function Runs() {
   const queryClient = useQueryClient()

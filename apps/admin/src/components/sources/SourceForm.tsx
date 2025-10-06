@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Source, CreateSourceData } from '@/lib/api'
 import { Settings } from 'lucide-react'
 
@@ -10,12 +9,12 @@ interface SourceFormProps {
   source: Source | null
   onClose: () => void
   onSave: (data: CreateSourceData) => Promise<void>
-  children: React.ReactNode
+  children?: React.ReactNode
 }
 
 export function SourceForm({ source, onClose, onSave, children }: SourceFormProps) {
   return (
-    <Dialog open={!!source} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={!!source || !!children} onOpenChange={(open) => !open && onClose()}>
       {children}
       <SourceFormContent source={source} onClose={onClose} onSave={onSave} />
     </Dialog>

@@ -4,13 +4,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { CanonicalEvent, EventWithSource, matchesApi } from '@/lib/api'
+import { matchesApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { ExternalLink, CheckCircle2, XCircle, AlertCircle, ChevronLeft, ChevronRight, Merge, GitMerge, Building, Calendar, MapPin, Hash, Clock, X, Check } from 'lucide-react'
+import { ExternalLink, ChevronLeft, ChevronRight, GitMerge, Building, Calendar, MapPin, Hash, Clock, X, Check } from 'lucide-react'
 
 interface MatchDialogProps {
   match: any | null
@@ -262,24 +261,24 @@ function MatchDialogContent({ match, onClose, onAction, onNavigate, currentIndex
               {score}% similarity
             </Badge>
           </div>
-          {totalMatches > 0 && (
+          {(totalMatches ?? 0) > 0 && (
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => onNavigate?.('prev')}
-                disabled={currentIndex === 0}
+                disabled={(currentIndex ?? 0) === 0}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-sm text-muted-foreground">
-                {currentIndex + 1} / {totalMatches}
+                {(currentIndex ?? 0) + 1} / {totalMatches}
               </span>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => onNavigate?.('next')}
-                disabled={currentIndex === totalMatches - 1}
+                disabled={(currentIndex ?? 0) === (totalMatches ?? 0) - 1}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

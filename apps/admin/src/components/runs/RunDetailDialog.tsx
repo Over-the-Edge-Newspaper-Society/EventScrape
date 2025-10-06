@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { runsApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
@@ -12,22 +12,6 @@ interface RunDetailsProps {
   runId: string | null
   onClose: () => void
   children?: React.ReactNode
-}
-
-interface RunEventSummary {
-  id: string
-  title: string
-  url: string
-  sourceEventId?: string
-  startDatetime?: string
-  endDatetime?: string
-  venueName?: string
-  city?: string
-  region?: string
-  country?: string
-  venueAddress?: string
-  category?: string
-  organizer?: string
 }
 
 export function RunDetailDialog({ runId, onClose, children }: RunDetailsProps) {
@@ -64,15 +48,15 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
   const { run, source, events } = data.run
   const startDate = new Date(run.startedAt)
   const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
-  
+
   const duration = finishDate && !isNaN(finishDate.getTime()) && !isNaN(startDate.getTime())
     ? finishDate.getTime() - startDate.getTime()
     : !isNaN(startDate.getTime())
     ? Date.now() - startDate.getTime()
     : 0
-  
+
   const durationFormatted = `${Math.floor(duration / 1000)}s`
-  const runEvents: RunEventSummary[] = events ?? []
+  const runEvents = events ?? []
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return '—'

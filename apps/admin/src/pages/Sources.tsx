@@ -12,7 +12,6 @@ import { SourceForm } from '@/components/sources/SourceForm'
 import { toast } from 'sonner'
 export function Sources() {
   const queryClient = useQueryClient()
-  const { toast } = useToast()
   const [selectedSource, setSelectedSource] = useState<Source | null>(null)
   const [showForm, setShowForm] = useState(false)
 

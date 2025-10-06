@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { eventsApi, sourcesApi, EventsQueryParams } from '@/lib/api'
-import { Trash2 } from 'lucide-react'
+import { Dialog, DialogTrigger } from '@/components/ui/dialog'
+import { eventsApi, exportsApi, sourcesApi, EventsQueryParams, CreateExportData } from '@/lib/api'
+import { Trash2, Download } from 'lucide-react'
 import { EventFilters } from '@/components/events/EventFilters'
 import { EventTable } from '@/components/events/EventTable'
+import { ExportWizard } from '@/components/exports/ExportWizard'
 
 export function RawEvents() {
   const [filters, setFilters] = useState<EventsQueryParams>({
@@ -15,6 +17,7 @@ export function RawEvents() {
     sortOrder: 'desc',
   })
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set())
+  const [showExportWizard, setShowExportWizard] = useState(false)
   const queryClient = useQueryClient()
 
   const { data: events, isLoading } = useQuery({
@@ -31,6 +34,15 @@ export function RawEvents() {
     mutationFn: (ids: string[]) => eventsApi.deleteRawBulk(ids),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['events', 'raw'] })
+      setSelectedEvents(new Set())
+    },
+  })
+
+  const createExportMutation = useMutation({
+    mutationFn: (data: CreateExportData) => exportsApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exports'] })
+      setShowExportWizard(false)
       setSelectedEvents(new Set())
     },
   })
@@ -88,6 +100,22 @@ export function RawEvents() {
     }))
   }
 
+  const handleExport = async (data: CreateExportData) => {
+    try {
+      // Add the selected event IDs to the export data
+      const exportData = {
+        ...data,
+        filters: {
+          ...data.filters,
+          ids: Array.from(selectedEvents),
+        },
+      }
+      await createExportMutation.mutateAsync(exportData)
+    } catch (error) {
+      console.error('Export failed:', error)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -122,6 +150,21 @@ export function RawEvents() {
                 <span className="text-sm text-muted-foreground">
                   {selectedEvents.size} selected
                 </span>
+                <Dialog open={showExportWizard} onOpenChange={setShowExportWizard}>
+                  <DialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Selected
+                    </Button>
+                  </DialogTrigger>
+                  <ExportWizard
+                    onClose={() => setShowExportWizard(false)}
+                    onExport={handleExport}
+                  />
+                </Dialog>
                 <Button
                   variant="destructive"
                   size="sm"

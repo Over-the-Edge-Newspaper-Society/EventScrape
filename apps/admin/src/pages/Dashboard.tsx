@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { runsApi, sourcesApi, eventsApi, matchesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Activity, Database, CheckCircle2, XCircle, Clock, Eye, Play, GitMerge, Calendar, AlertTriangle, CheckCircle, RotateCcw } from 'lucide-react'
+import { Activity, Database, XCircle, Clock, Eye, Play, GitMerge, Calendar, AlertTriangle, CheckCircle, RotateCcw } from 'lucide-react'
 import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { DashboardRunDetails } from '@/components/dashboard/DashboardRunDetails'
 export function Dashboard() {

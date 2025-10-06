@@ -10,7 +10,7 @@ import { Activity, XCircle } from 'lucide-react'
 interface RunDetailsProps {
   runId: string | null
   onClose: () => void
-  children: React.ReactNode
+  children?: React.ReactNode
 }
 
 export function DashboardRunDetails({ runId, onClose, children }: RunDetailsProps) {
