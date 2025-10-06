@@ -51,6 +51,7 @@ export interface WordPressUploadResult {
   postUrl?: string;
   error?: string;
   action?: 'created' | 'updated' | 'skipped';
+  occurrencesCreated?: number;
 }
 
 interface ClubData {
@@ -571,6 +572,7 @@ export class WordPressClient {
         postId: result.post_id,
         postUrl: result.post_url,
         action: result.action,
+        occurrencesCreated: result.occurrences_created,
       };
     } catch (error: any) {
       return {
@@ -652,33 +654,85 @@ export class WordPressClient {
         console.log(`Event "${event.title}" - No category mapping. sourceId: ${event.sourceId}, has mappings: ${!!mappings}`);
       }
 
-      const wpEvent: WordPressEvent = {
-        title: event.title,
-        content: event.descriptionHtml || '',
-        status: options.status || 'draft',
-        external_id: event.id,
-        event_meta: {
-          date: localStart.date,
-          start_time: localStart.time,
-          end_time: localEnd?.time || '',
-          location: event.venueName || '',
-          cost: '',
-          organization: organizationId || '',
-          featured: false,
-          website: event.url || '',
-        },
-        categories: categoryId ? [categoryId] : undefined,
-      };
+      // Check if this event has series data (recurring event)
+      const hasSeriesData = event.raw?.seriesDates && Array.isArray(event.raw.seriesDates) && event.raw.seriesDates.length > 1;
 
-      console.log(`Uploading event "${event.title}" with categories:`, wpEvent.categories);
+      if (hasSeriesData) {
+        // Handle recurring event with occurrences
+        const seriesDates = event.raw.seriesDates;
 
-      const result = await this.uploadEventWithImage(
-        wpEvent,
-        event.imageUrl,
-        options.updateIfExists || false,
-        options.includeMedia !== false // Default to true if not specified
-      );
-      results.push({ event, result });
+        const wpEvent: WordPressEvent = {
+          title: event.title,
+          content: event.descriptionHtml || '',
+          status: options.status || 'draft',
+          external_id: event.id,
+          event_meta: {
+            date: localStart.date,
+            start_time: localStart.time,
+            end_time: localEnd?.time || '',
+            location: event.venueName || '',
+            cost: '',
+            organization: organizationId || '',
+            featured: false,
+            website: event.url || '',
+          },
+          categories: categoryId ? [categoryId] : undefined,
+          series_data: {
+            occurrence_type: 'recurring',
+            recurrence_type: 'custom',
+          },
+          occurrences: seriesDates.map((dateInfo: any, index: number) => {
+            const occStart = new Date(dateInfo.start);
+            const occEnd = dateInfo.end ? new Date(dateInfo.end) : null;
+            const localOccStart = this.convertToLocalDateTime(occStart, event.timezone || 'UTC');
+            const localOccEnd = occEnd ? this.convertToLocalDateTime(occEnd, event.timezone || 'UTC') : null;
+
+            return {
+              sequence: index + 1,
+              start_datetime: `${localOccStart.date} ${localOccStart.time}`,
+              end_datetime: localOccEnd ? `${localOccEnd.date} ${localOccEnd.time}` : undefined,
+              is_provisional: false,
+            };
+          }),
+        };
+
+        console.log(`Uploading recurring event "${event.title}" with ${seriesDates.length} occurrences and categories:`, wpEvent.categories);
+
+        const result = await this.importEventWithOccurrences(
+          wpEvent,
+          event.imageUrl
+        );
+        results.push({ event, result });
+      } else {
+        // Handle single event
+        const wpEvent: WordPressEvent = {
+          title: event.title,
+          content: event.descriptionHtml || '',
+          status: options.status || 'draft',
+          external_id: event.id,
+          event_meta: {
+            date: localStart.date,
+            start_time: localStart.time,
+            end_time: localEnd?.time || '',
+            location: event.venueName || '',
+            cost: '',
+            organization: organizationId || '',
+            featured: false,
+            website: event.url || '',
+          },
+          categories: categoryId ? [categoryId] : undefined,
+        };
+
+        console.log(`Uploading single event "${event.title}" with categories:`, wpEvent.categories);
+
+        const result = await this.uploadEventWithImage(
+          wpEvent,
+          event.imageUrl,
+          options.updateIfExists || false,
+          options.includeMedia !== false // Default to true if not specified
+        );
+        results.push({ event, result });
+      }
 
       // Add delay to avoid rate limiting
       await new Promise((resolve) => setTimeout(resolve, 500));

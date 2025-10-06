@@ -26,6 +26,7 @@ const exportSchema = z.object({
     category: z.string().optional(),
     sourceIds: z.array(z.string()).optional(),
     status: z.enum(['new', 'ready', 'exported', 'ignored']).optional(),
+    ids: z.array(z.string()).optional(),
   }).default({}),
   fieldMap: z.record(z.string()).optional().default({}),
   wpSiteId: z.string().uuid().optional(),
@@ -228,6 +229,9 @@ async function processExport(exportId: string, data: any): Promise<void> {
   if (data.filters.sourceIds && data.filters.sourceIds.length > 0) {
     conditions.push(inArray(eventsRaw.sourceId, data.filters.sourceIds));
   }
+  if (data.filters.ids && data.filters.ids.length > 0) {
+    conditions.push(inArray(eventsRaw.id, data.filters.ids));
+  }
 
   const events = await db
     .select({
@@ -306,29 +310,71 @@ async function processExport(exportId: string, data: any): Promise<void> {
       }
     );
 
+    // Count actual WordPress posts created (including occurrences)
+    let totalPostsCreated = 0;
+    let totalPostsUpdated = 0;
+    let totalPostsSkipped = 0;
+
+    for (const r of results) {
+      if (r.result.success) {
+        const occurrences = r.result.occurrencesCreated || 1;
+        if (r.result.action === 'created') {
+          totalPostsCreated += occurrences;
+        } else if (r.result.action === 'updated') {
+          totalPostsUpdated += occurrences;
+        } else if (r.result.action === 'skipped') {
+          totalPostsSkipped += occurrences;
+        }
+      }
+    }
+
     const successCount = results.filter((r) => r.result.success).length;
     const failedCount = results.length - successCount;
-    const skippedCount = results.filter((r) => r.result.action === 'skipped').length;
-    const createdCount = results.filter((r) => r.result.action === 'created').length;
-    const updatedCount = results.filter((r) => r.result.action === 'updated').length;
 
-    // Prepare detailed results for storage
+    // Prepare detailed results for storage - expand occurrences into separate result entries
+    const expandedResults: any[] = [];
+    for (const r of results) {
+      const occurrences = r.result.occurrencesCreated || 1;
+      if (occurrences > 1) {
+        // For recurring events, create a result entry for each occurrence
+        for (let i = 0; i < occurrences; i++) {
+          expandedResults.push({
+            eventId: r.event.id,
+            eventTitle: `${r.event.title} (Occurrence ${i + 1}/${occurrences})`,
+            success: r.result.success,
+            action: r.result.action,
+            postId: r.result.postId,
+            postUrl: r.result.postUrl,
+            error: r.result.error,
+            occurrenceNumber: i + 1,
+            totalOccurrences: occurrences,
+          });
+        }
+      } else {
+        // Single event
+        expandedResults.push({
+          eventId: r.event.id,
+          eventTitle: r.event.title,
+          success: r.result.success,
+          action: r.result.action,
+          postId: r.result.postId,
+          postUrl: r.result.postUrl,
+          error: r.result.error,
+        });
+      }
+    }
+
     const wpResults = {
       totalEvents: results.length,
+      totalPostsCreated,
+      totalPostsUpdated,
+      totalPostsSkipped,
       successCount,
       failedCount,
-      createdCount,
-      updatedCount,
-      skippedCount,
-      results: results.map((r) => ({
-        eventId: r.event.id,
-        eventTitle: r.event.title,
-        success: r.result.success,
-        action: r.result.action,
-        postId: r.result.postId,
-        postUrl: r.result.postUrl,
-        error: r.result.error,
-      })),
+      createdCount: totalPostsCreated,
+      updatedCount: totalPostsUpdated,
+      skippedCount: totalPostsSkipped,
+      results: expandedResults,
     };
 
     // Update export record with WordPress upload results
@@ -336,7 +382,7 @@ async function processExport(exportId: string, data: any): Promise<void> {
       .update(exportsTable)
       .set({
         status: 'success',
-        itemCount: successCount,
+        itemCount: totalPostsCreated + totalPostsUpdated + totalPostsSkipped,
         filePath: null, // No file for direct WordPress uploads
         errorMessage: failedCount > 0 ? `${failedCount} events failed to upload` : null,
         params: {
