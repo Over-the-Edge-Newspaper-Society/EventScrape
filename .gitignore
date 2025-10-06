@@ -43,8 +43,8 @@ test-results/
 playwright-report/
 playwright/.cache/
 
-# Exports
-exports/
+# Exports (data files only, not React components)
+/data/exports/
 exports/**/*.csv
 exports/**/*.json
 exports/**/*.ics
