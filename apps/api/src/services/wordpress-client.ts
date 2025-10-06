@@ -463,16 +463,21 @@ export class WordPressClient {
 
     // Upload image if provided and includeMedia is true
     if (imageUrl && includeMedia) {
+      // Generate filename based on image URL hash for deduplication
+      const imageHash = this.hashString(imageUrl);
+      const extension = this.getImageExtension(imageUrl);
+      const filename = `event-${imageHash}.${extension}`;
+
       const mediaResult = await this.uploadMedia(
         imageUrl,
-        `event-${Date.now()}.jpg`
+        filename
       );
       if (mediaResult.error) {
         // Continue without image if upload fails
         console.warn(`Image upload failed: ${mediaResult.error}`);
       } else {
         featuredMediaId = mediaResult.mediaId;
-        console.log(`[WordPress Client] Uploaded media ID: ${featuredMediaId} for image: ${imageUrl}`);
+        console.log(`[WordPress Client] Uploaded media ID: ${featuredMediaId} for image: ${imageUrl} as ${filename}`);
       }
     }
 
@@ -739,5 +744,27 @@ export class WordPressClient {
     }
 
     return results;
+  }
+
+  /**
+   * Generate a hash from a string (for image deduplication)
+   */
+  private hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  /**
+   * Get image extension from URL
+   */
+  private getImageExtension(url: string): string {
+    const urlPath = url.split('?')[0]; // Remove query params
+    const match = urlPath.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i);
+    return match ? match[1].toLowerCase() : 'jpg';
   }
 }
