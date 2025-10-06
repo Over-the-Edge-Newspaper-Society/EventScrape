@@ -505,6 +505,7 @@ export interface CreateExportData {
     category?: string
     sourceIds?: string[]
     status?: 'new' | 'ready' | 'exported' | 'ignored'
+    ids?: string[]
   }
   fieldMap?: Record<string, string>
   wpSiteId?: string

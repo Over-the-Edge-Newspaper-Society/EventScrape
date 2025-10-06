@@ -102,15 +102,8 @@ export function RawEvents() {
 
   const handleExport = async (data: CreateExportData) => {
     try {
-      // Add the selected event IDs to the export data
-      const exportData = {
-        ...data,
-        filters: {
-          ...data.filters,
-          ids: Array.from(selectedEvents),
-        },
-      }
-      await createExportMutation.mutateAsync(exportData)
+      // The ExportWizard already adds the selected event IDs to the filters
+      await createExportMutation.mutateAsync(data)
     } catch (error) {
       console.error('Export failed:', error)
     }
@@ -163,6 +156,7 @@ export function RawEvents() {
                   <ExportWizard
                     onClose={() => setShowExportWizard(false)}
                     onExport={handleExport}
+                    selectedEventIds={Array.from(selectedEvents)}
                   />
                 </Dialog>
                 <Button
