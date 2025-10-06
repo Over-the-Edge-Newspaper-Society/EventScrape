@@ -21,11 +21,10 @@ interface MatchDialogProps {
   children?: React.ReactNode
 }
 
-export function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, totalMatches = 0, children }: MatchDialogProps) {
+export function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex = 0, totalMatches = 0 }: Omit<MatchDialogProps, 'children'>) {
   return (
     <Dialog open={!!match} onOpenChange={(open) => !open && onClose()}>
-      {children}
-      <MatchDialogContent 
+      <MatchDialogContent
         match={match}
         onClose={onClose}
         onAction={onAction}
@@ -38,12 +37,10 @@ export function MatchDialog({ match, onClose, onAction, onNavigate, currentIndex
 }
 
 function MatchDialogContent({ match, onClose, onAction, onNavigate, currentIndex, totalMatches }: Omit<MatchDialogProps, 'children'>) {
-  if (!match) return null
-
   const { data, isLoading } = useQuery({
-    queryKey: ['match', match.match.id],
-    queryFn: () => matchesApi.getById(match.match.id),
-    enabled: !!match.match.id,
+    queryKey: ['match', match?.match?.id],
+    queryFn: () => matchesApi.getById(match!.match.id),
+    enabled: !!match?.match?.id,
   })
 
   const [mergeData, setMergeData] = useState({
@@ -67,8 +64,8 @@ function MatchDialogContent({ match, onClose, onAction, onNavigate, currentIndex
 
   // Keyboard shortcuts - must be before any returns
   useEffect(() => {
-    if (!data) return // Early return inside useEffect is fine
-    
+    if (!match || !data) return // Early return inside useEffect is fine
+
     const handleKeyPress = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (mergeMode) {
@@ -91,17 +88,20 @@ function MatchDialogContent({ match, onClose, onAction, onNavigate, currentIndex
         }
       }
     }
-    
+
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [match.match.id, mergeMode, onNavigate, onClose, onAction, data])
+  }, [match?.match?.id, mergeMode, onNavigate, onClose, onAction, data, match])
 
-  // Early return for loading state - after all hooks
+  // Early return for no match or loading state - after all hooks
+  if (!match) return null
+
   if (isLoading || !data) {
     return (
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Loading match details...</DialogTitle>
+          <DialogDescription>Please wait while we load the match information.</DialogDescription>
         </DialogHeader>
         <div className="text-center py-8">
           <p className="text-muted-foreground">Loading...</p>
@@ -285,15 +285,9 @@ function MatchDialogContent({ match, onClose, onAction, onNavigate, currentIndex
             </div>
           )}
         </DialogTitle>
-        <DialogDescription asChild>
-          <div>
-            <p>{mergeMode ? 'Select the best values for each field to create a merged event' : 'Compare these events and decide if they are duplicates'}</p>
-            {!mergeMode && (
-              <p className="mt-2 text-xs">
-                Keyboard shortcuts: <kbd>Y</kbd> = Confirm, <kbd>N</kbd> = Reject, <kbd>M</kbd> = Merge, <kbd>←→</kbd> = Navigate
-              </p>
-            )}
-          </div>
+        <DialogDescription>
+          {mergeMode ? 'Select the best values for each field to create a merged event' : 'Compare these events and decide if they are duplicates'}
+          {!mergeMode && ' • Keyboard shortcuts: Y = Confirm, N = Reject, M = Merge, ←→ = Navigate'}
         </DialogDescription>
       </DialogHeader>
       

@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { matchesApi, queueApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
@@ -35,9 +34,33 @@ export function Matches() {
   const updateStatusMutation = useMutation({
     mutationFn: ({ matchId, status }: { matchId: string; status: 'confirmed' | 'rejected' }) =>
       matchesApi.updateStatus(matchId, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['matches'] })
-      // Don't close dialog automatically - let user continue reviewing
+    onSuccess: async () => {
+      // Refetch to get updated list
+      await queryClient.invalidateQueries({ queryKey: ['matches'] })
+
+      // After refetch, update to show next match at the same index
+      // Since we removed one item, the next item slides into the current index
+      setTimeout(() => {
+        const updatedMatches = queryClient.getQueryData(['matches', { status: statusFilter === 'all' ? undefined : statusFilter }]) as any
+
+        if (updatedMatches?.matches && updatedMatches.matches.length > 0) {
+          // Check if there's a match at the current index
+          const nextMatch = updatedMatches.matches[selectedMatchIndex]
+          if (nextMatch) {
+            setSelectedMatch(nextMatch)
+          } else if (selectedMatchIndex > 0 && updatedMatches.matches[selectedMatchIndex - 1]) {
+            // We were at the end, go to the previous index
+            setSelectedMatchIndex(selectedMatchIndex - 1)
+            setSelectedMatch(updatedMatches.matches[selectedMatchIndex - 1])
+          } else {
+            // No more matches
+            setSelectedMatch(null)
+          }
+        } else {
+          // No matches left
+          setSelectedMatch(null)
+        }
+      }, 100)
     },
   })
 
@@ -68,7 +91,7 @@ export function Matches() {
         // Execute the merge with the provided data
         const matchData = matches?.matches.find(m => m.match.id === matchId)
         const rawIds = [matchData?.eventA.id, matchData?.eventB.id].filter(Boolean)
-        
+
         const mergePayload = {
           rawIds,
           ...mergeData,
@@ -78,18 +101,17 @@ export function Matches() {
           // Remove empty imageUrl to avoid validation error
           ...(mergeData.imageUrl ? { imageUrl: mergeData.imageUrl } : {})
         }
-        
-        console.log('Merge payload:', mergePayload)
+
         await mergeMutation.mutateAsync(mergePayload)
       } else if (action === 'merge') {
         // Just confirm for now if no merge data provided
         await updateStatusMutation.mutateAsync({ matchId, status: 'confirmed' })
       } else {
-        await updateStatusMutation.mutateAsync({ matchId, status: action === 'confirm' ? 'confirmed' : 'rejected' })
+        const status = action === 'confirm' ? 'confirmed' : 'rejected'
+        await updateStatusMutation.mutateAsync({ matchId, status })
       }
-      
-      // Don't auto-close dialog, just refresh the data
-      // The user can navigate manually or close when done
+
+      // The mutation's onSuccess will handle navigating to the next match
     } catch (error) {
       console.error('Action failed:', error)
     }
@@ -331,32 +353,18 @@ export function Matches() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedMatch(match)
-                              setSelectedMatchIndex(index)
-                            }}
-                            className="flex items-center gap-1"
-                          >
-                            <Eye className="h-3 w-3" />
-                            Review
-                          </Button>
-                        </DialogTrigger>
-                        {selectedMatch && (
-                          <MatchDialog
-                            match={selectedMatch}
-                            onClose={() => setSelectedMatch(null)}
-                            onAction={handleAction}
-                            onNavigate={handleNavigate}
-                            currentIndex={selectedMatchIndex}
-                            totalMatches={matches?.matches.length || 0}
-                          />
-                        )}
-                      </Dialog>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedMatch(match)
+                          setSelectedMatchIndex(index)
+                        }}
+                        className="flex items-center gap-1"
+                      >
+                        <Eye className="h-3 w-3" />
+                        Review
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -365,6 +373,15 @@ export function Matches() {
           )}
         </CardContent>
       </Card>
+
+      <MatchDialog
+        match={selectedMatch}
+        onClose={() => setSelectedMatch(null)}
+        onAction={handleAction}
+        onNavigate={handleNavigate}
+        currentIndex={selectedMatchIndex}
+        totalMatches={matches?.matches.length || 0}
+      />
     </div>
   )
 }
