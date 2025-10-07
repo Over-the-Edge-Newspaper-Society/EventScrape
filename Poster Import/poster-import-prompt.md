@@ -20,6 +20,14 @@ Return ONLY a valid JSON object (no markdown, no explanation) in this exact stru
       "endDate": "YYYY-MM-DD (if different from start)",
       "endTime": "HH:MM (if specified)",
       "timezone": "America/Vancouver (or appropriate timezone)",
+      "occurrenceType": "single|multi_day|recurring|all_day|virtual",
+      "recurrenceType": "none|daily|weekly|monthly|yearly|custom",
+      "seriesDates": [
+        {
+          "start": "YYYY-MM-DDTHH:MM:SS",
+          "end": "YYYY-MM-DDTHH:MM:SS"
+        }
+      ],
       "venue": {
         "name": "Venue name",
         "address": "Full street address if shown",
@@ -56,6 +64,34 @@ Return ONLY a valid JSON object (no markdown, no explanation) in this exact stru
 - If time shows "7 PM" convert to "19:00"
 - If date shows "Every Tuesday", note in additionalInfo and use next occurrence
 
+### Occurrence Types and Series Events
+**When the poster shows MULTIPLE specific dates** (e.g., "Oct 31, Nov 1, Nov 2" or "Friday-Sunday"):
+- Set `occurrenceType: "recurring"`
+- Set `recurrenceType: "custom"`
+- Include ALL dates in `seriesDates` array with full start/end datetimes
+- Set `startDate` and `startTime` to the FIRST occurrence
+- Set `endDate` and `endTime` to match the FIRST occurrence (not the last)
+
+**Occurrence Type Options:**
+- `single` - Single day event (default)
+- `multi_day` - Multi-day event (same continuous event, like a 3-day conference)
+- `recurring` - Multiple separate occurrences (like a fair running 3 different days)
+- `all_day` - All-day event with no specific times
+- `virtual` - Online/virtual event
+
+**Recurrence Type Options:**
+- `none` - Does not repeat (default for single events)
+- `custom` - Specific dates listed (use for irregular patterns)
+- `daily` - Repeats daily
+- `weekly` - Repeats weekly
+- `monthly` - Repeats monthly
+- `yearly` - Repeats yearly
+
+**Series Dates Format:**
+- Each entry in `seriesDates` should have ISO 8601 datetime format
+- Include timezone in datetime (e.g., "2025-10-31T10:00:00-07:00")
+- If end time not specified, calculate reasonable duration or set same as start
+
 ### Venue Information
 - Extract complete venue name (e.g., "Prince George Civic Centre")
 - Include full address if visible
@@ -88,6 +124,7 @@ Return ONLY a valid JSON object (no markdown, no explanation) in this exact stru
 
 ## Examples
 
+### Example 1: Single Event
 For a poster showing:
 "SUMMER CONCERT SERIES
 July 15, 2024 • 7:00 PM
@@ -106,6 +143,9 @@ Return:
     "endDate": null,
     "endTime": null,
     "timezone": "America/Vancouver",
+    "occurrenceType": "single",
+    "recurrenceType": "none",
+    "seriesDates": null,
     "venue": {
       "name": "Fort George Park",
       "address": null,
@@ -128,6 +168,69 @@ Return:
   "extractionConfidence": {
     "overall": 0.90,
     "notes": "Organizer not specified on poster"
+  }
+}
+```
+
+### Example 2: Multi-Date Recurring Event
+For a poster showing:
+"STUDIO FAIR 2025
+October 31 - November 2
+Friday 10am-8pm
+Saturday 10am-6pm
+Sunday 10am-4pm
+CN Centre
+$10 admission"
+
+Return:
+```json
+{
+  "events": [{
+    "title": "Studio Fair 2025",
+    "description": "Professional artisan fair featuring local crafts",
+    "startDate": "2025-10-31",
+    "startTime": "10:00",
+    "endDate": "2025-10-31",
+    "endTime": "20:00",
+    "timezone": "America/Vancouver",
+    "occurrenceType": "recurring",
+    "recurrenceType": "custom",
+    "seriesDates": [
+      {
+        "start": "2025-10-31T10:00:00-07:00",
+        "end": "2025-10-31T20:00:00-07:00"
+      },
+      {
+        "start": "2025-11-01T10:00:00-07:00",
+        "end": "2025-11-01T18:00:00-07:00"
+      },
+      {
+        "start": "2025-11-02T10:00:00-08:00",
+        "end": "2025-11-02T16:00:00-08:00"
+      }
+    ],
+    "venue": {
+      "name": "CN Centre",
+      "address": null,
+      "city": "Prince George",
+      "region": "BC",
+      "country": "Canada"
+    },
+    "organizer": null,
+    "category": "Market",
+    "price": "$10",
+    "tags": ["artisan", "crafts", "market"],
+    "registrationUrl": null,
+    "contactInfo": {
+      "phone": null,
+      "email": null,
+      "website": null
+    },
+    "additionalInfo": "Fair runs different hours each day"
+  }],
+  "extractionConfidence": {
+    "overall": 0.95,
+    "notes": "All dates and times clearly specified"
   }
 }
 ```
