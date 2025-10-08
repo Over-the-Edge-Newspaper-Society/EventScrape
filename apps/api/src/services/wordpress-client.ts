@@ -544,7 +544,8 @@ export class WordPressClient {
    */
   async importEventWithOccurrences(
     event: WordPressEvent,
-    imageUrl?: string
+    imageUrl?: string,
+    updateIfExists: boolean = false
   ): Promise<WordPressUploadResult> {
     try {
       const endpoint = `${this.siteUrl}/wp-json/unbc-events/v1/import-event`;
@@ -561,6 +562,7 @@ export class WordPressClient {
           featured_media_url: imageUrl,
           categories: event.categories,
         },
+        update_if_exists: updateIfExists,
       };
 
       console.log(`[WordPress Client] POST ${endpoint} (with occurrences)`);
@@ -595,7 +597,7 @@ export class WordPressClient {
         success: true,
         postId: result.post_id,
         postUrl: result.post_url,
-        action: result.action,
+        action: result.action, // 'created', 'updated', or 'skipped' from WordPress
         occurrencesCreated: result.occurrences_created,
       };
     } catch (error: any) {
@@ -724,7 +726,8 @@ export class WordPressClient {
 
         const result = await this.importEventWithOccurrences(
           wpEvent,
-          event.imageUrl
+          event.imageUrl,
+          options.updateIfExists || false
         );
         results.push({ event, result });
       } else {
