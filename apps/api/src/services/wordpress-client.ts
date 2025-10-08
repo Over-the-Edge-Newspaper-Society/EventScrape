@@ -731,7 +731,7 @@ export class WordPressClient {
         );
         results.push({ event, result });
       } else {
-        // Handle single event
+        // Handle single event using the new import endpoint (same as recurring)
         const wpEvent: WordPressEvent = {
           title: event.title,
           content: event.descriptionHtml || '',
@@ -748,15 +748,24 @@ export class WordPressClient {
             website: event.url || '',
           },
           categories: categoryId ? [categoryId] : undefined,
+          series_data: {
+            occurrence_type: 'single',
+            recurrence_type: 'none',
+          },
+          occurrences: [{
+            sequence: 1,
+            start_datetime: `${localStart.date} ${localStart.time}`,
+            end_datetime: localEnd ? `${localEnd.date} ${localEnd.time}` : undefined,
+            is_provisional: false,
+          }],
         };
 
         console.log(`Uploading single event "${event.title}" with categories:`, wpEvent.categories);
 
-        const result = await this.uploadEventWithImage(
+        const result = await this.importEventWithOccurrences(
           wpEvent,
           event.imageUrl,
-          options.updateIfExists || false,
-          options.includeMedia !== false // Default to true if not specified
+          options.updateIfExists || false
         );
         results.push({ event, result });
       }

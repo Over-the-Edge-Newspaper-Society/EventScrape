@@ -167,6 +167,9 @@ export const exportsApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  cancel: (id: string) => fetchApi<{ message: string }>(`/exports/${id}/cancel`, {
+    method: 'POST',
+  }),
   download: (id: string) => fetchApi<Blob>(`/exports/${id}/download`),
 }
 
@@ -412,7 +415,7 @@ export interface Export {
   itemCount: number
   filePath?: string
   params: any
-  status: 'success' | 'error'
+  status: 'success' | 'error' | 'processing'
   errorMessage?: string
   scheduleId?: string
 }

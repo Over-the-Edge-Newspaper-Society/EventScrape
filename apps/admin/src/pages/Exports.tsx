@@ -27,11 +27,26 @@ export function Exports() {
     },
   })
 
+  const cancelExportMutation = useMutation({
+    mutationFn: (id: string) => exportsApi.cancel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exports'] })
+    },
+  })
+
   const handleExport = async (data: CreateExportData) => {
     try {
       await createExportMutation.mutateAsync(data)
     } catch (error) {
       console.error('Export failed:', error)
+    }
+  }
+
+  const handleCancelExport = async (id: string) => {
+    try {
+      await cancelExportMutation.mutateAsync(id)
+    } catch (error) {
+      console.error('Cancel export failed:', error)
     }
   }
 
@@ -47,11 +62,15 @@ export function Exports() {
   }
 
   const getStatusBadge = (status: string) => {
-    const variant = status === 'success' ? 'success' : 'destructive';
+    let variant: 'success' | 'destructive' | 'default' = 'default';
+    if (status === 'success') variant = 'success';
+    else if (status === 'error') variant = 'destructive';
+
     const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-    
+
     return (
       <Badge variant={variant}>
+        {status === 'processing' && <Clock className="h-3 w-3 mr-1 animate-spin" />}
         {statusText}
       </Badge>
     )
@@ -198,6 +217,18 @@ export function Exports() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-2">
+                        {row.export.status === 'processing' && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="flex items-center gap-1 h-8"
+                            onClick={() => handleCancelExport(row.export.id)}
+                            disabled={cancelExportMutation.isPending}
+                          >
+                            <AlertCircle className="h-3 w-3" />
+                            Cancel
+                          </Button>
+                        )}
                         {row.export.status === 'success' && row.export.filePath && (
                           <Button
                             size="sm"

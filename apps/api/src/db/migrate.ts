@@ -130,6 +130,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0010 (export processing status)
+    try {
+      const sql10 = await readFile(migrationPath('0010_export_processing_status.sql'), 'utf-8');
+      await migrationClient.unsafe(sql10);
+      console.log('✅ Applied migration 0010 (export processing status)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0010 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0010 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

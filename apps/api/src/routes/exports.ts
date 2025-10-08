@@ -209,8 +209,11 @@ function extractPosterMeta(raw: any): {
   return Object.keys(result).length ? result : null;
 }
 
-// Process export function
-async function processExport(exportId: string, data: any): Promise<void> {
+// Process export function (exported for use in scheduler)
+export async function processExport(exportId: string, data: any): Promise<void> {
+  // Initialize running export
+  runningExports.set(exportId, false);
+
   // Query events based on filters
   const conditions = [];
   
@@ -429,6 +432,9 @@ async function processExport(exportId: string, data: any): Promise<void> {
   }
 }
 
+// Track running exports for cancellation
+const runningExports = new Map<string, boolean>();
+
 export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
   // Get export history
   fastify.get('/', async () => {
@@ -484,7 +490,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
             filters: data.filters,
             fieldMap: data.fieldMap,
           },
-          status: 'success', // Will be updated after processing
+          status: 'processing', // Set to processing initially
         })
         .returning();
 
@@ -518,6 +524,45 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
       }
       throw error;
     }
+  });
+
+  // Cancel a running export
+  fastify.post('/:id/cancel', async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    if (!id || typeof id !== 'string') {
+      reply.status(400);
+      return { error: 'Invalid export ID' };
+    }
+
+    const [exportRecord] = await db
+      .select()
+      .from(exportsTable)
+      .where(eq(exportsTable.id, id));
+
+    if (!exportRecord) {
+      reply.status(404);
+      return { error: 'Export not found' };
+    }
+
+    if (exportRecord.status !== 'processing') {
+      reply.status(400);
+      return { error: 'Export is not currently processing' };
+    }
+
+    // Mark for cancellation
+    runningExports.set(id, true);
+
+    // Update export status to cancelled
+    await db
+      .update(exportsTable)
+      .set({
+        status: 'error',
+        errorMessage: 'Export cancelled by user',
+      })
+      .where(eq(exportsTable.id, id));
+
+    return { message: 'Export cancelled successfully' };
   });
 
   // Download export file

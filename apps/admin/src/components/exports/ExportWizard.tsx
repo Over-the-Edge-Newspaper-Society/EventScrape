@@ -180,17 +180,17 @@ export function ExportWizard({ onClose, onExport, selectedEventIds }: ExportWiza
             <div className="space-y-2">
               <Label>Filter by Source (optional)</Label>
               <Select
-                value={exportData.filters?.sourceIds?.[0] || ''}
+                value={exportData.filters?.sourceIds?.[0] || 'all'}
                 onValueChange={(value) => setExportData(prev => ({
                   ...prev,
-                  filters: { ...prev.filters, sourceIds: value ? [value] : undefined }
+                  filters: { ...prev.filters, sourceIds: value === 'all' ? undefined : [value] }
                 }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="All sources" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All sources</SelectItem>
+                  <SelectItem value="all">All sources</SelectItem>
                   {sources?.sources.map(source => (
                     <SelectItem key={source.id} value={source.id}>
                       {source.name}

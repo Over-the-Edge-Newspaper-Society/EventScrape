@@ -2,10 +2,10 @@ import { Queue, Worker } from 'bullmq'
 import IORedis from 'ioredis'
 import { v4 as uuidv4 } from 'uuid'
 import { db } from '../db/connection.js'
-import { runs, sources, schedules, wordpressSettings, eventsRaw, exports } from '../db/schema.js'
+import { runs, sources, schedules, wordpressSettings, exports } from '../db/schema.js'
 import { enqueueScrapeJob } from './queue.js'
-import { eq, gte, lte, inArray, and } from 'drizzle-orm'
-import { WordPressClient } from '../services/wordpress-client.js'
+import { eq } from 'drizzle-orm'
+import { processExport } from '../routes/exports.js'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null })
@@ -53,103 +53,53 @@ export function initScheduleWorker() {
         return
       }
 
-      // Build query conditions based on config
-      const conditions = []
+      // Create export record with "processing" status first
+      const [exportRecord] = await db.insert(exports).values({
+        format: 'wp-rest',
+        itemCount: 0,
+        status: 'processing',
+        scheduleId: scheduleId,
+        params: {
+          filters: {},
+          fieldMap: {},
+        },
+      }).returning()
+
+      // Calculate date filters
       const now = new Date()
+      let startDate: string | undefined
+      let endDate: string | undefined
 
       if (config?.startDateOffset !== undefined) {
-        const startDate = new Date(now)
-        startDate.setDate(startDate.getDate() + config.startDateOffset)
-        conditions.push(gte(eventsRaw.startDatetime, startDate))
+        const start = new Date(now)
+        start.setDate(start.getDate() + config.startDateOffset)
+        startDate = start.toISOString()
       }
 
       if (config?.endDateOffset !== undefined) {
-        const endDate = new Date(now)
-        endDate.setDate(endDate.getDate() + config.endDateOffset)
-        conditions.push(lte(eventsRaw.startDatetime, endDate))
+        const end = new Date(now)
+        end.setDate(end.getDate() + config.endDateOffset)
+        endDate = end.toISOString()
       }
 
-      if (config?.sourceIds && config.sourceIds.length > 0) {
-        conditions.push(inArray(eventsRaw.sourceId, config.sourceIds))
-      }
-
-      // Fetch events
-      const events = await db
-        .select()
-        .from(eventsRaw)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(eventsRaw.startDatetime)
-
-      if (events.length === 0) {
-        console.log(`No events found for scheduled WordPress export ${scheduleId}`)
-        return
-      }
-
-      // Upload to WordPress
-      const client = new WordPressClient(wpSettings)
-      const results = await client.uploadEvents(
-        events.map((e) => ({
-          id: e.id,
-          title: e.title,
-          descriptionHtml: e.descriptionHtml || undefined,
-          startDatetime: e.startDatetime,
-          endDatetime: e.endDatetime || undefined,
-          timezone: e.timezone || undefined,
-          venueName: e.venueName || undefined,
-          venueAddress: e.venueAddress || undefined,
-          city: e.city || undefined,
-          organizer: e.organizer || undefined,
-          category: e.category || undefined,
-          url: e.url,
-          imageUrl: e.imageUrl || undefined,
-          raw: e.raw,
-          sourceId: e.sourceId,
-        })),
-        {
-          status: (config?.status as 'publish' | 'draft' | 'pending') || 'draft',
-          updateIfExists: config?.updateIfExists || false,
-          sourceCategoryMappings: wpSettings.sourceCategoryMappings as Record<string, number> || {},
-        }
-      )
-
-      const successCount = results.filter((r) => r.result.success).length
-      console.log(`Scheduled WordPress export completed: ${successCount}/${events.length} events uploaded`)
-
-      // Create export record
-      const createdCount = results.filter((r) => r.result.action === 'created').length
-      const updatedCount = results.filter((r) => r.result.action === 'updated').length
-      const skippedCount = results.filter((r) => r.result.action === 'skipped').length
-      const failedCount = results.filter((r) => !r.result.success).length
-
-      await db.insert(exports).values({
-        format: 'wp-rest',
-        itemCount: events.length,
-        status: failedCount === events.length ? 'error' : 'success',
-        errorMessage: failedCount === events.length ? 'All events failed to upload' : undefined,
-        scheduleId: scheduleId,
-        params: {
+      // Use the shared processExport function
+      try {
+        await processExport(exportRecord.id, {
+          format: 'wp-rest',
           wpSiteId: wordpressSettingsId,
-          wpPostStatus: config?.status || 'draft',
+          status: config?.status || 'draft',
           filters: {
-            startDateOffset: config?.startDateOffset,
-            endDateOffset: config?.endDateOffset,
-            sourceIds: config?.sourceIds,
+            startDate,
+            endDate,
+            sourceIds: config?.sourceIds || [],
           },
-          wpResults: {
-            createdCount,
-            updatedCount,
-            skippedCount,
-            failedCount,
-            results: results.map((r) => ({
-              eventTitle: r.event.title,
-              success: r.result.success,
-              action: r.result.action,
-              postUrl: r.result.postUrl,
-              error: r.result.error,
-            })),
-          },
-        },
-      })
+          fieldMap: {},
+        })
+        console.log(`Scheduled WordPress export completed for schedule ${scheduleId}`)
+      } catch (error: any) {
+        console.error(`Scheduled WordPress export failed for schedule ${scheduleId}:`, error)
+        throw error
+      }
     }
   }, { connection })
   worker.on('failed', (job, err) => {

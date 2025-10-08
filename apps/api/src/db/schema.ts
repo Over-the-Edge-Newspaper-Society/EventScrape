@@ -43,6 +43,7 @@ export const canonicalStatusEnum = pgEnum('canonical_status', [
 export const exportStatusEnum = pgEnum('export_status', [
   'success',
   'error',
+  'processing',
 ]);
 
 export const exportFormatEnum = pgEnum('export_format', [
