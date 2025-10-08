@@ -37,6 +37,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Loading run details...</DialogTitle>
+          <DialogDescription>Fetching run information</DialogDescription>
         </DialogHeader>
         <div className="text-center py-8">
           <p className="text-muted-foreground">Loading...</p>
@@ -65,7 +66,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
   }
 
   return (
-    <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
+    <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden flex flex-col">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Activity className="h-5 w-5" />
@@ -76,7 +77,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
         </DialogDescription>
       </DialogHeader>
 
-      <div className="space-y-6">
+      <div className="space-y-6 overflow-y-auto flex-1 pr-2 -mr-2">
         {/* Overview */}
         <div className="grid grid-cols-2 gap-6">
           <Card>
