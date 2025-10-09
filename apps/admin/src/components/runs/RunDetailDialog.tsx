@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { runsApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { ExternalLink, XCircle, Activity } from 'lucide-react'
+import { LogViewer } from '@/components/LogViewer'
 
 interface RunDetailsProps {
   runId: string | null
@@ -200,6 +201,11 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Live Logs */}
+        <div className="h-[400px]">
+          <LogViewer runId={runId} />
+        </div>
 
         {/* Extracted Events */}
         <Card>
