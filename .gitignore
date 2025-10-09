@@ -42,6 +42,7 @@ Thumbs.db
 test-results/
 playwright-report/
 playwright/.cache/
+Examples
 
 # Exports (data files only, not React components)
 /data/exports/
