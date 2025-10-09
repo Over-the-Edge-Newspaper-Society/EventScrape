@@ -410,12 +410,28 @@ const downtownPgModule: ScraperModule = {
             const startDateMatch = eventInfo.startDate.match(/(\d{4})-(\d{2})-(\d{2})/);
             if (startDateMatch) {
               const [, year, month, day] = startDateMatch;
-              
+
+              // Validate date components
+              const yearNum = parseInt(year);
+              const monthNum = parseInt(month);
+              const dayNum = parseInt(day);
+
+              // Check if the date is valid
+              if (monthNum < 1 || monthNum > 12) {
+                throw new Error(`Invalid month: ${monthNum} in date ${eventInfo.startDate}`);
+              }
+
+              // Check if day is valid for the given month/year
+              const daysInMonth = new Date(yearNum, monthNum, 0).getDate();
+              if (dayNum < 1 || dayNum > daysInMonth) {
+                throw new Error(`Could not parse date: ${yearNum}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')} ${String(9).padStart(2, '0')}:${String(0).padStart(2, '0')}`);
+              }
+
               // Create the date string that represents the local time in Pacific timezone
               // Instead of creating a Date object (which uses system timezone), create a string
               let hour = 9; // Default hour
               let minute = 0; // Default minute
-              
+
               if (eventDetails.startTime) {
                 const timeMatch = eventDetails.startTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
                 if (timeMatch) {
@@ -429,11 +445,11 @@ const downtownPgModule: ScraperModule = {
                   }
                 }
               }
-              
-              // Create a date string in "YYYY-MM-DD HH:mm" format 
+
+              // Create a date string in "YYYY-MM-DD HH:mm" format
               // The normalizeEvent function will parse this with the defaultTimezone
               // Note: month from ISO date format is already 1-based (01-12)
-              const dateStr = `${parseInt(year)}-${String(parseInt(month)).padStart(2, '0')}-${String(parseInt(day)).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+              const dateStr = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
               eventStart = dateStr;
               
               // Handle end time
@@ -449,15 +465,27 @@ const downtownPgModule: ScraperModule = {
                     endHour = 0;
                   }
                   
-                  // Handle midnight crossing (e.g., 9:00 pm - 12:00 am) 
-                  let endDay = parseInt(day);
+                  // Handle midnight crossing (e.g., 9:00 pm - 12:00 am)
+                  let endDay = dayNum;
+                  let endMonth = monthNum;
+                  let endYear = yearNum;
                   if (endHour < hour) {
                     endDay += 1;
+                    // Check if we've gone past the end of the month
+                    const daysInCurrentMonth = new Date(endYear, endMonth, 0).getDate();
+                    if (endDay > daysInCurrentMonth) {
+                      endDay = 1;
+                      endMonth += 1;
+                      if (endMonth > 12) {
+                        endMonth = 1;
+                        endYear += 1;
+                      }
+                    }
                   }
-                  
+
                   // Create end date string
                   // Note: month from ISO date format is already 1-based (01-12)
-                  const endDateStr = `${parseInt(year)}-${String(parseInt(month)).padStart(2, '0')}-${String(endDay).padStart(2, '0')} ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+                  const endDateStr = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')} ${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
                   eventEnd = endDateStr;
                 }
               } else if (eventInfo.endDate && eventInfo.endDate !== eventInfo.startDate) {

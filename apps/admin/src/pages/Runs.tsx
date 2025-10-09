@@ -833,26 +833,16 @@ export function Runs() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setSelectedRunId(run.id)}
-                                className="flex items-center gap-1"
-                              >
-                                <Eye className="h-3 w-3" />
-                                Details
-                              </Button>
-                            </DialogTrigger>
-                            {selectedRunId && (
-                              <RunDetailDialog
-                                runId={selectedRunId}
-                                onClose={() => setSelectedRunId(null)}
-                              />
-                            )}
-                          </Dialog>
-                          
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedRunId(run.id)}
+                            className="flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" />
+                            Details
+                          </Button>
+
                           {(run.status === 'running' || run.status === 'queued') && (
                             <Button
                               size="sm"
@@ -875,6 +865,14 @@ export function Runs() {
           )}
         </CardContent>
       </Card>
+
+      {/* Run Detail Dialog */}
+      {selectedRunId && (
+        <RunDetailDialog
+          runId={selectedRunId}
+          onClose={() => setSelectedRunId(null)}
+        />
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
