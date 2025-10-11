@@ -28,23 +28,32 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Build where conditions
       const conditions = [];
-      
+
+      // Filter out Instagram posts that were classified as NOT being event posters
+      // Keep posts where is_event_poster is NULL (non-Instagram sources) or TRUE (Instagram events)
+      conditions.push(
+        or(
+          sql`${eventsRaw.isEventPoster} IS NULL`,
+          eq(eventsRaw.isEventPoster, true)
+        )
+      );
+
       if (query.sourceId) {
         conditions.push(eq(eventsRaw.sourceId, query.sourceId));
       }
-      
+
       if (query.city) {
         conditions.push(ilike(eventsRaw.city, `%${query.city}%`));
       }
-      
+
       if (query.startDate) {
         conditions.push(gte(eventsRaw.startDatetime, new Date(query.startDate)));
       }
-      
+
       if (query.endDate) {
         conditions.push(lte(eventsRaw.startDatetime, new Date(query.endDate)));
       }
-      
+
       if (query.search) {
         conditions.push(
           sql`${eventsRaw.title} ILIKE ${`%${query.search}%`} OR ${eventsRaw.descriptionHtml} ILIKE ${`%${query.search}%`}`
@@ -57,10 +66,10 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           sql`${eventsRaw.raw}::text LIKE '%seriesDates%' AND (${eventsRaw.raw}::text LIKE '%},{%' OR ${eventsRaw.raw}::text ~ '.*seriesDates[^}]*}[^}]*}.*')`
         );
       }
-      
+
       // TODO: Add hasDuplicates and missingFields filters when match system is implemented
 
-      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const whereClause = and(...conditions);
 
       // Determine sort column and order
       let orderByClause;

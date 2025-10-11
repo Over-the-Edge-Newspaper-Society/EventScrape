@@ -46,7 +46,7 @@ FROM node:18-bullseye-slim AS api
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg python3 make g++ \
     && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
@@ -64,6 +64,8 @@ RUN mkdir -p /worker/src /data/exports /data/backups
 COPY --from=api-builder --chown=eventscrape:nodejs /app/worker/src/modules /worker/src/modules
 RUN chown -R eventscrape:nodejs /data/exports /data/backups
 RUN pnpm install --frozen-lockfile --prod
+# Manually build better-sqlite3 native addon
+RUN cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm run build-release || true
 USER eventscrape
 EXPOSE 3001
 CMD ["node", "apps/api/dist/server.js"]

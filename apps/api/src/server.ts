@@ -22,6 +22,7 @@ import { databaseRoutes } from './routes/database.js';
 import { instagramSourcesRoutes } from './routes/instagram-sources.js';
 import { instagramSettingsRoutes } from './routes/instagram-settings.js';
 import { instagramBackupRoutes } from './routes/instagram-backup.js';
+import { instagramReviewRoutes } from './routes/instagram-review.js';
 import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 import { runMigrations } from './db/migrate.js';
 
@@ -53,6 +54,7 @@ const fastify = Fastify({
 // Register plugins
 await fastify.register(helmet, {
   contentSecurityPolicy: env.NODE_ENV === 'development' ? false : undefined,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow images to be loaded cross-origin
 });
 
 const allowedOrigins = env.NODE_ENV === 'development'
@@ -143,6 +145,7 @@ await fastify.register(databaseRoutes, { prefix: '/api/database' });
 await fastify.register(instagramSourcesRoutes, { prefix: '/api/instagram-sources' });
 await fastify.register(instagramSettingsRoutes, { prefix: '/api/instagram-settings' });
 await fastify.register(instagramBackupRoutes, { prefix: '/api/instagram-backup' });
+await fastify.register(instagramReviewRoutes, { prefix: '/api/instagram-review' });
 
 // Initialize schedule worker and sync schedules
 await runMigrations();

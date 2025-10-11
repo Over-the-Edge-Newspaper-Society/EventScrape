@@ -288,6 +288,27 @@ export const instagramApi = {
   deleteSession: (username: string) => fetchApi<{ message: string }>(`/instagram-sources/sessions/${username}`, { method: 'DELETE' }),
 }
 
+// Instagram Review API
+export const instagramReviewApi = {
+  getQueue: (params?: { page?: number; limit?: number }) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) {
+          searchParams.append(key, String(value))
+        }
+      })
+    }
+    return fetchApi<InstagramReviewQueueResponse>(`/instagram-review/queue?${searchParams}`)
+  },
+  classifyPost: (id: string, data: { isEventPoster: boolean; classificationConfidence?: number }) =>
+    fetchApi<{ message: string; post: EventRaw }>(`/instagram-review/${id}/classify`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
+}
+
 // Types
 export interface Source {
   id: string
@@ -570,9 +591,6 @@ export interface WordPressCategory {
 export interface InstagramSource {
   id: string
   name: string
-  baseUrl: string
-  moduleKey: string
-  sourceType: 'instagram'
   instagramUsername: string
   classificationMode: 'manual' | 'auto'
   instagramScraperType: 'apify' | 'instagram-private-api'
@@ -601,4 +619,34 @@ export interface InstagramSession {
   expiresAt?: string
   lastUsedAt?: string
   isValid: boolean
+}
+
+export interface InstagramEventRaw extends EventRaw {
+  instagramPostId?: string
+  instagramCaption?: string
+  localImagePath?: string
+}
+
+export interface InstagramEventWithSource {
+  event: InstagramEventRaw
+  source: Pick<Source, 'id' | 'name' | 'moduleKey'> & { instagramUsername: string }
+}
+
+export interface InstagramReviewQueueResponse {
+  posts: InstagramEventWithSource[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+    hasNext: boolean
+    hasPrev: boolean
+  }
+}
+
+export interface InstagramReviewStats {
+  unclassified: number
+  markedAsEvent: number
+  markedAsNotEvent: number
+  total: number
 }

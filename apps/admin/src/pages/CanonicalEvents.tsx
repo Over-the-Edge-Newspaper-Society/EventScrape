@@ -126,13 +126,6 @@ export function CanonicalEvents() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Canonical Events</h1>
-        <p className="text-muted-foreground">
-          Review and manage deduplicated events ready for export
-        </p>
-      </div>
-
       {/* Actions */}
       <Card>
         <CardContent className="pt-6">

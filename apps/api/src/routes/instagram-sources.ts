@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { sources, instagramSessions } from '../db/schema.js';
+import { instagramAccounts, instagramSessions } from '../db/schema.js';
 import { v4 as uuidv4 } from 'uuid';
 import { enqueueInstagramScrapeJob } from '../queue/queue.js';
 
@@ -34,72 +34,65 @@ const uploadSessionSchema = z.object({
 });
 
 export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
-  // GET /api/instagram-sources - List all Instagram sources
+  // GET /api/instagram-sources - List all Instagram accounts
   fastify.get('/', async (request, reply) => {
     try {
-      const instagramSources = await db
+      const accounts = await db
         .select()
-        .from(sources)
-        .where(eq(sources.sourceType, 'instagram'))
-        .orderBy(sources.createdAt);
+        .from(instagramAccounts)
+        .orderBy(instagramAccounts.createdAt);
 
-      return { sources: instagramSources };
+      return { sources: accounts };
     } catch (error: any) {
-      fastify.log.error('Failed to fetch Instagram sources:', error);
+      fastify.log.error('Failed to fetch Instagram accounts:', error);
       reply.status(500);
-      return { error: 'Failed to fetch Instagram sources' };
+      return { error: 'Failed to fetch Instagram accounts' };
     }
   });
 
-  // GET /api/instagram-sources/:id - Get single Instagram source
+  // GET /api/instagram-sources/:id - Get single Instagram account
   fastify.get('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
 
     try {
-      const [source] = await db
+      const [account] = await db
         .select()
-        .from(sources)
-        .where(and(eq(sources.id, id), eq(sources.sourceType, 'instagram')));
+        .from(instagramAccounts)
+        .where(eq(instagramAccounts.id, id));
 
-      if (!source) {
+      if (!account) {
         reply.status(404);
-        return { error: 'Instagram source not found' };
+        return { error: 'Instagram account not found' };
       }
 
-      return { source };
+      return { source: account };
     } catch (error: any) {
-      fastify.log.error(`Failed to fetch Instagram source ${id}:`, error);
+      fastify.log.error(`Failed to fetch Instagram account ${id}:`, error);
       reply.status(500);
-      return { error: 'Failed to fetch Instagram source' };
+      return { error: 'Failed to fetch Instagram account' };
     }
   });
 
-  // POST /api/instagram-sources - Create new Instagram source
+  // POST /api/instagram-sources - Create new Instagram account
   fastify.post('/', async (request, reply) => {
     try {
       const data = createSourceSchema.parse(request.body);
 
-      // Create module key from username
-      const moduleKey = `instagram_${data.instagramUsername.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-
-      // Check if module key already exists
+      // Check if username already exists
       const [existing] = await db
         .select()
-        .from(sources)
-        .where(eq(sources.moduleKey, moduleKey));
+        .from(instagramAccounts)
+        .where(eq(instagramAccounts.instagramUsername, data.instagramUsername));
 
       if (existing) {
         reply.status(400);
-        return { error: 'An Instagram source for this username already exists' };
+        return { error: 'An Instagram account for this username already exists' };
       }
 
-      const [newSource] = await db
-        .insert(sources)
+      const [newAccount] = await db
+        .insert(instagramAccounts)
         .values({
           name: data.name,
-          baseUrl: `https://instagram.com/${data.instagramUsername}`,
-          moduleKey,
-          sourceType: 'instagram',
           instagramUsername: data.instagramUsername,
           classificationMode: data.classificationMode,
           instagramScraperType: data.instagramScraperType,
@@ -109,35 +102,35 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .returning();
 
-      return { source: newSource };
+      return { source: newAccount };
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
         return { error: 'Validation error', details: error.errors };
       }
 
-      fastify.log.error('Failed to create Instagram source:', error);
+      fastify.log.error('Failed to create Instagram account:', error);
       reply.status(500);
-      return { error: 'Failed to create Instagram source' };
+      return { error: 'Failed to create Instagram account' };
     }
   });
 
-  // PATCH /api/instagram-sources/:id - Update Instagram source
+  // PATCH /api/instagram-sources/:id - Update Instagram account
   fastify.patch('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
 
     try {
       const data = updateSourceSchema.parse(request.body);
 
-      // Check if source exists and is Instagram type
+      // Check if account exists
       const [existing] = await db
         .select()
-        .from(sources)
-        .where(and(eq(sources.id, id), eq(sources.sourceType, 'instagram')));
+        .from(instagramAccounts)
+        .where(eq(instagramAccounts.id, id));
 
       if (!existing) {
         reply.status(404);
-        return { error: 'Instagram source not found' };
+        return { error: 'Instagram account not found' };
       }
 
       const updateData: any = {
@@ -145,19 +138,16 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       if (data.name !== undefined) updateData.name = data.name;
-      if (data.instagramUsername !== undefined) {
-        updateData.instagramUsername = data.instagramUsername;
-        updateData.baseUrl = `https://instagram.com/${data.instagramUsername}`;
-      }
+      if (data.instagramUsername !== undefined) updateData.instagramUsername = data.instagramUsername;
       if (data.classificationMode !== undefined) updateData.classificationMode = data.classificationMode;
       if (data.instagramScraperType !== undefined) updateData.instagramScraperType = data.instagramScraperType;
       if (data.active !== undefined) updateData.active = data.active;
       if (data.notes !== undefined) updateData.notes = data.notes;
 
       const [updated] = await db
-        .update(sources)
+        .update(instagramAccounts)
         .set(updateData)
-        .where(eq(sources.id, id))
+        .where(eq(instagramAccounts.id, id))
         .returning();
 
       return { source: updated };
@@ -167,64 +157,64 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Validation error', details: error.errors };
       }
 
-      fastify.log.error(`Failed to update Instagram source ${id}:`, error);
+      fastify.log.error(`Failed to update Instagram account ${id}:`, error);
       reply.status(500);
-      return { error: 'Failed to update Instagram source' };
+      return { error: 'Failed to update Instagram account' };
     }
   });
 
-  // DELETE /api/instagram-sources/:id - Delete Instagram source
+  // DELETE /api/instagram-sources/:id - Delete Instagram account
   fastify.delete('/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
 
     try {
       const [deleted] = await db
-        .delete(sources)
-        .where(and(eq(sources.id, id), eq(sources.sourceType, 'instagram')))
+        .delete(instagramAccounts)
+        .where(eq(instagramAccounts.id, id))
         .returning();
 
       if (!deleted) {
         reply.status(404);
-        return { error: 'Instagram source not found' };
+        return { error: 'Instagram account not found' };
       }
 
-      return { message: 'Instagram source deleted successfully', source: deleted };
+      return { message: 'Instagram account deleted successfully', source: deleted };
     } catch (error: any) {
-      fastify.log.error(`Failed to delete Instagram source ${id}:`, error);
+      fastify.log.error(`Failed to delete Instagram account ${id}:`, error);
       reply.status(500);
-      return { error: 'Failed to delete Instagram source' };
+      return { error: 'Failed to delete Instagram account' };
     }
   });
 
-  // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for a source
+  // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for an account
   fastify.post('/:id/trigger', async (request, reply) => {
     const { id } = request.params as { id: string };
 
     try {
-      const [source] = await db
+      const [account] = await db
         .select()
-        .from(sources)
-        .where(and(eq(sources.id, id), eq(sources.sourceType, 'instagram')));
+        .from(instagramAccounts)
+        .where(eq(instagramAccounts.id, id));
 
-      if (!source) {
+      if (!account) {
         reply.status(404);
-        return { error: 'Instagram source not found' };
+        return { error: 'Instagram account not found' };
       }
 
       // Queue Instagram scrape job via BullMQ
       const job = await enqueueInstagramScrapeJob({
-        sourceId: source.id,
+        accountId: account.id,
         postLimit: 10
       });
 
       return {
         message: 'Instagram scrape job queued',
-        sourceId: source.id,
-        username: source.instagramUsername,
+        accountId: account.id,
+        username: account.instagramUsername,
         jobId: job.id,
       };
     } catch (error: any) {
-      fastify.log.error(`Failed to trigger scrape for Instagram source ${id}:`, error);
+      fastify.log.error(`Failed to trigger scrape for Instagram account ${id}:`, error);
       reply.status(500);
       return { error: 'Failed to trigger Instagram scrape' };
     }
@@ -388,26 +378,20 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         try {
-          // Create module key from username
-          const moduleKey = `instagram_${username.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-
           // Check if already exists
           const [existing] = await db
             .select()
-            .from(sources)
-            .where(eq(sources.moduleKey, moduleKey));
+            .from(instagramAccounts)
+            .where(eq(instagramAccounts.instagramUsername, username));
 
           if (existing) {
             results.skipped++;
             continue;
           }
 
-          // Create source
-          await db.insert(sources).values({
+          // Create account
+          await db.insert(instagramAccounts).values({
             name,
-            baseUrl: `https://instagram.com/${username}`,
-            moduleKey,
-            sourceType: 'instagram',
             instagramUsername: username,
             classificationMode,
             active,

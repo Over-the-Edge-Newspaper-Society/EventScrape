@@ -10,11 +10,16 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { instagramApi, InstagramSource, CreateInstagramSourceData } from '@/lib/api'
+import { instagramApi, InstagramSource, CreateInstagramSourceData, API_BASE_URL } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Plus, CheckCircle, Pause, Instagram, Upload, Zap, Settings, Trash2, Key } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
+
+interface InstagramSettings {
+  defaultScraperType: 'apify' | 'instagram-private-api'
+  allowPerAccountOverride: boolean
+}
 
 export function InstagramSources() {
   const queryClient = useQueryClient()
@@ -23,6 +28,7 @@ export function InstagramSources() {
   const [showSessionForm, setShowSessionForm] = useState(false)
   const [sessionUsername, setSessionUsername] = useState('')
   const [sessionData, setSessionData] = useState('')
+  const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'all'>('active')
 
   // Form state
   const [formData, setFormData] = useState<CreateInstagramSourceData>({
@@ -38,6 +44,16 @@ export function InstagramSources() {
   const { data: sources, isLoading } = useQuery({
     queryKey: ['instagram-sources'],
     queryFn: () => instagramApi.getAll(),
+  })
+
+  // Fetch Instagram settings to check if per-account override is allowed
+  const { data: settingsData } = useQuery({
+    queryKey: ['instagram-settings'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/instagram-settings`)
+      const data = await res.json()
+      return data.settings as InstagramSettings
+    },
   })
 
   const createMutation = useMutation({
@@ -191,6 +207,18 @@ export function InstagramSources() {
     )
   }
 
+  // Calculate statistics
+  const totalSources = sources?.sources.length || 0
+  const activeSources = sources?.sources.filter(s => s.active).length || 0
+  const inactiveSources = totalSources - activeSources
+
+  // Filter sources based on active tab
+  const filteredSources = sources?.sources.filter(source => {
+    if (activeTab === 'active') return source.active
+    if (activeTab === 'inactive') return !source.active
+    return true // 'all' tab shows everything
+  }) || []
+
   return (
     <div className="space-y-6">
       <div>
@@ -199,6 +227,37 @@ export function InstagramSources() {
           Manage Instagram accounts for event scraping
         </p>
       </div>
+
+      {/* Statistics Summary */}
+      {totalSources > 0 && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-6">
+              <div>
+                <p className="text-sm text-muted-foreground">Tracked Clubs</p>
+                <p className="text-2xl font-bold">
+                  {activeSources}/{totalSources} active
+                </p>
+              </div>
+              <div className="h-12 w-px bg-border" />
+              <div className="flex gap-6">
+                <div>
+                  <p className="text-sm text-muted-foreground">Active</p>
+                  <p className="text-xl font-semibold text-green-600">{activeSources}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Inactive</p>
+                  <p className="text-xl font-semibold text-gray-500">{inactiveSources}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">All</p>
+                  <p className="text-xl font-semibold">{totalSources}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Add Source */}
       <Card>
@@ -256,7 +315,52 @@ export function InstagramSources() {
               </p>
             </div>
           ) : (
-            <Table>
+            <div className="space-y-4">
+              {/* Filter Tabs */}
+              <div className="border-b border-border">
+                <nav className="flex gap-4">
+                  <button
+                    onClick={() => setActiveTab('active')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === 'active'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Active ({activeSources})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('inactive')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === 'inactive'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Inactive ({inactiveSources})
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('all')}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === 'all'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    All ({totalSources})
+                  </button>
+                </nav>
+              </div>
+
+              {/* Table */}
+              {filteredSources.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">
+                    No {activeTab} sources found
+                  </p>
+                </div>
+              ) : (
+                <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Account</TableHead>
@@ -267,7 +371,7 @@ export function InstagramSources() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sources.sources.map((source) => (
+                {filteredSources.map((source) => (
                   <TableRow key={source.id}>
                     <TableCell>
                       <div className="space-y-1">
@@ -346,6 +450,8 @@ export function InstagramSources() {
                 ))}
               </TableBody>
             </Table>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -455,26 +561,39 @@ export function InstagramSources() {
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="scraperType">Scraper Backend</Label>
-              <Select
-                value={formData.instagramScraperType}
-                onValueChange={(value: 'apify' | 'instagram-private-api') =>
-                  setFormData({ ...formData, instagramScraperType: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="instagram-private-api">instagram-private-api (Free, requires session)</SelectItem>
-                  <SelectItem value="apify">Apify (Paid, official API)</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">
-                Choose between free session-based scraping or reliable paid Apify API
-              </p>
-            </div>
+            {settingsData?.allowPerAccountOverride && (
+              <div>
+                <Label htmlFor="scraperType">Scraper Backend</Label>
+                <Select
+                  value={formData.instagramScraperType}
+                  onValueChange={(value: 'apify' | 'instagram-private-api') =>
+                    setFormData({ ...formData, instagramScraperType: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="instagram-private-api">instagram-private-api (Free, requires session)</SelectItem>
+                    <SelectItem value="apify">Apify (Paid, official API)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Choose between free session-based scraping or reliable paid Apify API
+                </p>
+              </div>
+            )}
+
+            {!settingsData?.allowPerAccountOverride && settingsData?.defaultScraperType && (
+              <div>
+                <Label>Scraper Backend</Label>
+                <div className="text-sm text-muted-foreground p-3 bg-muted rounded-md">
+                  Using global default: <strong>{settingsData.defaultScraperType === 'apify' ? 'Apify (Paid)' : 'instagram-private-api (Free)'}</strong>
+                  <br />
+                  <span className="text-xs">Per-account override is disabled. Go to Settings to enable.</span>
+                </div>
+              </div>
+            )}
 
             <div>
               <Label htmlFor="timezone">Default Timezone</Label>

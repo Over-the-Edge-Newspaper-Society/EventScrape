@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db } from '../db/connection.js';
-import { sources, instagramSessions, eventsRaw } from '../db/schema.js';
+import { sources, instagramSessions, eventsRaw, runs } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import archiver from 'archiver';
 import path from 'path';
@@ -14,6 +14,47 @@ const BACKUP_DIR = process.env.BACKUP_DIR || '/data/backups';
 const IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
 
 export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
+  // GET /api/instagram-images/:filename - Serve Instagram images
+  fastify.get('/instagram-images/:filename', async (request, reply) => {
+    const { filename } = request.params as { filename: string };
+
+    try {
+      // Security: only allow files in images directory, no path traversal
+      if (filename.includes('..') || filename.includes('/')) {
+        reply.status(400);
+        return { error: 'Invalid filename' };
+      }
+
+      const imagePath = path.join(IMAGES_DIR, filename);
+
+      // Check if file exists
+      await fs.access(imagePath);
+
+      const stat = await fs.stat(imagePath);
+
+      // Determine content type based on extension
+      const ext = path.extname(filename).toLowerCase();
+      const contentTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+      };
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+
+      reply.header('Content-Type', contentType);
+      reply.header('Content-Length', stat.size);
+      reply.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+
+      return reply.send(createReadStream(imagePath));
+    } catch (error: any) {
+      fastify.log.error('Failed to serve image:', error);
+      reply.status(404);
+      return { error: 'Image not found' };
+    }
+  });
+
   // POST /api/instagram-backup/create - Create backup zip
   fastify.post('/create', async (request, reply) => {
     try {
@@ -358,8 +399,90 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
           }
         }
 
-        // Note: Posts and events would need more complex mapping
-        // This is a simplified version - you may need to customize based on your old schema
+        // Import posts as events_raw
+        // First, create a mapping of old club IDs to new source IDs
+        const clubToSourceMap = new Map<number, string>();
+        for (const club of clubs) {
+          const moduleKey = `instagram_${club.username.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+          const [source] = await db
+            .select()
+            .from(sources)
+            .where(eq(sources.moduleKey, moduleKey));
+
+          if (source) {
+            clubToSourceMap.set(club.id, source.id);
+          }
+        }
+
+        // Import posts
+        const posts = sqlite.prepare('SELECT * FROM posts').all() as any[];
+
+        for (const post of posts) {
+          try {
+            const sourceId = clubToSourceMap.get(post.club_id);
+            if (!sourceId) {
+              results.errors.push(`Post ${post.instagram_id}: Source not found for club_id ${post.club_id}`);
+              continue;
+            }
+
+            // Check if post already exists
+            const [existing] = await db
+              .select()
+              .from(eventsRaw)
+              .where(eq(eventsRaw.instagramPostId, post.instagram_id));
+
+            if (existing) {
+              continue; // Skip duplicates
+            }
+
+            // Create a dummy run for this import
+            const [run] = await db.insert(runs).values({
+              sourceId,
+              startedAt: new Date(),
+              finishedAt: new Date(),
+              status: 'success',
+              pagesCrawled: 0,
+              eventsFound: 0,
+            }).returning();
+
+            // Map post to events_raw
+            const postTimestamp = new Date(post.post_timestamp);
+
+            // Convert SQLite boolean (0/1/null) to PostgreSQL boolean (true/false/null)
+            let isEventPoster: boolean | null = null;
+            if (post.is_event_poster === 1) isEventPoster = true;
+            else if (post.is_event_poster === 0) isEventPoster = false;
+
+            await db.insert(eventsRaw).values({
+              sourceId,
+              runId: run.id,
+              title: `Instagram Post ${post.instagram_id}`,
+              descriptionHtml: post.caption || '',
+              startDatetime: postTimestamp,
+              endDatetime: postTimestamp,
+              timezone: 'America/Vancouver',
+              url: `https://instagram.com/p/${post.instagram_id}`,
+              imageUrl: post.image_url || '',
+              instagramPostId: post.instagram_id,
+              instagramCaption: post.caption,
+              localImagePath: post.local_image_path,
+              isEventPoster,
+              classificationConfidence: post.classification_confidence,
+              scrapedAt: new Date(post.collected_at),
+              raw: {
+                imported_from: 'event-monitor',
+                original_post_id: post.id,
+                processed: post.processed,
+                manual_review_notes: post.manual_review_notes,
+              },
+              contentHash: `instagram_${post.instagram_id}`,
+            });
+
+            results.postsImported++;
+          } catch (error: any) {
+            results.errors.push(`Post ${post.instagram_id}: ${error.message}`);
+          }
+        }
 
       } catch (error: any) {
         results.errors.push(`Database error: ${error.message}`);
@@ -412,9 +535,10 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         ...results,
       };
     } catch (error: any) {
-      fastify.log.error('Failed to import SQLite:', error);
+      fastify.log.error({ err: error }, 'Failed to import SQLite');
+      console.error('SQLite import error:', error);
       reply.status(500);
-      return { error: 'Failed to import SQLite database', details: error.message };
+      return { error: 'Failed to import SQLite database', details: error.message, stack: error.stack };
     }
   });
 };

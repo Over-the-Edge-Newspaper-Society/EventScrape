@@ -2,8 +2,6 @@ import { ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
-  Calendar,
-  Database,
   Download,
   GitMerge,
   Home,
@@ -13,7 +11,9 @@ import {
   Clock,
   Globe,
   HardDrive,
-  Instagram
+  Instagram,
+  CheckSquare,
+  List
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -25,8 +25,8 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Sources', href: '/sources', icon: Settings },
   { name: 'Instagram', href: '/instagram', icon: Instagram },
-  { name: 'Raw Events', href: '/events/raw', icon: Database },
-  { name: 'Canonical Events', href: '/events/canonical', icon: Calendar },
+  { name: 'Events', href: '/events', icon: List },
+  { name: 'Review', href: '/review', icon: CheckSquare },
   { name: 'Matches', href: '/matches', icon: GitMerge },
   { name: 'Runs', href: '/runs', icon: Play },
   { name: 'Schedules', href: '/schedules', icon: Clock },
@@ -52,9 +52,9 @@ export function Layout({ children }: LayoutProps) {
         
         <nav className="flex-1 px-4 py-4 space-y-2">
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href
+            const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/')
             const Icon = item.icon
-            
+
             return (
               <Link
                 key={item.name}

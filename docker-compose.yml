@@ -54,8 +54,12 @@ services:
       PORT: 3001
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       EXPORT_DIR: /data/exports
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
+      BACKUP_DIR: /data/backups
     volumes:
       - export_data:/data/exports
+      - instagram_images:/data/instagram_images
+      - backup_data:/data/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,3 +125,5 @@ volumes:
   postgres_data:
   redis_data:
   export_data:
+  instagram_images:
+  backup_data:

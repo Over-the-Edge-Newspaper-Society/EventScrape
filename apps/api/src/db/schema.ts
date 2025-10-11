@@ -164,6 +164,7 @@ export const eventsRaw = pgTable('events_raw', {
   occurrenceId: uuid('occurrence_id').references(() => eventOccurrences.id),
 
   // Instagram-specific fields
+  instagramAccountId: uuid('instagram_account_id').references(() => instagramAccounts.id),
   instagramPostId: text('instagram_post_id'),
   instagramCaption: text('instagram_caption'),
   localImagePath: text('local_image_path'),
@@ -435,12 +436,33 @@ export const instagramSettings = pgTable('instagram_settings', {
   apifyActorId: text('apify_actor_id').default('apify/instagram-profile-scraper'),
   apifyResultsLimit: integer('apify_results_limit').default(10),
   fetchDelayMinutes: integer('fetch_delay_minutes').default(5),
+  // Global scraper type setting
+  defaultScraperType: instagramScraperTypeEnum('default_scraper_type').default('instagram-private-api'),
+  allowPerAccountOverride: boolean('allow_per_account_override').default(true),
   // Automation settings
   autoExtractNewPosts: boolean('auto_extract_new_posts').default(false),
   // Created/Updated
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// Instagram accounts table (individual Instagram accounts to scrape)
+export const instagramAccounts = pgTable('instagram_accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  instagramUsername: text('instagram_username').notNull().unique(),
+  classificationMode: classificationModeEnum('classification_mode').notNull().default('manual'),
+  instagramScraperType: instagramScraperTypeEnum('instagram_scraper_type').notNull().default('instagram-private-api'),
+  active: boolean('active').notNull().default(true),
+  defaultTimezone: text('default_timezone').notNull().default('America/Vancouver'),
+  notes: text('notes'),
+  lastChecked: timestamp('last_checked'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  instagramUsernameIdx: uniqueIndex('instagram_accounts_username_idx').on(table.instagramUsername),
+  activeIdx: index('instagram_accounts_active_idx').on(table.active),
+}));
 
 // Optional: Audit logs
 export const auditLogs = pgTable('audit_logs', {
@@ -497,3 +519,6 @@ export type NewInstagramSession = typeof instagramSessions.$inferInsert;
 
 export type InstagramSettings = typeof instagramSettings.$inferSelect;
 export type NewInstagramSettings = typeof instagramSettings.$inferInsert;
+
+export type InstagramAccount = typeof instagramAccounts.$inferSelect;
+export type NewInstagramAccount = typeof instagramAccounts.$inferInsert;

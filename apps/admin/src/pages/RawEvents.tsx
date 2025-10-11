@@ -111,13 +111,6 @@ export function RawEvents() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Raw Events</h1>
-        <p className="text-muted-foreground">
-          Browse and filter events scraped from sources
-        </p>
-      </div>
-
       {/* Filters */}
       <EventFilters
         filters={filters}

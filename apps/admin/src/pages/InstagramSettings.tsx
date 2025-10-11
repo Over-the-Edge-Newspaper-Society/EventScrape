@@ -8,6 +8,13 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { API_BASE_URL } from '@/lib/api'
 import { toast } from 'sonner'
 import {
@@ -19,7 +26,8 @@ import {
   Database,
   Settings as SettingsIcon,
   CheckCircle,
-  Info
+  Info,
+  Globe
 } from 'lucide-react'
 
 interface InstagramSettings {
@@ -30,6 +38,8 @@ interface InstagramSettings {
   autoExtractNewPosts: boolean
   hasApifyToken: boolean
   hasGeminiKey: boolean
+  defaultScraperType: 'apify' | 'instagram-private-api'
+  allowPerAccountOverride: boolean
   createdAt: string
   updatedAt: string
 }
@@ -52,6 +62,8 @@ export function InstagramSettings() {
   const [apifyResultsLimit, setApifyResultsLimit] = useState(10)
   const [fetchDelayMinutes, setFetchDelayMinutes] = useState(5)
   const [autoExtractNewPosts, setAutoExtractNewPosts] = useState(false)
+  const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api'>('instagram-private-api')
+  const [allowPerAccountOverride, setAllowPerAccountOverride] = useState(true)
 
   // File upload states
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -75,6 +87,8 @@ export function InstagramSettings() {
       setApifyResultsLimit(settings.apifyResultsLimit)
       setFetchDelayMinutes(settings.fetchDelayMinutes)
       setAutoExtractNewPosts(settings.autoExtractNewPosts)
+      setDefaultScraperType(settings.defaultScraperType)
+      setAllowPerAccountOverride(settings.allowPerAccountOverride)
     }
   }, [settings])
 
@@ -243,6 +257,13 @@ export function InstagramSettings() {
     })
   }
 
+  const handleSaveGlobalScraperSettings = () => {
+    updateSettings.mutate({
+      defaultScraperType,
+      allowPerAccountOverride,
+    })
+  }
+
   const handleCsvUpload = () => {
     if (!csvFile) {
       toast.error('Please select a CSV file')
@@ -389,6 +410,72 @@ export function InstagramSettings() {
               </a>
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Global Scraper Backend Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Global Scraper Backend
+          </CardTitle>
+          <CardDescription>
+            Configure the default scraper backend for all Instagram accounts
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="default-scraper-type">Default Scraper Backend</Label>
+            <Select
+              value={defaultScraperType}
+              onValueChange={(value: 'apify' | 'instagram-private-api') => setDefaultScraperType(value)}
+            >
+              <SelectTrigger id="default-scraper-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="instagram-private-api">
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">instagram-private-api</span>
+                    <span className="text-xs text-muted-foreground">Free, requires session</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="apify">
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Apify</span>
+                    <span className="text-xs text-muted-foreground">Paid, reliable official API</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              This setting will apply to all Instagram accounts by default
+            </p>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="allow-override">Allow Per-Account Override</Label>
+                <p className="text-xs text-muted-foreground">
+                  When enabled, accounts can override the global setting
+                </p>
+              </div>
+              <Switch
+                id="allow-override"
+                checked={allowPerAccountOverride}
+                onCheckedChange={setAllowPerAccountOverride}
+              />
+            </div>
+          </div>
+
+          <Button onClick={handleSaveGlobalScraperSettings} disabled={updateSettings.isPending}>
+            <Save className="h-4 w-4 mr-2" />
+            Save Global Scraper Settings
+          </Button>
         </CardContent>
       </Card>
 

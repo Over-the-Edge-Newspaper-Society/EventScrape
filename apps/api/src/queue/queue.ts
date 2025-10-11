@@ -36,7 +36,7 @@ export const matchJobSchema = z.object({
 });
 
 export const instagramScrapeJobSchema = z.object({
-  sourceId: z.string().uuid(),
+  accountId: z.string().uuid(),
   runId: z.string().uuid().optional(),
   postLimit: z.number().positive().optional(),
 });
@@ -122,7 +122,7 @@ export async function enqueueMatchJob(data: MatchJobData) {
 
 export async function enqueueInstagramScrapeJob(data: InstagramScrapeJobData) {
   const job = await instagramScrapeQueue.add('instagram-scrape', data, {
-    jobId: `instagram-scrape-${data.sourceId}-${Date.now()}`,
+    jobId: `instagram-scrape-${data.accountId}-${Date.now()}`,
   });
   return job;
 }

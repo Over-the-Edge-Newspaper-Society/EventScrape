@@ -13,7 +13,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface InstagramScrapeJobData {
-  sourceId: string;
+  accountId: string;
   runId?: string;
   postLimit?: number;
 }
@@ -26,20 +26,28 @@ const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton setting
  */
 async function getInstagramSettings() {
   const result = await db`
-    SELECT apify_api_token, gemini_api_key
+    SELECT apify_api_token, gemini_api_key, default_scraper_type, allow_per_account_override
     FROM instagram_settings
-    WHERE id = ${SETTINGS_ID}
+    LIMIT 1
   `;
-  return result[0] || { apify_api_token: null, gemini_api_key: null };
+  return result[0] || {
+    apify_api_token: null,
+    gemini_api_key: null,
+    default_scraper_type: 'instagram-private-api',
+    allow_per_account_override: true
+  };
 }
+
+// Instagram source ID (fixed)
+const INSTAGRAM_SOURCE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
 /**
  * Main Instagram scrape job handler
  */
 export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>) {
-  const { sourceId, postLimit = 10 } = job.data;
+  const { accountId, postLimit = 10 } = job.data;
 
-  job.log(`Starting Instagram scrape for source ${sourceId}`);
+  job.log(`Starting Instagram scrape for account ${accountId}`);
 
   try {
     // 0. Fetch Instagram settings from database
@@ -47,26 +55,28 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     const APIFY_API_TOKEN = settings.apify_api_token || process.env.APIFY_API_TOKEN || '';
     const GEMINI_API_KEY = settings.gemini_api_key || process.env.GEMINI_API_KEY || '';
 
-    // 1. Fetch source details
-    const sourceResult = await db`
-      SELECT id, name, base_url, source_type, instagram_username,
+    // 1. Fetch account details
+    const accountResult = await db`
+      SELECT id, name, instagram_username,
              classification_mode, default_timezone, instagram_scraper_type
-      FROM sources
-      WHERE id = ${sourceId}
+      FROM instagram_accounts
+      WHERE id = ${accountId}
     `;
 
-    const source = sourceResult[0];
+    const account = accountResult[0];
 
-    if (!source || source.source_type !== 'instagram') {
-      throw new Error(`Instagram source ${sourceId} not found`);
+    if (!account) {
+      throw new Error(`Instagram account ${accountId} not found`);
     }
 
-    if (!source.instagram_username) {
-      throw new Error(`Instagram source ${sourceId} missing username`);
-    }
+    // Determine which scraper type to use:
+    // 1. If per-account override is disabled, always use global setting
+    // 2. If per-account override is enabled, use account setting (fallback to global)
+    const scraperType = settings.allow_per_account_override
+      ? (account.instagram_scraper_type || settings.default_scraper_type || 'instagram-private-api')
+      : (settings.default_scraper_type || 'instagram-private-api');
 
-    const scraperType = source.instagram_scraper_type || 'instagram-private-api';
-    job.log(`Fetching posts from @${source.instagram_username} using ${scraperType} scraper`);
+    job.log(`Fetching posts from @${account.instagram_username} using ${scraperType} scraper`);
 
     // 2. Create scraper instance based on type
     let scraper: InstagramScraper | ApifyScraper;
@@ -83,27 +93,27 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
       const sessionResult = await db`
         SELECT id, username, session_data, is_valid
         FROM instagram_sessions
-        WHERE username = ${source.instagram_username}
+        WHERE username = ${account.instagram_username}
       `;
 
       const session = sessionResult[0];
 
       if (!session) {
-        throw new InstagramAuthError(`No session found for @${source.instagram_username}`);
+        throw new InstagramAuthError(`No session found for @${account.instagram_username}`);
       }
 
       scraper = await createScraperWithSession(
         session.session_data as any,
-        source.instagram_username
+        account.instagram_username
       );
       job.log('Using instagram-private-api scraper (session-based)');
     }
 
-    // 3. Get known post IDs from database
+    // 3. Get known post IDs from database for this account
     const knownPostsResult = await db`
       SELECT instagram_post_id
       FROM events_raw
-      WHERE source_id = ${sourceId}
+      WHERE instagram_account_id = ${accountId}
         AND instagram_post_id IS NOT NULL
     `;
 
@@ -117,18 +127,18 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
     // 4. Fetch recent posts
     const posts = await scraper.fetchRecentPosts(
-      source.instagram_username,
+      account.instagram_username,
       postLimit,
       knownPostIds
     );
 
     job.log(`Fetched ${posts.length} new posts`);
 
-    // 5. Create a run record
+    // 5. Create a run record for the Instagram source
     const runId = job.data.runId || uuidv4();
     await db`
       INSERT INTO runs (id, source_id, status, started_at, events_found, pages_crawled)
-      VALUES (${runId}, ${source.id}, 'running', NOW(), 0, 1)
+      VALUES (${runId}, ${INSTAGRAM_SOURCE_ID}, 'running', NOW(), 0, 1)
     `;
 
     let eventsCreated = 0;
@@ -160,7 +170,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
         let isEventPoster: boolean | null = null;
         let confidence: number | null = null;
 
-        if (source.classification_mode === 'auto') {
+        if (account.classification_mode === 'auto') {
           const [isEvent, conf] = classify(post.caption);
           isEventPoster = isEvent;
           confidence = conf;
@@ -169,8 +179,8 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
         // 6c. Extract event data with Gemini if classified as event or mode is manual
         const shouldExtract =
-          (source.classification_mode === 'auto' && isEventPoster) ||
-          source.classification_mode === 'manual';
+          (account.classification_mode === 'auto' && isEventPoster) ||
+          account.classification_mode === 'manual';
 
         let extractedData: any = null;
 
@@ -195,7 +205,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                 // Parse date/time
                 const startDateTime = new Date(`${event.startDate}T${event.startTime || '00:00:00'}`);
                 const endDateTime = event.endDate ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`) : null;
-                const timezone = event.timezone || source.default_timezone || 'America/Vancouver';
+                const timezone = event.timezone || account.default_timezone || 'America/Vancouver';
 
                 await db`
                   INSERT INTO events_raw (
@@ -203,10 +213,10 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     start_datetime, end_datetime, timezone,
                     venue_name, venue_address, city, region, country,
                     organizer, category, price, tags, url, image_url, raw, content_hash,
-                    instagram_post_id, instagram_caption, local_image_path,
+                    instagram_account_id, instagram_post_id, instagram_caption, local_image_path,
                     classification_confidence, is_event_poster
                   ) VALUES (
-                    ${source.id}, ${runId}, ${post.id}, ${event.title}, ${event.description || ''},
+                    ${INSTAGRAM_SOURCE_ID}, ${runId}, ${post.id}, ${event.title}, ${event.description || ''},
                     ${startDateTime.toISOString()}, ${endDateTime ? endDateTime.toISOString() : null}, ${timezone},
                     ${event.venue?.name || null}, ${event.venue?.address || null},
                     ${event.venue?.city || null}, ${event.venue?.region || null}, ${event.venue?.country || null},
@@ -216,7 +226,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     ${post.imageUrl || null},
                     ${JSON.stringify(geminiResult)},
                     ${post.id},
-                    ${post.id}, ${post.caption}, ${localImagePath},
+                    ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
                     ${confidence}, ${isEventPoster ?? true}
                   )
                 `;
@@ -240,11 +250,11 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
       WHERE id = ${runId}
     `;
 
-    // 8. Update source last_checked timestamp
+    // 8. Update account last_checked timestamp
     await db`
-      UPDATE sources
+      UPDATE instagram_accounts
       SET last_checked = NOW()
-      WHERE id = ${sourceId}
+      WHERE id = ${accountId}
     `;
 
     job.log(`Instagram scrape completed: ${eventsCreated} events created`);

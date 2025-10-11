@@ -182,6 +182,32 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0014 (Instagram accounts)
+    try {
+      const sql14 = await readFile(migrationPath('0014_instagram_accounts.sql'), 'utf-8');
+      await migrationClient.unsafe(sql14);
+      console.log('✅ Applied migration 0014 (Instagram accounts)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0014 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0014 not applied');
+      }
+    }
+
+    // Apply incremental migration 0015 (Instagram global scraper settings)
+    try {
+      const sql15 = await readFile(migrationPath('0015_instagram_global_scraper_settings.sql'), 'utf-8');
+      await migrationClient.unsafe(sql15);
+      console.log('✅ Applied migration 0015 (Instagram global scraper settings)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0015 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0015 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
