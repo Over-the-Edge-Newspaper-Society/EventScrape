@@ -143,6 +143,45 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0011 (Instagram integration)
+    try {
+      const sql11 = await readFile(migrationPath('0011_instagram_integration.sql'), 'utf-8');
+      await migrationClient.unsafe(sql11);
+      console.log('✅ Applied migration 0011 (Instagram integration)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0011 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0011 not applied');
+      }
+    }
+
+    // Apply incremental migration 0012 (Instagram scraper type)
+    try {
+      const sql12 = await readFile(migrationPath('0012_instagram_scraper_type.sql'), 'utf-8');
+      await migrationClient.unsafe(sql12);
+      console.log('✅ Applied migration 0012 (Instagram scraper type)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0012 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0012 not applied');
+      }
+    }
+
+    // Apply incremental migration 0013 (Instagram settings)
+    try {
+      const sql13 = await readFile(migrationPath('0013_instagram_settings.sql'), 'utf-8');
+      await migrationClient.unsafe(sql13);
+      console.log('✅ Applied migration 0013 (Instagram settings)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0013 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0013 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

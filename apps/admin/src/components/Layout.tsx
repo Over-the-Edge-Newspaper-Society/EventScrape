@@ -12,7 +12,8 @@ import {
   Upload,
   Clock,
   Globe,
-  HardDrive
+  HardDrive,
+  Instagram
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -23,6 +24,7 @@ interface LayoutProps {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Sources', href: '/sources', icon: Settings },
+  { name: 'Instagram', href: '/instagram', icon: Instagram },
   { name: 'Raw Events', href: '/events/raw', icon: Database },
   { name: 'Canonical Events', href: '/events/canonical', icon: Calendar },
   { name: 'Matches', href: '/matches', icon: GitMerge },

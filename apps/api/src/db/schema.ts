@@ -77,6 +77,22 @@ export const eventStatusTypeEnum = pgEnum('event_status_type', [
   'postponed',
 ]);
 
+// Source type enum
+export const sourceTypeEnum = pgEnum('source_type', [
+  'website',
+  'instagram',
+]);
+
+export const classificationModeEnum = pgEnum('classification_mode', [
+  'manual',
+  'auto',
+]);
+
+export const instagramScraperTypeEnum = pgEnum('instagram_scraper_type', [
+  'apify',
+  'instagram-private-api',
+]);
+
 // Tables
 export const sources = pgTable('sources', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -87,9 +103,19 @@ export const sources = pgTable('sources', {
   defaultTimezone: text('default_timezone').default('UTC'),
   notes: text('notes'),
   rateLimitPerMin: integer('rate_limit_per_min').default(60),
+
+  // Instagram-specific fields
+  sourceType: sourceTypeEnum('source_type').notNull().default('website'),
+  instagramUsername: text('instagram_username'),
+  classificationMode: classificationModeEnum('classification_mode').default('manual'),
+  instagramScraperType: instagramScraperTypeEnum('instagram_scraper_type').default('instagram-private-api'),
+  lastChecked: timestamp('last_checked'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  instagramUsernameIdx: index('sources_instagram_username_idx').on(table.instagramUsername),
+}));
 
 export const runs = pgTable('runs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -136,6 +162,13 @@ export const eventsRaw = pgTable('events_raw', {
   // New fields for backwards compatibility with new occurrence system
   seriesId: uuid('series_id').references(() => eventSeries.id),
   occurrenceId: uuid('occurrence_id').references(() => eventOccurrences.id),
+
+  // Instagram-specific fields
+  instagramPostId: text('instagram_post_id'),
+  instagramCaption: text('instagram_caption'),
+  localImagePath: text('local_image_path'),
+  classificationConfidence: doublePrecision('classification_confidence'),
+  isEventPoster: boolean('is_event_poster'),
 }, (table) => ({
   sourceEventIdIdx: uniqueIndex('events_raw_source_event_id_idx')
     .on(table.sourceId, table.sourceEventId)
@@ -146,6 +179,7 @@ export const eventsRaw = pgTable('events_raw', {
   contentHashIdx: index('events_raw_content_hash_idx').on(table.contentHash),
   seriesIdIdx: index('events_raw_series_id_idx').on(table.seriesId),
   occurrenceIdIdx: index('events_raw_occurrence_id_idx').on(table.occurrenceId),
+  instagramPostIdIdx: index('events_raw_instagram_post_id_idx').on(table.instagramPostId),
 }));
 
 export const matches = pgTable('matches', {
@@ -378,6 +412,36 @@ export const eventOccurrences = pgTable('event_occurrences', {
   startCityIdx: index('event_occurrences_start_city_idx').on(table.startDatetimeUtc, table.seriesId),
 }));
 
+// Instagram sessions table
+export const instagramSessions = pgTable('instagram_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  username: text('username').notNull().unique(),
+  sessionData: jsonb('session_data').notNull(), // Encrypted Instagram session cookies
+  uploadedAt: timestamp('uploaded_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at'),
+  lastUsedAt: timestamp('last_used_at'),
+  isValid: boolean('is_valid').notNull().default(true),
+}, (table) => ({
+  usernameIdx: uniqueIndex('instagram_sessions_username_idx').on(table.username),
+}));
+
+// Instagram settings table (global configuration)
+export const instagramSettings = pgTable('instagram_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // API keys (encrypted)
+  apifyApiToken: text('apify_api_token'),
+  geminiApiKey: text('gemini_api_key'),
+  // Scraping configuration
+  apifyActorId: text('apify_actor_id').default('apify/instagram-profile-scraper'),
+  apifyResultsLimit: integer('apify_results_limit').default(10),
+  fetchDelayMinutes: integer('fetch_delay_minutes').default(5),
+  // Automation settings
+  autoExtractNewPosts: boolean('auto_extract_new_posts').default(false),
+  // Created/Updated
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Optional: Audit logs
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -427,3 +491,9 @@ export type NewEventSeries = typeof eventSeries.$inferInsert;
 
 export type EventOccurrence = typeof eventOccurrences.$inferSelect;
 export type NewEventOccurrence = typeof eventOccurrences.$inferInsert;
+
+export type InstagramSession = typeof instagramSessions.$inferSelect;
+export type NewInstagramSession = typeof instagramSessions.$inferInsert;
+
+export type InstagramSettings = typeof instagramSettings.$inferSelect;
+export type NewInstagramSettings = typeof instagramSettings.$inferInsert;

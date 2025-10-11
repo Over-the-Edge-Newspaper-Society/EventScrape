@@ -265,6 +265,29 @@ export const wordpressApi = {
     }),
 }
 
+// Instagram API
+export const instagramApi = {
+  getAll: () => fetchApi<{ sources: InstagramSource[] }>('/instagram-sources'),
+  getById: (id: string) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`),
+  create: (data: CreateInstagramSourceData) => fetchApi<{ source: InstagramSource }>('/instagram-sources', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  update: (id: string, data: Partial<CreateInstagramSourceData>) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
+  trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
+  uploadSession: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
+    fetchApi<{ message: string; session: InstagramSession }>('/instagram-sources/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getSession: (username: string) => fetchApi<{ session: InstagramSession }>(`/instagram-sources/sessions/${username}`),
+  deleteSession: (username: string) => fetchApi<{ message: string }>(`/instagram-sources/sessions/${username}`, { method: 'DELETE' }),
+}
+
 // Types
 export interface Source {
   id: string
@@ -542,4 +565,40 @@ export interface WordPressCategory {
   id: number
   name: string
   slug: string
+}
+
+export interface InstagramSource {
+  id: string
+  name: string
+  baseUrl: string
+  moduleKey: string
+  sourceType: 'instagram'
+  instagramUsername: string
+  classificationMode: 'manual' | 'auto'
+  instagramScraperType: 'apify' | 'instagram-private-api'
+  active: boolean
+  defaultTimezone: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+  lastChecked?: string
+}
+
+export interface CreateInstagramSourceData {
+  name: string
+  instagramUsername: string
+  classificationMode?: 'manual' | 'auto'
+  instagramScraperType?: 'apify' | 'instagram-private-api'
+  active?: boolean
+  defaultTimezone?: string
+  notes?: string
+}
+
+export interface InstagramSession {
+  id: string
+  username: string
+  uploadedAt: string
+  expiresAt?: string
+  lastUsedAt?: string
+  isValid: boolean
 }

@@ -19,6 +19,9 @@ import { posterImportRoutes } from './routes/poster-import.js';
 import { schedulesRoutes } from './routes/schedules.js';
 import { wordpressRoutes } from './routes/wordpress.js';
 import { databaseRoutes } from './routes/database.js';
+import { instagramSourcesRoutes } from './routes/instagram-sources.js';
+import { instagramSettingsRoutes } from './routes/instagram-settings.js';
+import { instagramBackupRoutes } from './routes/instagram-backup.js';
 import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 import { runMigrations } from './db/migrate.js';
 
@@ -137,6 +140,9 @@ await fastify.register(posterImportRoutes, { prefix: '/api/poster-import' });
 await fastify.register(schedulesRoutes, { prefix: '/api/schedules' });
 await fastify.register(wordpressRoutes, { prefix: '/api/wordpress' });
 await fastify.register(databaseRoutes, { prefix: '/api/database' });
+await fastify.register(instagramSourcesRoutes, { prefix: '/api/instagram-sources' });
+await fastify.register(instagramSettingsRoutes, { prefix: '/api/instagram-settings' });
+await fastify.register(instagramBackupRoutes, { prefix: '/api/instagram-backup' });
 
 // Initialize schedule worker and sync schedules
 await runMigrations();

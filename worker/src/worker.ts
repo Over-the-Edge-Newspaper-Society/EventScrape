@@ -8,6 +8,7 @@ import { EventMatcher } from './lib/matcher.js';
 import { normalizeEvent, RateLimiter } from './lib/utils.js';
 import { saveEventWithOccurrences, saveToEventsRaw } from './lib/occurrence-db.js';
 import type { ScrapeJobData, MatchJobData, RunContext } from './types.js';
+import { handleInstagramScrapeJob } from './modules/instagram/instagram-job.js';
 import 'dotenv/config';
 
 
@@ -27,6 +28,7 @@ class EventScraperWorker {
   private redis: IORedis;
   private scrapeWorker: Worker;
   private matchWorker: Worker;
+  private instagramWorker: Worker;
   private matchQueue: Queue;
   private moduleLoader: ModuleLoader;
   private browserPool: BrowserPool;
@@ -59,6 +61,11 @@ class EventScraperWorker {
       concurrency: 1,
     });
 
+    this.instagramWorker = new Worker('instagram-scrape-queue', this.processInstagramScrapeJob.bind(this), {
+      connection: this.redis,
+      concurrency: 1, // Instagram scraping should be sequential to respect rate limits
+    });
+
     // Initialize match queue for enqueueing jobs
     this.matchQueue = new Queue('match-queue', {
       connection: this.redis,
@@ -82,6 +89,14 @@ class EventScraperWorker {
 
     this.matchWorker.on('failed', (job, err) => {
       logger.error(`Match job ${job?.id} failed:`, err);
+    });
+
+    this.instagramWorker.on('completed', (job) => {
+      logger.info(`Instagram scrape job ${job.id} completed`);
+    });
+
+    this.instagramWorker.on('failed', (job, err) => {
+      logger.error(`Instagram scrape job ${job?.id} failed:`, err);
     });
 
     // Graceful shutdown
@@ -478,6 +493,25 @@ class EventScraperWorker {
     }
   }
 
+  private async processInstagramScrapeJob(job: any): Promise<void> {
+    logger.info('Processing Instagram scrape job', { jobData: job.data });
+
+    try {
+      // Delegate to the Instagram job handler
+      const result = await handleInstagramScrapeJob(job);
+
+      logger.info('✅ Instagram scrape job completed', { result });
+      return result;
+    } catch (error) {
+      const errorMessage = (error as Error).message;
+      const errorStack = (error as Error).stack;
+      logger.error(`❌ Instagram scrape job failed with error: ${errorMessage}`);
+      console.error('❌ Instagram scrape job full error:', error);
+      console.error('❌ Error stack:', errorStack);
+      throw error;
+    }
+  }
+
   private async shutdown(signal: string): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
@@ -488,6 +522,7 @@ class EventScraperWorker {
       // Stop accepting new jobs
       await this.scrapeWorker.close();
       await this.matchWorker.close();
+      await this.instagramWorker.close();
       await this.matchQueue.close();
 
       // Close browser pool

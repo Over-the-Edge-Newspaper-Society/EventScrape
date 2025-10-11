@@ -6,6 +6,8 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { Layout } from '@/components/Layout'
 import { Dashboard } from '@/pages/Dashboard'
 import { Sources } from '@/pages/Sources'
+import { InstagramSources } from '@/pages/InstagramSources'
+import { InstagramSettings } from '@/pages/InstagramSettings'
 import { RawEvents } from '@/pages/RawEvents'
 import { CanonicalEvents } from '@/pages/CanonicalEvents'
 import { Matches } from '@/pages/Matches'
@@ -35,6 +37,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/sources" element={<Sources />} />
+                <Route path="/instagram" element={<InstagramSources />} />
+                <Route path="/instagram/settings" element={<InstagramSettings />} />
                 <Route path="/events/raw" element={<RawEvents />} />
                 <Route path="/events/canonical" element={<CanonicalEvents />} />
                 <Route path="/matches" element={<Matches />} />
