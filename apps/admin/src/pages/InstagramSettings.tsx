@@ -57,13 +57,13 @@ export function InstagramSettings() {
   const [apifyToken, setApifyToken] = useState('')
   const [geminiKey, setGeminiKey] = useState('')
 
-  // Settings states
-  const [apifyActorId, setApifyActorId] = useState('apify/instagram-profile-scraper')
-  const [apifyResultsLimit, setApifyResultsLimit] = useState(10)
-  const [fetchDelayMinutes, setFetchDelayMinutes] = useState(5)
+  // Settings states - initialize with empty/undefined to avoid controlled/uncontrolled warnings
+  const [apifyActorId, setApifyActorId] = useState('')
+  const [apifyResultsLimit, setApifyResultsLimit] = useState<number | undefined>(undefined)
+  const [fetchDelayMinutes, setFetchDelayMinutes] = useState<number | undefined>(undefined)
   const [autoExtractNewPosts, setAutoExtractNewPosts] = useState(false)
-  const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api'>('instagram-private-api')
-  const [allowPerAccountOverride, setAllowPerAccountOverride] = useState(true)
+  const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api' | undefined>(undefined)
+  const [allowPerAccountOverride, setAllowPerAccountOverride] = useState<boolean | undefined>(undefined)
 
   // File upload states
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -83,12 +83,12 @@ export function InstagramSettings() {
   // Update form state when settings are loaded
   useEffect(() => {
     if (settings) {
-      setApifyActorId(settings.apifyActorId)
+      setApifyActorId(settings.apifyActorId || '')
       setApifyResultsLimit(settings.apifyResultsLimit)
       setFetchDelayMinutes(settings.fetchDelayMinutes)
-      setAutoExtractNewPosts(settings.autoExtractNewPosts)
-      setDefaultScraperType(settings.defaultScraperType)
-      setAllowPerAccountOverride(settings.allowPerAccountOverride)
+      setAutoExtractNewPosts(settings.autoExtractNewPosts ?? false)
+      setDefaultScraperType(settings.defaultScraperType || 'instagram-private-api')
+      setAllowPerAccountOverride(settings.allowPerAccountOverride ?? true)
     }
   }, [settings])
 
@@ -232,6 +232,23 @@ export function InstagramSettings() {
     },
   })
 
+  const deleteBackup = useMutation({
+    mutationFn: async (filename: string) => {
+      const res = await fetch(`${API_BASE_URL}/instagram-backup/delete/${filename}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete backup')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['backups'] })
+      toast.success('Backup deleted successfully')
+    },
+    onError: () => {
+      toast.error('Failed to delete backup')
+    },
+  })
+
   const handleSaveApifyToken = () => {
     if (!apifyToken) {
       toast.error('Please enter an Apify API token')
@@ -290,6 +307,12 @@ export function InstagramSettings() {
 
   const handleDownloadBackup = (filename: string) => {
     window.open(`${API_BASE_URL}/instagram-backup/download/${filename}`, '_blank')
+  }
+
+  const handleDeleteBackup = (filename: string) => {
+    if (confirm(`Are you sure you want to delete ${filename}?`)) {
+      deleteBackup.mutate(filename)
+    }
   }
 
   if (isLoading) {
@@ -428,11 +451,11 @@ export function InstagramSettings() {
           <div className="space-y-2">
             <Label htmlFor="default-scraper-type">Default Scraper Backend</Label>
             <Select
-              value={defaultScraperType}
+              value={defaultScraperType || 'instagram-private-api'}
               onValueChange={(value: 'apify' | 'instagram-private-api') => setDefaultScraperType(value)}
             >
               <SelectTrigger id="default-scraper-type">
-                <SelectValue />
+                <SelectValue placeholder="Select scraper backend" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="instagram-private-api">
@@ -466,7 +489,7 @@ export function InstagramSettings() {
               </div>
               <Switch
                 id="allow-override"
-                checked={allowPerAccountOverride}
+                checked={allowPerAccountOverride ?? true}
                 onCheckedChange={setAllowPerAccountOverride}
               />
             </div>
@@ -688,13 +711,23 @@ export function InstagramSettings() {
                         {new Date(backup.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDownloadBackup(backup.filename)}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDownloadBackup(backup.filename)}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleDeleteBackup(backup.filename)}
+                        disabled={deleteBackup.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

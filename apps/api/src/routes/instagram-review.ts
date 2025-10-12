@@ -10,14 +10,40 @@ const classifyPostSchema = z.object({
 });
 
 export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
-  // GET /api/instagram-review/queue - Get unclassified Instagram posts
+  // GET /api/instagram-review/queue - Get Instagram posts with optional filter
   fastify.get('/queue', async (request, reply) => {
-    const { page = 1, limit = 20 } = request.query as { page?: number; limit?: number };
+    const { page = 1, limit = 20, filter = 'pending' } = request.query as {
+      page?: number;
+      limit?: number;
+      filter?: 'pending' | 'event' | 'not-event' | 'all';
+    };
     const offset = (Number(page) - 1) * Number(limit);
 
     try {
-      // Get posts where isEventPoster is NULL (not yet classified)
-      const unclassifiedPosts = await db
+      // Build where condition based on filter
+      let whereCondition;
+      if (filter === 'pending') {
+        whereCondition = and(
+          eq(sources.sourceType, 'instagram'),
+          isNull(eventsRaw.isEventPoster)
+        );
+      } else if (filter === 'event') {
+        whereCondition = and(
+          eq(sources.sourceType, 'instagram'),
+          eq(eventsRaw.isEventPoster, true)
+        );
+      } else if (filter === 'not-event') {
+        whereCondition = and(
+          eq(sources.sourceType, 'instagram'),
+          eq(eventsRaw.isEventPoster, false)
+        );
+      } else {
+        // 'all' - just Instagram posts
+        whereCondition = eq(sources.sourceType, 'instagram');
+      }
+
+      // Get posts
+      const posts = await db
         .select({
           event: eventsRaw,
           source: {
@@ -29,12 +55,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
         })
         .from(eventsRaw)
         .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
-        .where(
-          and(
-            eq(sources.sourceType, 'instagram'),
-            isNull(eventsRaw.isEventPoster)
-          )
-        )
+        .where(whereCondition)
         .orderBy(desc(eventsRaw.scrapedAt))
         .limit(Number(limit))
         .offset(offset);
@@ -44,18 +65,13 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
         .select({ count: eventsRaw.id })
         .from(eventsRaw)
         .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
-        .where(
-          and(
-            eq(sources.sourceType, 'instagram'),
-            isNull(eventsRaw.isEventPoster)
-          )
-        );
+        .where(whereCondition);
 
       const total = totalResult.length;
       const totalPages = Math.ceil(total / Number(limit));
 
       return {
-        posts: unclassifiedPosts,
+        posts,
         pagination: {
           page: Number(page),
           limit: Number(limit),
@@ -66,9 +82,9 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
         },
       };
     } catch (error: any) {
-      fastify.log.error('Failed to fetch unclassified posts:', error);
+      fastify.log.error('Failed to fetch Instagram posts:', error);
       reply.status(500);
-      return { error: 'Failed to fetch unclassified posts' };
+      return { error: 'Failed to fetch Instagram posts' };
     }
   });
 

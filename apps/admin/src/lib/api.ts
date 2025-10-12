@@ -290,7 +290,7 @@ export const instagramApi = {
 
 // Instagram Review API
 export const instagramReviewApi = {
-  getQueue: (params?: { page?: number; limit?: number }) => {
+  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'all' }) => {
     const searchParams = new URLSearchParams()
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -625,6 +625,8 @@ export interface InstagramEventRaw extends EventRaw {
   instagramPostId?: string
   instagramCaption?: string
   localImagePath?: string
+  isEventPoster?: boolean | null
+  classificationConfidence?: number
 }
 
 export interface InstagramEventWithSource {

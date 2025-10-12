@@ -167,6 +167,43 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // DELETE /api/instagram-backup/delete/:filename - Delete a backup
+  fastify.delete('/delete/:filename', async (request, reply) => {
+    const { filename } = request.params as { filename: string };
+
+    try {
+      // Security: only allow files in backup directory
+      if (filename.includes('..') || filename.includes('/')) {
+        reply.status(400);
+        return { error: 'Invalid filename' };
+      }
+
+      // Only allow deletion of backup files (must be .zip files starting with specific prefix)
+      if (!filename.endsWith('.zip') || !filename.startsWith('instagram-backup-')) {
+        reply.status(400);
+        return { error: 'Invalid backup filename format' };
+      }
+
+      const backupPath = path.join(BACKUP_DIR, filename);
+
+      // Check if file exists
+      await fs.access(backupPath);
+
+      // Delete the file
+      await fs.unlink(backupPath);
+
+      return { message: 'Backup deleted successfully', filename };
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        reply.status(404);
+        return { error: 'Backup file not found' };
+      }
+      fastify.log.error('Failed to delete backup:', error);
+      reply.status(500);
+      return { error: 'Failed to delete backup', details: error.message };
+    }
+  });
+
   // POST /api/instagram-backup/restore - Restore from backup zip
   fastify.post('/restore', async (request, reply) => {
     try {

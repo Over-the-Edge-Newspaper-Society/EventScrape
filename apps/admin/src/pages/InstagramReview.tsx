@@ -3,18 +3,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { instagramReviewApi, API_BASE_URL } from '@/lib/api'
 import { CheckCircle, XCircle, Calendar, MapPin, Instagram, ExternalLink } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 import { toast } from 'sonner'
 
+type FilterType = 'pending' | 'event' | 'not-event' | 'all'
+
 export function InstagramReview() {
   const [page, setPage] = useState(1)
+  const [filter, setFilter] = useState<FilterType>('pending')
   const queryClient = useQueryClient()
 
   const { data: queue, isLoading } = useQuery({
-    queryKey: ['instagram-review-queue', page],
-    queryFn: () => instagramReviewApi.getQueue({ page, limit: 20 }),
+    queryKey: ['instagram-review-queue', page, filter],
+    queryFn: () => instagramReviewApi.getQueue({ page, limit: 20, filter }),
   })
 
   const { data: stats } = useQuery({
@@ -41,6 +45,11 @@ export function InstagramReview() {
 
   const handleMarkAsNotEvent = (postId: string) => {
     classifyMutation.mutate({ id: postId, isEventPoster: false })
+  }
+
+  const handleFilterChange = (newFilter: string) => {
+    setFilter(newFilter as FilterType)
+    setPage(1) // Reset to first page when changing filter
   }
 
   return (
@@ -80,6 +89,24 @@ export function InstagramReview() {
           </CardContent>
         </Card>
       )}
+
+      {/* Filter Tabs */}
+      <Tabs value={filter} onValueChange={handleFilterChange}>
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="pending">
+            Pending Review {stats && `(${stats.unclassified})`}
+          </TabsTrigger>
+          <TabsTrigger value="event">
+            Marked as Event {stats && `(${stats.markedAsEvent})`}
+          </TabsTrigger>
+          <TabsTrigger value="not-event">
+            Not Event {stats && `(${stats.markedAsNotEvent})`}
+          </TabsTrigger>
+          <TabsTrigger value="all">
+            All {stats && `(${stats.total})`}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Review Queue */}
       <div className="space-y-4">
@@ -212,28 +239,49 @@ export function InstagramReview() {
                       </div>
                     </div>
 
-                    {/* Classification Actions */}
-                    <div className="flex gap-3 pt-4 border-t">
-                      <Button
-                        onClick={() => handleMarkAsEvent(event.id)}
-                        disabled={classifyMutation.isPending}
-                        className="flex-1"
-                        size="lg"
-                      >
-                        <CheckCircle className="h-5 w-5 mr-2" />
-                        Mark Event
-                      </Button>
-                      <Button
-                        onClick={() => handleMarkAsNotEvent(event.id)}
-                        disabled={classifyMutation.isPending}
-                        variant="outline"
-                        className="flex-1"
-                        size="lg"
-                      >
-                        <XCircle className="h-5 w-5 mr-2" />
-                        Not Event
-                      </Button>
-                    </div>
+                    {/* Classification Actions - only show for pending/all views */}
+                    {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
+                      <div className="flex gap-3 pt-4 border-t">
+                        <Button
+                          onClick={() => handleMarkAsEvent(event.id)}
+                          disabled={classifyMutation.isPending}
+                          className="flex-1"
+                          size="lg"
+                        >
+                          <CheckCircle className="h-5 w-5 mr-2" />
+                          Mark Event
+                        </Button>
+                        <Button
+                          onClick={() => handleMarkAsNotEvent(event.id)}
+                          disabled={classifyMutation.isPending}
+                          variant="outline"
+                          className="flex-1"
+                          size="lg"
+                        >
+                          <XCircle className="h-5 w-5 mr-2" />
+                          Not Event
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Classification Status - show for already-classified items */}
+                    {event.isEventPoster !== null && (
+                      <div className="pt-4 border-t">
+                        <div className="flex items-center gap-2">
+                          {event.isEventPoster ? (
+                            <>
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                              <span className="text-sm font-medium text-green-600">Marked as Event</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-5 w-5 text-gray-500" />
+                              <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}

@@ -34,13 +34,94 @@ export function EventTable({
       : <ArrowUp className="h-4 w-4" />
   }
 
+  // Helper to get display title - use Gemini extraction if available
+  const getDisplayTitle = (event: EventWithSource['event']) => {
+    // Check if raw data contains Gemini extraction
+    const geminiEvent = event.raw?.events?.[0]
+    if (geminiEvent?.title) {
+      return geminiEvent.title
+    }
+    return event.title
+  }
+
+  // Helper to get display dates - use Gemini extraction if available
+  const getDisplayDates = (event: EventWithSource['event']) => {
+    const geminiEvent = event.raw?.events?.[0]
+    if (geminiEvent?.startDate && geminiEvent?.startTime) {
+      // Combine date and time from Gemini extraction
+      const startDatetime = new Date(`${geminiEvent.startDate}T${geminiEvent.startTime}`)
+      let endDatetime = null
+
+      if (geminiEvent.endDate && geminiEvent.endTime) {
+        endDatetime = new Date(`${geminiEvent.endDate}T${geminiEvent.endTime}`)
+      }
+
+      return { startDatetime, endDatetime }
+    }
+
+    // Fallback to database values
+    return {
+      startDatetime: new Date(event.startDatetime),
+      endDatetime: event.endDatetime ? new Date(event.endDatetime) : null
+    }
+  }
+
+  // Helper to get display category - use Gemini extraction if available
+  const getDisplayCategory = (event: EventWithSource['event']) => {
+    const geminiEvent = event.raw?.events?.[0]
+    if (geminiEvent?.category) {
+      return geminiEvent.category
+    }
+    return event.category
+  }
+
+  // Helper to get display organizer - use Gemini extraction if available
+  const getDisplayOrganizer = (event: EventWithSource['event']) => {
+    const geminiEvent = event.raw?.events?.[0]
+    if (geminiEvent?.organizer) {
+      return geminiEvent.organizer
+    }
+    return event.organizer
+  }
+
+  // Helper to get display price - use Gemini extraction if available
+  const getDisplayPrice = (event: EventWithSource['event']) => {
+    const geminiEvent = event.raw?.events?.[0]
+    if (geminiEvent?.price) {
+      return geminiEvent.price
+    }
+    return event.price
+  }
+
   const getMissingFields = (event: EventWithSource) => {
     const missing = []
-    if (!event.event.descriptionHtml) missing.push('Description')
-    if (!event.event.venueName) missing.push('Venue')
-    if (!event.event.city) missing.push('City')
-    if (!event.event.organizer) missing.push('Organizer')
-    if (!event.event.category) missing.push('Category')
+    const geminiEvent = event.event.raw?.events?.[0]
+
+    // Check description - from database or Gemini extraction
+    if (!event.event.descriptionHtml && !geminiEvent?.description) {
+      missing.push('Description')
+    }
+
+    // Check venue - from database or Gemini extraction
+    if (!event.event.venueName && !geminiEvent?.venue?.name) {
+      missing.push('Venue')
+    }
+
+    // Check city - from database or Gemini extraction
+    if (!event.event.city && !geminiEvent?.venue?.city) {
+      missing.push('City')
+    }
+
+    // Check organizer - from database or Gemini extraction
+    if (!event.event.organizer && !geminiEvent?.organizer) {
+      missing.push('Organizer')
+    }
+
+    // Check category - from database or Gemini extraction
+    if (!event.event.category && !geminiEvent?.category) {
+      missing.push('Category')
+    }
+
     return missing
   }
 
@@ -134,20 +215,20 @@ export function EventTable({
                   <TableCell>
                     <div>
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm">{event.title}</p>
+                        <p className="font-medium text-sm">{getDisplayTitle(event)}</p>
                         <Badge variant="outline" className="text-xs flex items-center gap-1">
                           <Repeat className="h-3 w-3" />
                           {index + 1}/{seriesCount}
                         </Badge>
                       </div>
-                      {event.category && (
+                      {getDisplayCategory(event) && (
                         <Badge variant="secondary" className="text-xs mt-1">
-                          {event.category}
+                          {getDisplayCategory(event)}
                         </Badge>
                       )}
-                      {event.organizer && (
+                      {getDisplayOrganizer(event) && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          by {event.organizer}
+                          by {getDisplayOrganizer(event)}
                         </p>
                       )}
                     </div>
@@ -225,9 +306,9 @@ export function EventTable({
                           </div>
                         </div>
                       )}
-                      {event.price && (
+                      {getDisplayPrice(event) && (
                         <Badge variant="success" className="text-xs">
-                          {event.price}
+                          {getDisplayPrice(event)}
                         </Badge>
                       )}
                     </div>
@@ -270,7 +351,7 @@ export function EventTable({
           }
 
           // Otherwise, show a single row for non-series events
-          const eventDate = new Date(event.startDatetime)
+          const { startDatetime: eventDate, endDatetime: eventEndDate } = getDisplayDates(event)
 
           return (
             <TableRow key={event.id}>
@@ -284,16 +365,16 @@ export function EventTable({
               <TableCell>
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-sm">{event.title}</p>
+                    <p className="font-medium text-sm">{getDisplayTitle(event)}</p>
                   </div>
-                  {event.category && (
+                  {getDisplayCategory(event) && (
                     <Badge variant="secondary" className="text-xs mt-1">
-                      {event.category}
+                      {getDisplayCategory(event)}
                     </Badge>
                   )}
-                  {event.organizer && (
+                  {getDisplayOrganizer(event) && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      by {event.organizer}
+                      by {getDisplayOrganizer(event)}
                     </p>
                   )}
                 </div>
@@ -305,6 +386,9 @@ export function EventTable({
                     <p className="text-sm">{eventDate.toLocaleDateString()}</p>
                     <p className="text-xs text-muted-foreground">
                       {eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {eventEndDate && (
+                        <> - {eventEndDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -360,9 +444,9 @@ export function EventTable({
                       </div>
                     </div>
                   )}
-                  {event.price && (
+                  {getDisplayPrice(event) && (
                     <Badge variant="success" className="text-xs">
-                      {event.price}
+                      {getDisplayPrice(event)}
                     </Badge>
                   )}
                 </div>
