@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { instagramReviewApi, API_BASE_URL } from '@/lib/api'
-import { CheckCircle, XCircle, Calendar, MapPin, Instagram, ExternalLink } from 'lucide-react'
+import { CheckCircle, XCircle, Calendar, MapPin, Instagram, ExternalLink, Sparkles, Loader2 } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -39,6 +39,36 @@ export function InstagramReview() {
     },
   })
 
+  const extractMutation = useMutation({
+    mutationFn: ({ id, overwrite }: { id: string; overwrite?: boolean }) =>
+      instagramReviewApi.extractEvent(id, { overwrite, createEvents: true }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+      toast.success(data.message, {
+        description: `Created ${data.eventsCreated} event record(s)`,
+      })
+    },
+    onError: (error: any) => {
+      if (error.message?.includes('already has extracted')) {
+        toast.error('Post already has extracted data', {
+          description: 'Use "Re-extract" button to overwrite existing data',
+        })
+      } else if (error.message?.includes('Gemini API key')) {
+        toast.error('Gemini API key not configured', {
+          description: 'Configure in Instagram Settings',
+        })
+      } else if (error.message?.includes('local image')) {
+        toast.error('Post does not have a downloaded image', {
+          description: 'Image must be downloaded during initial scrape',
+        })
+      } else {
+        toast.error('Failed to extract event data', {
+          description: error.message || 'Unknown error',
+        })
+      }
+    },
+  })
+
   const handleMarkAsEvent = (postId: string) => {
     classifyMutation.mutate({ id: postId, isEventPoster: true })
   }
@@ -47,9 +77,23 @@ export function InstagramReview() {
     classifyMutation.mutate({ id: postId, isEventPoster: false })
   }
 
+  const handleExtract = (postId: string, overwrite: boolean = false) => {
+    extractMutation.mutate({ id: postId, overwrite })
+  }
+
   const handleFilterChange = (newFilter: string) => {
     setFilter(newFilter as FilterType)
     setPage(1) // Reset to first page when changing filter
+  }
+
+  const hasExtractedData = (event: any) => {
+    if (!event.raw) return false
+    try {
+      const parsed = typeof event.raw === 'string' ? JSON.parse(event.raw) : event.raw
+      return parsed.events && parsed.events.length > 0
+    } catch {
+      return false
+    }
   }
 
   return (
@@ -57,7 +101,7 @@ export function InstagramReview() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Review Queue</h1>
         <p className="text-muted-foreground">
-          Classify Instagram posts as events or non-events
+          Classify Instagram posts as events or non-events, then extract event data with AI
         </p>
       </div>
 
@@ -266,7 +310,7 @@ export function InstagramReview() {
 
                     {/* Classification Status - show for already-classified items */}
                     {event.isEventPoster !== null && (
-                      <div className="pt-4 border-t">
+                      <div className="pt-4 border-t space-y-3">
                         <div className="flex items-center gap-2">
                           {event.isEventPoster ? (
                             <>
@@ -280,6 +324,48 @@ export function InstagramReview() {
                             </>
                           )}
                         </div>
+
+                        {/* Extraction buttons - only for events with images */}
+                        {event.isEventPoster && event.localImagePath && (
+                          <div className="flex gap-2 items-center">
+                            {!hasExtractedData(event) ? (
+                              <Button
+                                onClick={() => handleExtract(event.id)}
+                                disabled={extractMutation.isPending}
+                                variant="default"
+                                size="sm"
+                                className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                              >
+                                {extractMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                ) : (
+                                  <Sparkles className="h-4 w-4 mr-2" />
+                                )}
+                                Extract Event Data with AI
+                              </Button>
+                            ) : (
+                              <>
+                                <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                                  <Sparkles className="h-3 w-3" />
+                                  Event data extracted
+                                </Badge>
+                                <Button
+                                  onClick={() => handleExtract(event.id, true)}
+                                  disabled={extractMutation.isPending}
+                                  variant="outline"
+                                  size="sm"
+                                >
+                                  {extractMutation.isPending ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-4 w-4 mr-2" />
+                                  )}
+                                  Re-extract
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>

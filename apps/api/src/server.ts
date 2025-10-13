@@ -23,6 +23,7 @@ import { instagramSourcesRoutes } from './routes/instagram-sources.js';
 import { instagramSettingsRoutes } from './routes/instagram-settings.js';
 import { instagramBackupRoutes } from './routes/instagram-backup.js';
 import { instagramReviewRoutes } from './routes/instagram-review.js';
+import { instagramApifyRoutes } from './routes/instagram-apify.js';
 import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 import { runMigrations } from './db/migrate.js';
 
@@ -146,6 +147,7 @@ await fastify.register(instagramSourcesRoutes, { prefix: '/api/instagram-sources
 await fastify.register(instagramSettingsRoutes, { prefix: '/api/instagram-settings' });
 await fastify.register(instagramBackupRoutes, { prefix: '/api/instagram-backup' });
 await fastify.register(instagramReviewRoutes, { prefix: '/api/instagram-review' });
+await fastify.register(instagramApifyRoutes, { prefix: '/api/instagram-apify' });
 
 // Initialize schedule worker and sync schedules
 await runMigrations();

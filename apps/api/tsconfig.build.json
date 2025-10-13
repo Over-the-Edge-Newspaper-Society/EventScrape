@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.json", 
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "allowImportingTsExtensions": false,
@@ -8,6 +8,7 @@
     "target": "ES2022",
     "lib": ["ES2022"],
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "skipLibCheck": true
   }
 }

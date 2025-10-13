@@ -2,12 +2,23 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { eventsRaw, sources } from '../db/schema.js';
+import { eventsRaw, sources, instagramSettings } from '../db/schema.js';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 const classifyPostSchema = z.object({
   isEventPoster: z.boolean(),
   classificationConfidence: z.number().min(0).max(1).optional(),
 });
+
+const extractOptionsSchema = z.object({
+  overwrite: z.boolean().optional().default(false),
+  createEvents: z.boolean().optional().default(true),
+});
+
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+const INSTAGRAM_SOURCE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_images';
 
 export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-review/queue - Get Instagram posts with optional filter
@@ -133,6 +144,157 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.error(`Failed to classify post ${id}:`, error);
       reply.status(500);
       return { error: 'Failed to classify post' };
+    }
+  });
+
+  // POST /api/instagram-review/:id/extract - Extract event data with Gemini
+  fastify.post<{ Params: { id: string } }>('/:id/extract', async (request, reply) => {
+    const { id } = request.params;
+
+    try {
+      const options = extractOptionsSchema.parse(request.body);
+
+      // Get Gemini API key
+      const [settings] = await db
+        .select({ geminiApiKey: instagramSettings.geminiApiKey })
+        .from(instagramSettings)
+        .where(eq(instagramSettings.id, SETTINGS_ID));
+
+      const GEMINI_API_KEY = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+
+      if (!GEMINI_API_KEY) {
+        reply.status(400);
+        return { error: 'Gemini API key not configured' };
+      }
+
+      // Get post with source info
+      const [result] = await db
+        .select({
+          event: eventsRaw,
+          source: sources,
+        })
+        .from(eventsRaw)
+        .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .where(and(eq(eventsRaw.id, id), eq(sources.sourceType, 'instagram')));
+
+      if (!result) {
+        reply.status(404);
+        return { error: 'Instagram post not found' };
+      }
+
+      const { event: post, source } = result;
+
+      // Check if image exists
+      if (!post.localImagePath) {
+        reply.status(400);
+        return { error: 'Post does not have a local image. Image must be downloaded first.' };
+      }
+
+      const fullImagePath = path.join(DOWNLOAD_DIR, post.localImagePath);
+
+      // Check if already has extraction and overwrite is false
+      if (post.raw && !options.overwrite) {
+        try {
+          const existingData = JSON.parse(post.raw as string);
+          if (existingData.events && existingData.events.length > 0) {
+            reply.status(400);
+            return {
+              error: 'Post already has extracted data. Set overwrite=true to re-extract.',
+              existingData,
+            };
+          }
+        } catch {
+          // Invalid JSON, proceed with extraction
+        }
+      }
+
+      // Dynamic import to avoid loading in non-worker context
+      // @ts-ignore - Cross-package import, resolved at runtime
+      const { extractEventFromImageFile } = await import(
+        '../../../../worker/src/modules/instagram/gemini-extractor.js'
+      );
+
+      // Run Gemini extraction
+      const geminiResult = await extractEventFromImageFile(
+        fullImagePath,
+        GEMINI_API_KEY,
+        {
+          caption: post.instagramCaption || undefined,
+          postTimestamp: post.scrapedAt || undefined,
+        }
+      );
+
+      // Update the post with extracted data
+      await db
+        .update(eventsRaw)
+        .set({
+          raw: JSON.stringify(geminiResult),
+        })
+        .where(eq(eventsRaw.id, id));
+
+      let eventsCreated = 0;
+
+      // Optionally create new event records
+      if (options.createEvents && geminiResult.events && geminiResult.events.length > 0) {
+        const timezone = source.defaultTimezone || 'America/Vancouver';
+
+        for (const event of geminiResult.events) {
+          // Parse date/time
+          const startDateTime = new Date(`${event.startDate}T${event.startTime || '00:00:00'}`);
+          const endDateTime = event.endDate
+            ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`)
+            : null;
+
+          // Create new event record
+          await db.insert(eventsRaw).values({
+            sourceId: INSTAGRAM_SOURCE_ID,
+            runId: uuidv4(), // Create a manual extraction run
+            sourceEventId: `${post.instagramPostId}-${Date.now()}`, // Unique ID
+            title: event.title,
+            descriptionHtml: event.description || '',
+            startDatetime: startDateTime,
+            endDatetime: endDateTime,
+            timezone: event.timezone || timezone,
+            venueName: event.venue?.name || null,
+            venueAddress: event.venue?.address || null,
+            city: event.venue?.city || null,
+            region: event.venue?.region || null,
+            country: event.venue?.country || null,
+            organizer: event.organizer || null,
+            category: event.category || null,
+            price: event.price || null,
+            tags: event.tags ? JSON.stringify(event.tags) : null,
+            url: post.url || `https://instagram.com/p/${post.instagramPostId}/`,
+            imageUrl: post.imageUrl,
+            raw: JSON.stringify(geminiResult),
+            contentHash: `${post.instagramPostId}-extraction-${Date.now()}`,
+            instagramAccountId: source.id,
+            instagramPostId: post.instagramPostId,
+            instagramCaption: post.instagramCaption,
+            localImagePath: post.localImagePath,
+            classificationConfidence: post.classificationConfidence,
+            isEventPoster: true, // Mark as event since we're extracting
+          });
+
+          eventsCreated++;
+        }
+      }
+
+      return {
+        success: true,
+        message: `Extracted ${geminiResult.events?.length || 0} event(s) from post`,
+        extraction: geminiResult,
+        eventsCreated,
+      };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { error: 'Validation error', details: error.errors };
+      }
+
+      fastify.log.error(`Failed to extract event from post ${id}:`, error);
+      reply.status(500);
+      return { error: error.message || 'Failed to extract event data' };
     }
   });
 

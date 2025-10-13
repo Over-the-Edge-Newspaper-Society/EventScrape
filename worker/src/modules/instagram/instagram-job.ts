@@ -7,6 +7,7 @@ import { Job } from 'bullmq';
 import { queryClient as db } from '../../lib/database.js';
 import { InstagramScraper, RateLimitError, InstagramAuthError, createScraperWithSession } from './scraper.js';
 import { ApifyScraper, ApifyRateLimitError, ApifyAuthError, createApifyScraper } from './apify-scraper.js';
+import { createEnhancedApifyClient, ApifyClientError, ApifyRunTimeoutError } from './enhanced-apify-client.js';
 import { classify } from './classifier.js';
 import { extractEventFromImageFile } from './gemini-extractor.js';
 import path from 'path';
@@ -79,15 +80,82 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     job.log(`Fetching posts from @${account.instagram_username} using ${scraperType} scraper`);
 
     // 2. Create scraper instance based on type
-    let scraper: InstagramScraper | ApifyScraper;
+    let scraper: InstagramScraper | ApifyScraper | any; // 'any' to support enhanced client
 
     if (scraperType === 'apify') {
-      // Use Apify scraper
+      // Use Enhanced Apify scraper (with Node runner support)
       if (!APIFY_API_TOKEN) {
         throw new ApifyAuthError('Apify API token not configured. Set APIFY_API_TOKEN environment variable.');
       }
-      scraper = await createApifyScraper(APIFY_API_TOKEN);
-      job.log('Using Apify scraper (official API)');
+
+      // Use enhanced client if available
+      const useEnhancedClient = process.env.USE_ENHANCED_APIFY_CLIENT !== 'false'; // default true
+
+      if (useEnhancedClient) {
+        try {
+          const enhancedClient = await createEnhancedApifyClient(
+            APIFY_API_TOKEN,
+            settings.apifyActorId || undefined
+          );
+
+          // Wrap enhanced client with compatible interface
+          scraper = {
+            async fetchRecentPosts(username: string, limit: number, knownPostIds: Set<string>) {
+              const posts = await enhancedClient.fetchPostsBatch(
+                [username],
+                limit,
+                new Map([[username, knownPostIds]])
+              );
+
+              const userPosts = posts.get(username) || [];
+
+              // Convert enhanced format to standard format
+              return userPosts.map(post => ({
+                id: post.id,
+                caption: post.caption || '',
+                imageUrl: post.imageUrl,
+                timestamp: post.timestamp,
+                isVideo: post.isVideo,
+                permalink: post.permalink,
+              }));
+            },
+
+            async downloadImage(imageUrl: string, postId: string, downloadDir: string) {
+              // Use basic download since enhanced client doesn't have this
+              const { default: axios } = await import('axios');
+              const { default: fs } = await import('fs/promises');
+
+              await fs.mkdir(downloadDir, { recursive: true });
+              const extension = imageUrl.split('?')[0].split('.').pop() || 'jpg';
+              const filename = `${postId}.${extension}`;
+              const filepath = path.join(downloadDir, filename);
+
+              try {
+                await fs.access(filepath);
+                return filename;
+              } catch {}
+
+              const response = await axios.get(imageUrl, {
+                responseType: 'arraybuffer',
+                timeout: 30000,
+              });
+
+              await fs.writeFile(filepath, response.data);
+              return filename;
+            }
+          };
+
+          const runtimeInfo = enhancedClient.getRuntimeInfo();
+          job.log(`Using Enhanced Apify client (${runtimeInfo.usingNode ? 'Node runner' : 'REST API'})`);
+        } catch (error: any) {
+          job.log(`Enhanced Apify client failed, falling back to basic: ${error.message}`);
+          scraper = await createApifyScraper(APIFY_API_TOKEN);
+          job.log('Using basic Apify scraper (REST API)');
+        }
+      } else {
+        scraper = await createApifyScraper(APIFY_API_TOKEN);
+        job.log('Using basic Apify scraper (REST API)');
+      }
     } else {
       // Use instagram-private-api scraper (requires session)
       const sessionResult = await db`
@@ -266,15 +334,21 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
       runId,
     };
   } catch (error: any) {
-    // Handle rate limit errors from both scrapers
+    // Handle rate limit errors from all scrapers
     if (error instanceof RateLimitError || error instanceof ApifyRateLimitError) {
       job.log(`Rate limit hit: ${error.message}`);
       throw error; // Will retry later
     }
 
-    // Handle auth errors from both scrapers
+    // Handle auth errors from all scrapers
     if (error instanceof InstagramAuthError || error instanceof ApifyAuthError) {
       job.log(`Authentication error: ${error.message}`);
+      throw error;
+    }
+
+    // Handle enhanced client errors
+    if (error instanceof ApifyClientError || error instanceof ApifyRunTimeoutError) {
+      job.log(`Apify client error: ${error.message}`);
       throw error;
     }
 

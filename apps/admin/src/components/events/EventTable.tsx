@@ -1,12 +1,15 @@
+import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DialogTrigger } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { EventWithSource, EventsQueryParams } from '@/lib/api'
+import { EventWithSource, EventsQueryParams, instagramReviewApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Calendar, MapPin, ExternalLink, AlertCircle, Eye, ArrowUpDown, ArrowUp, ArrowDown, Repeat } from 'lucide-react'
+import { Calendar, MapPin, ExternalLink, AlertCircle, Eye, ArrowUpDown, ArrowUp, ArrowDown, Repeat, Sparkles, Loader2 } from 'lucide-react'
 import { EventDetailDialog } from './EventDetailDialog'
+import { toast } from 'sonner'
 
 interface EventTableProps {
   events: EventWithSource[]
@@ -25,6 +28,65 @@ export function EventTable({
   onSelectAll,
   onSort
 }: EventTableProps) {
+  const queryClient = useQueryClient()
+  const [extractingIds, setExtractingIds] = useState<Set<string>>(new Set())
+
+  const extractMutation = useMutation({
+    mutationFn: ({ id }: { id: string }) =>
+      instagramReviewApi.extractEvent(id, { overwrite: true, createEvents: true }),
+    onSuccess: (data, variables) => {
+      setExtractingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(variables.id)
+        return newSet
+      })
+      queryClient.invalidateQueries({ queryKey: ['events', 'raw'] })
+      toast.success(data.message, {
+        description: `Created ${data.eventsCreated} event record(s)`,
+      })
+    },
+    onError: (error: any, variables) => {
+      setExtractingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(variables.id)
+        return newSet
+      })
+      if (error.message?.includes('Gemini API key')) {
+        toast.error('Gemini API key not configured', {
+          description: 'Configure in Instagram Settings',
+        })
+      } else if (error.message?.includes('local image')) {
+        toast.error('Post does not have a downloaded image')
+      } else {
+        toast.error('Failed to extract event data', {
+          description: error.message || 'Unknown error',
+        })
+      }
+    },
+  })
+
+  const handleReExtract = (eventId: string) => {
+    setExtractingIds(prev => new Set(prev).add(eventId))
+    extractMutation.mutate({ id: eventId })
+  }
+
+  const isInstagramEvent = (source: EventWithSource['source']) => {
+    return source.sourceType === 'instagram' || source.moduleKey?.includes('instagram')
+  }
+
+  const hasLocalImage = (event: EventWithSource['event']) => {
+    return !!event.localImagePath
+  }
+
+  const hasExtractedData = (event: EventWithSource['event']) => {
+    try {
+      const parsed = typeof event.raw === 'string' ? JSON.parse(event.raw) : event.raw
+      return parsed?.events && parsed.events.length > 0
+    } catch {
+      return false
+    }
+  }
+
   const getSortIcon = (field: string) => {
     if (filters.sortBy !== field) {
       return <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
@@ -128,6 +190,34 @@ export function EventTable({
   const isEventSeries = (event: EventWithSource) => {
     const seriesDates = event.event.raw?.seriesDates
     return Array.isArray(seriesDates) && seriesDates.length > 1
+  }
+
+  const renderReExtractButton = (event: EventWithSource['event'], source: EventWithSource['source']) => {
+    // Only show for Instagram events with local images
+    if (!isInstagramEvent(source) || !hasLocalImage(event)) {
+      return null
+    }
+
+    const isExtracting = extractingIds.has(event.id)
+    const hasData = hasExtractedData(event)
+
+    return (
+      <Button
+        size="sm"
+        variant={hasData ? "outline" : "default"}
+        onClick={() => handleReExtract(event.id)}
+        disabled={isExtracting}
+        className={hasData ? "" : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"}
+        title={hasData ? "Re-extract event data with Gemini AI" : "Extract event data with Gemini AI"}
+      >
+        {isExtracting ? (
+          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+        ) : (
+          <Sparkles className="h-3 w-3 mr-1" />
+        )}
+        {hasData ? 'Re-extract' : 'Extract'}
+      </Button>
+    )
   }
 
   return (
@@ -314,7 +404,9 @@ export function EventTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                      {renderReExtractButton(event, source)}
+
                       <EventDetailDialog event={{ event, source }}>
                         <DialogTrigger asChild>
                           <Button
@@ -452,7 +544,9 @@ export function EventTable({
                 </div>
               </TableCell>
               <TableCell>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  {renderReExtractButton(event, source)}
+
                   <EventDetailDialog event={{ event, source }}>
                     <DialogTrigger asChild>
                       <Button

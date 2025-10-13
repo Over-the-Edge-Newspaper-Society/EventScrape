@@ -306,6 +306,16 @@ export const instagramReviewApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }) =>
+    fetchApi<{
+      success: boolean;
+      message: string;
+      extraction: any;
+      eventsCreated: number;
+    }>(`/instagram-review/${id}/extract`, {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
   getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
 }
 
@@ -315,6 +325,7 @@ export interface Source {
   name: string
   baseUrl: string
   moduleKey: string
+  sourceType?: string
   active: boolean
   defaultTimezone: string
   notes?: string
@@ -399,11 +410,18 @@ export interface EventRaw {
   lastSeenAt?: string
   raw: any
   contentHash: string
+  // Instagram-specific fields
+  instagramAccountId?: string
+  instagramPostId?: string
+  instagramCaption?: string
+  localImagePath?: string
+  isEventPoster?: boolean | null
+  classificationConfidence?: number
 }
 
 export interface EventWithSource {
   event: EventRaw
-  source: Pick<Source, 'id' | 'name' | 'moduleKey' | 'baseUrl'>
+  source: Pick<Source, 'id' | 'name' | 'moduleKey' | 'baseUrl' | 'sourceType'>
 }
 
 export interface CanonicalEvent {
