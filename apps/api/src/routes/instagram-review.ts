@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { eventsRaw, sources, instagramSettings } from '../db/schema.js';
+import { eventsRaw, sources, instagramSettings, instagramAccounts } from '../db/schema.js';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -63,9 +63,17 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             moduleKey: sources.moduleKey,
             instagramUsername: sources.instagramUsername,
           },
+          account: {
+            id: instagramAccounts.id,
+            name: instagramAccounts.name,
+            instagramUsername: instagramAccounts.instagramUsername,
+            classificationMode: instagramAccounts.classificationMode,
+            active: instagramAccounts.active,
+          },
         })
         .from(eventsRaw)
         .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .leftJoin(instagramAccounts, eq(eventsRaw.instagramAccountId, instagramAccounts.id))
         .where(whereCondition)
         .orderBy(desc(eventsRaw.scrapedAt))
         .limit(Number(limit))

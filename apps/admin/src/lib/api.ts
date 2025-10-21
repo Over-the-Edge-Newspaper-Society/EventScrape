@@ -649,7 +649,14 @@ export interface InstagramEventRaw extends EventRaw {
 
 export interface InstagramEventWithSource {
   event: InstagramEventRaw
-  source: Pick<Source, 'id' | 'name' | 'moduleKey'> & { instagramUsername: string }
+  source: Pick<Source, 'id' | 'name' | 'moduleKey'> & { instagramUsername: string | null }
+  account?: {
+    id: string
+    name: string
+    instagramUsername: string | null
+    classificationMode: 'manual' | 'auto'
+    active: boolean
+  } | null
 }
 
 export interface InstagramReviewQueueResponse {
