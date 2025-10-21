@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { eventsRaw, sources, instagramSettings, instagramAccounts } from '../db/schema.js';
+import { eventsRaw, sources, instagramSettings, instagramAccounts, runs } from '../db/schema.js';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -217,10 +217,12 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Dynamic import to avoid loading in non-worker context
-      // @ts-ignore - Cross-package import, resolved at runtime
-      const { extractEventFromImageFile } = await import(
-        '../../../../worker/src/modules/instagram/gemini-extractor.js'
-      );
+      // Import path is constructed at runtime to work in both dev and production
+      const importPath = new URL(
+        '../worker/src/modules/instagram/gemini-extractor.js',
+        import.meta.url
+      ).href;
+      const { extractEventFromImageFile } = await import(importPath);
 
       // Run Gemini extraction
       const geminiResult = await extractEventFromImageFile(
@@ -246,6 +248,15 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       if (options.createEvents && geminiResult.events && geminiResult.events.length > 0) {
         const timezone = source.defaultTimezone || 'America/Vancouver';
 
+        // Create a manual extraction run for these events
+        const [manualRun] = await db.insert(runs).values({
+          sourceId: INSTAGRAM_SOURCE_ID,
+          status: 'success',
+          pagesCrawled: 1,
+          eventsFound: geminiResult.events.length,
+          finishedAt: new Date(),
+        }).returning();
+
         for (const event of geminiResult.events) {
           // Parse date/time
           const startDateTime = new Date(`${event.startDate}T${event.startTime || '00:00:00'}`);
@@ -256,7 +267,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
           // Create new event record
           await db.insert(eventsRaw).values({
             sourceId: INSTAGRAM_SOURCE_ID,
-            runId: uuidv4(), // Create a manual extraction run
+            runId: manualRun.id, // Use the manual extraction run ID
             sourceEventId: `${post.instagramPostId}-${Date.now()}`, // Unique ID
             title: event.title,
             descriptionHtml: event.description || '',

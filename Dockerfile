@@ -31,6 +31,9 @@ RUN ls -la && ls -la apps && ls -la worker
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
+# Build worker first (needed by API for module imports)
+RUN pnpm --filter @eventscrape/worker build
+
 # Build API
 FROM base AS api-builder
 RUN pnpm --filter @eventscrape/api build
@@ -60,9 +63,8 @@ COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-workspace.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-lock.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=api-builder --chown=eventscrape:nodejs /app/apps/api/package.json ./apps/api/
-RUN mkdir -p /worker/src /data/exports /data/backups
-COPY --from=api-builder --chown=eventscrape:nodejs /app/worker/src/modules /worker/src/modules
-RUN chown -R eventscrape:nodejs /data/exports /data/backups
+RUN mkdir -p /data/exports /data/backups /data/instagram_images
+RUN chown -R eventscrape:nodejs /data/exports /data/backups /data/instagram_images
 RUN pnpm install --frozen-lockfile --prod
 # Manually build better-sqlite3 native addon
 RUN cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm run build-release || true
