@@ -291,121 +291,45 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         imagesRestored: 0,
       };
 
-      // Restore sources (replace existing)
+      // Restore sources
       for (const source of sourcesData) {
         try {
-          // Check if already exists
-          const [existing] = await db
-            .select()
-            .from(sources)
-            .where(eq(sources.moduleKey, source.moduleKey));
-
           const { id, ...sourceWithoutId } = source;
-
-          if (existing) {
-            // Update existing source
-            await db
-              .update(sources)
-              .set({
-                ...sourceWithoutId,
-                updatedAt: new Date(),
-              })
-              .where(eq(sources.moduleKey, source.moduleKey));
-            results.sourcesUpdated++;
-          } else {
-            // Create new source
-            await db.insert(sources).values(sourceWithoutId);
-            results.sourcesCreated++;
-          }
+          await db.insert(sources).values(sourceWithoutId);
+          results.sourcesCreated++;
         } catch (error: any) {
           fastify.log.warn(`Failed to restore source ${source.name}:`, error.message);
         }
       }
 
-      // Restore Instagram accounts (replace existing)
+      // Restore Instagram accounts
       for (const account of accountsData) {
         try {
-          // Check if already exists
-          const [existing] = await db
-            .select()
-            .from(instagramAccounts)
-            .where(eq(instagramAccounts.instagramUsername, account.instagramUsername));
-
           const { id, ...accountWithoutId } = account;
-
-          if (existing) {
-            // Update existing account
-            await db
-              .update(instagramAccounts)
-              .set({
-                ...accountWithoutId,
-                updatedAt: new Date(),
-              })
-              .where(eq(instagramAccounts.instagramUsername, account.instagramUsername));
-            results.accountsUpdated++;
-          } else {
-            // Create new account
-            await db.insert(instagramAccounts).values(accountWithoutId);
-            results.accountsCreated++;
-          }
+          await db.insert(instagramAccounts).values(accountWithoutId);
+          results.accountsCreated++;
         } catch (error: any) {
           fastify.log.warn(`Failed to restore Instagram account ${account.instagramUsername}:`, error.message);
         }
       }
 
-      // Restore sessions (replace existing)
+      // Restore sessions
       for (const session of sessionsData) {
         try {
-          const [existing] = await db
-            .select()
-            .from(instagramSessions)
-            .where(eq(instagramSessions.username, session.username));
-
           const { id, ...sessionWithoutId } = session;
-
-          if (existing) {
-            // Update existing session
-            await db
-              .update(instagramSessions)
-              .set({
-                ...sessionWithoutId,
-                updatedAt: new Date(),
-              })
-              .where(eq(instagramSessions.username, session.username));
-            results.sessionsUpdated++;
-          } else {
-            // Create new session
-            await db.insert(instagramSessions).values(sessionWithoutId);
-            results.sessionsCreated++;
-          }
+          await db.insert(instagramSessions).values(sessionWithoutId);
+          results.sessionsCreated++;
         } catch (error: any) {
           fastify.log.warn(`Failed to restore session ${session.username}:`, error.message);
         }
       }
 
-      // Restore events (replace existing)
+      // Restore events
       for (const event of eventsData) {
         try {
-          // Check by instagramPostId instead of id (since id is auto-incrementing)
-          const [existing] = await db
-            .select()
-            .from(eventsRaw)
-            .where(eq(eventsRaw.instagramPostId, event.instagramPostId));
-
           const { id, ...eventWithoutId } = event;
-
-          if (existing) {
-            // Update existing event
-            await db
-              .update(eventsRaw)
-              .set(eventWithoutId)
-              .where(eq(eventsRaw.instagramPostId, event.instagramPostId));
-            results.eventsUpdated++;
-          } else {
-            // Create new event
-            await db.insert(eventsRaw).values(eventWithoutId);
-            results.eventsCreated++;
-          }
+          await db.insert(eventsRaw).values(eventWithoutId);
+          results.eventsCreated++;
         } catch (error: any) {
           fastify.log.warn(`Failed to restore event ${event.instagramPostId || event.id}:`, error.message);
         }
