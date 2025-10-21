@@ -7,23 +7,22 @@ import { Settings } from 'lucide-react'
 
 interface SourceFormProps {
   source: Source | null
+  open?: boolean
   onClose: () => void
   onSave: (data: CreateSourceData) => Promise<void>
   children?: React.ReactNode
 }
 
-export function SourceForm({ source, onClose, onSave, children }: SourceFormProps) {
+export function SourceForm({ source, open, onClose, onSave, children }: SourceFormProps) {
   return (
-    <Dialog open={!!source || !!children} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={open ?? !!source} onOpenChange={(open) => !open && onClose()}>
       {children}
       <SourceFormContent source={source} onClose={onClose} onSave={onSave} />
     </Dialog>
   )
 }
 
-function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'children'>) {
-  if (!source) return null
-
+function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'children' | 'open'>) {
   const [formData, setFormData] = useState<CreateSourceData>({
     name: source?.name || '',
     baseUrl: source?.baseUrl || '',

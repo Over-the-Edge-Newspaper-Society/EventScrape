@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogTrigger } from '@/components/ui/dialog'
+import { DialogTrigger } from '@/components/ui/dialog'
 import { sourcesApi, runsApi, Source, CreateSourceData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Plus, RefreshCw, CheckCircle, Pause, AlertTriangle, Globe, Clock, Settings, Zap } from 'lucide-react'
@@ -129,8 +129,8 @@ export function Sources() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button 
-                onClick={handleSync} 
+              <Button
+                onClick={handleSync}
                 variant="outline"
                 disabled={syncSourcesMutation.isPending}
                 className="flex items-center gap-2"
@@ -138,19 +138,22 @@ export function Sources() {
                 <RefreshCw className={`h-4 w-4 ${syncSourcesMutation.isPending ? 'animate-spin' : ''}`} />
                 {syncSourcesMutation.isPending ? 'Syncing...' : 'Sync Modules'}
               </Button>
-              <Dialog open={showForm} onOpenChange={setShowForm}>
+              <SourceForm
+                source={selectedSource}
+                open={showForm}
+                onClose={() => {
+                  setShowForm(false)
+                  setSelectedSource(null)
+                }}
+                onSave={handleSave}
+              >
                 <DialogTrigger asChild>
                   <Button onClick={handleAdd} className="flex items-center gap-2">
                     <Plus className="h-4 w-4" />
                     Add Source
                   </Button>
                 </DialogTrigger>
-              <SourceForm
-                source={selectedSource}
-                onClose={() => setShowForm(false)}
-                onSave={handleSave}
-              />
-            </Dialog>
+              </SourceForm>
             </div>
           </div>
         </CardContent>

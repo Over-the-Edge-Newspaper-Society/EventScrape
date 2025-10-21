@@ -433,16 +433,37 @@ const tourismPgModule: ScraperModule = {
                             
                             // Handle next day if end time is earlier than start time
                             let endDay = parseInt(day);
+                            let endMonth = monthIndex;
+                            let endYear = parseInt(year);
+
                             if (endHourNum < hourNum) {
                               endDay += 1;
+
+                              // Check if we've gone past the end of the month
+                              const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                              // Account for leap years
+                              if (endMonth === 1 && endYear % 4 === 0 && (endYear % 100 !== 0 || endYear % 400 === 0)) {
+                                daysInMonth[1] = 29;
+                              }
+
+                              if (endDay > daysInMonth[endMonth]) {
+                                endDay = 1;
+                                endMonth += 1;
+
+                                // Handle year rollover
+                                if (endMonth > 11) {
+                                  endMonth = 0;
+                                  endYear += 1;
+                                }
+                              }
                             }
-                            
+
                             // Create timezone-neutral end date string
-                            const endMonthStr = String(monthIndex + 1).padStart(2, '0');
+                            const endMonthStr = String(endMonth + 1).padStart(2, '0');
                             const endDayStr = String(endDay).padStart(2, '0');
                             const endHourStr = String(endHourNum).padStart(2, '0');
                             const endMinuteStr = String(parseInt(endMinutes)).padStart(2, '0');
-                            eventEnd = `${year}-${endMonthStr}-${endDayStr} ${endHourStr}:${endMinuteStr}`;
+                            eventEnd = `${endYear}-${endMonthStr}-${endDayStr} ${endHourStr}:${endMinuteStr}`;
                           }
                         }
                       }
@@ -532,7 +553,7 @@ const tourismPgModule: ScraperModule = {
           
           if (eventDetails.locationParts.length > 0) {
             // First non-empty part is usually the venue address
-            const addressParts = eventDetails.locationParts.filter(part => 
+            const addressParts = eventDetails.locationParts.filter((part: string) =>
               part && !part.match(/^(Prince George|BC|V\d\w\s*\d\w\d)$/i)
             );
             
