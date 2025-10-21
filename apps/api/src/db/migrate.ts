@@ -208,6 +208,32 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0016 (Add gemini prompt)
+    try {
+      const sql16 = await readFile(migrationPath('0016_add_gemini_prompt.sql'), 'utf-8');
+      await migrationClient.unsafe(sql16);
+      console.log('✅ Applied migration 0016 (Add gemini prompt)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0016 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0016 not applied');
+      }
+    }
+
+    // Apply incremental migration 0017 (Fix Instagram account foreign key)
+    try {
+      const sql17 = await readFile(migrationPath('0017_fix_instagram_account_fkey.sql'), 'utf-8');
+      await migrationClient.unsafe(sql17);
+      console.log('✅ Applied migration 0017 (Fix Instagram account foreign key)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0017 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0017 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
