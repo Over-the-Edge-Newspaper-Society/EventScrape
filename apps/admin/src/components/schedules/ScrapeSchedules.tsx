@@ -140,6 +140,17 @@ export function ScrapeSchedules() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['schedules'] }),
   })
 
+  const triggerMutation = useMutation({
+    mutationFn: (id: string) => schedulesApi.trigger(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
+      toast.success('Schedule triggered successfully')
+    },
+    onError: () => {
+      toast.error('Failed to trigger schedule')
+    },
+  })
+
   return (
     <div className="space-y-6">
       <Card>
@@ -546,6 +557,21 @@ export function ScrapeSchedules() {
                     />
                   </TableCell>
                   <TableCell className="text-right space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await triggerMutation.mutateAsync(row.schedule.id)
+                        } catch {
+                          // Error handled by mutation
+                        }
+                      }}
+                      disabled={triggerMutation.isPending}
+                    >
+                      <Play className="h-3 w-3 mr-1" />
+                      Run Now
+                    </Button>
                     <Button
                       variant="destructive"
                       size="sm"

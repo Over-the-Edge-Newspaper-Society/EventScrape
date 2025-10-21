@@ -70,9 +70,9 @@ async function loadAvailableModules(): Promise<Array<{key: string, label: string
 }
 
 export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
-  // Get all sources
+  // Get all sources (excluding Instagram sources - those are in separate table)
   fastify.get('/', async () => {
-    const allSources = await db.select().from(sources);
+    const allSources = await db.select().from(sources).where(eq(sources.sourceType, 'website'));
     return { sources: allSources };
   });
 
