@@ -259,13 +259,17 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
 
       const results = {
         sourcesCreated: 0,
+        sourcesUpdated: 0,
         accountsCreated: 0,
+        accountsUpdated: 0,
         sessionsCreated: 0,
+        sessionsUpdated: 0,
         eventsCreated: 0,
+        eventsUpdated: 0,
         imagesRestored: 0,
       };
 
-      // Restore sources
+      // Restore sources (replace existing)
       for (const source of sourcesData) {
         try {
           // Check if already exists
@@ -274,9 +278,20 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .from(sources)
             .where(eq(sources.moduleKey, source.moduleKey));
 
-          if (!existing) {
-            // Remove the id field to let the database generate a new one
-            const { id, ...sourceWithoutId } = source;
+          const { id, ...sourceWithoutId } = source;
+
+          if (existing) {
+            // Update existing source
+            await db
+              .update(sources)
+              .set({
+                ...sourceWithoutId,
+                updatedAt: new Date(),
+              })
+              .where(eq(sources.moduleKey, source.moduleKey));
+            results.sourcesUpdated++;
+          } else {
+            // Create new source
             await db.insert(sources).values(sourceWithoutId);
             results.sourcesCreated++;
           }
@@ -285,7 +300,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // Restore Instagram accounts
+      // Restore Instagram accounts (replace existing)
       for (const account of accountsData) {
         try {
           // Check if already exists
@@ -294,9 +309,20 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .from(instagramAccounts)
             .where(eq(instagramAccounts.instagramUsername, account.instagramUsername));
 
-          if (!existing) {
-            // Remove the id field to let the database generate a new one
-            const { id, ...accountWithoutId } = account;
+          const { id, ...accountWithoutId } = account;
+
+          if (existing) {
+            // Update existing account
+            await db
+              .update(instagramAccounts)
+              .set({
+                ...accountWithoutId,
+                updatedAt: new Date(),
+              })
+              .where(eq(instagramAccounts.instagramUsername, account.instagramUsername));
+            results.accountsUpdated++;
+          } else {
+            // Create new account
             await db.insert(instagramAccounts).values(accountWithoutId);
             results.accountsCreated++;
           }
@@ -305,7 +331,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // Restore sessions
+      // Restore sessions (replace existing)
       for (const session of sessionsData) {
         try {
           const [existing] = await db
@@ -313,9 +339,20 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .from(instagramSessions)
             .where(eq(instagramSessions.username, session.username));
 
-          if (!existing) {
-            // Remove the id field to let the database generate a new one
-            const { id, ...sessionWithoutId } = session;
+          const { id, ...sessionWithoutId } = session;
+
+          if (existing) {
+            // Update existing session
+            await db
+              .update(instagramSessions)
+              .set({
+                ...sessionWithoutId,
+                updatedAt: new Date(),
+              })
+              .where(eq(instagramSessions.username, session.username));
+            results.sessionsUpdated++;
+          } else {
+            // Create new session
             await db.insert(instagramSessions).values(sessionWithoutId);
             results.sessionsCreated++;
           }
@@ -324,7 +361,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // Restore events
+      // Restore events (replace existing)
       for (const event of eventsData) {
         try {
           // Check by instagramPostId instead of id (since id is auto-incrementing)
@@ -333,9 +370,17 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .from(eventsRaw)
             .where(eq(eventsRaw.instagramPostId, event.instagramPostId));
 
-          if (!existing) {
-            // Remove the id field to let the database generate a new one
-            const { id, ...eventWithoutId } = event;
+          const { id, ...eventWithoutId } = event;
+
+          if (existing) {
+            // Update existing event
+            await db
+              .update(eventsRaw)
+              .set(eventWithoutId)
+              .where(eq(eventsRaw.instagramPostId, event.instagramPostId));
+            results.eventsUpdated++;
+          } else {
+            // Create new event
             await db.insert(eventsRaw).values(eventWithoutId);
             results.eventsCreated++;
           }
