@@ -14,6 +14,8 @@ const updateSettingsSchema = z.object({
   apifyResultsLimit: z.number().int().positive().optional(),
   fetchDelayMinutes: z.number().int().positive().optional(),
   autoExtractNewPosts: z.boolean().optional(),
+  defaultScraperType: z.enum(['apify', 'instagram-private-api']).optional(),
+  allowPerAccountOverride: z.boolean().optional(),
 });
 
 export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -30,6 +32,8 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
+          defaultScraperType: instagramSettings.defaultScraperType,
+          allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
           createdAt: instagramSettings.createdAt,
           updatedAt: instagramSettings.updatedAt,
         })
@@ -50,6 +54,8 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             geminiPrompt: instagramSettings.geminiPrompt,
             hasApifyToken: instagramSettings.apifyApiToken,
             hasGeminiKey: instagramSettings.geminiApiKey,
+            defaultScraperType: instagramSettings.defaultScraperType,
+            allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
             createdAt: instagramSettings.createdAt,
             updatedAt: instagramSettings.updatedAt,
           });
@@ -93,6 +99,8 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
       if (data.apifyResultsLimit !== undefined) updateData.apifyResultsLimit = data.apifyResultsLimit;
       if (data.fetchDelayMinutes !== undefined) updateData.fetchDelayMinutes = data.fetchDelayMinutes;
       if (data.autoExtractNewPosts !== undefined) updateData.autoExtractNewPosts = data.autoExtractNewPosts;
+      if (data.defaultScraperType !== undefined) updateData.defaultScraperType = data.defaultScraperType;
+      if (data.allowPerAccountOverride !== undefined) updateData.allowPerAccountOverride = data.allowPerAccountOverride;
 
       const [updated] = await db
         .update(instagramSettings)
@@ -107,6 +115,8 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
+          defaultScraperType: instagramSettings.defaultScraperType,
+          allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
           createdAt: instagramSettings.createdAt,
           updatedAt: instagramSettings.updatedAt,
         });
