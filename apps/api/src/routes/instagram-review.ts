@@ -287,7 +287,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             imageUrl: post.imageUrl,
             raw: JSON.stringify(geminiResult),
             contentHash: `${post.instagramPostId}-extraction-${Date.now()}`,
-            instagramAccountId: source.id,
+            instagramAccountId: post.instagramAccountId,
             instagramPostId: post.instagramPostId,
             instagramCaption: post.instagramCaption,
             localImagePath: post.localImagePath,
