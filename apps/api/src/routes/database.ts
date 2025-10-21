@@ -153,12 +153,21 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
 
       fastify.log.info('Database restore completed successfully');
 
+      // Trigger server restart to refresh database connections and enum type cache
+      // This prevents "cache lookup failed for type" errors
+      fastify.log.info('Restarting server in 2 seconds to refresh database connections...');
+      setTimeout(() => {
+        fastify.log.info('Triggering restart after database restore');
+        process.exit(0); // Docker will automatically restart the container
+      }, 2000);
+
       reply.status(200);
       return {
         success: true,
-        message: 'Database restored successfully',
+        message: 'Database restored successfully. Server restarting to refresh connections...',
         timestamp: new Date().toISOString(),
         output: result.stdout || 'Restore completed',
+        restarting: true,
       };
     } catch (error: any) {
       fastify.log.error('Database import failed:', error);

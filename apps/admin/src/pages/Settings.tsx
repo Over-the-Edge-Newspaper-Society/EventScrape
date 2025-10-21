@@ -65,8 +65,16 @@ export function Settings() {
       }
       return res.json()
     },
-    onSuccess: () => {
-      toast.success('Database imported successfully')
+    onSuccess: (data) => {
+      if (data.restarting) {
+        toast.success('Database imported successfully! Server is restarting to refresh connections. Page will reload in 5 seconds...')
+        // Reload the page after server has had time to restart
+        setTimeout(() => {
+          window.location.reload()
+        }, 5000)
+      } else {
+        toast.success('Database imported successfully')
+      }
       setUploadFile(null)
       queryClient.invalidateQueries({ queryKey: ['backups'] })
     },
