@@ -257,15 +257,37 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       const sessionsData = JSON.parse(sessionsJson);
       const eventsData = JSON.parse(eventsJson);
 
+      // Clear all existing Instagram data before restoring
+      // This ensures a clean restore and prevents orphaned records
+      fastify.log.info('Clearing existing Instagram data before restore...');
+
+      // Delete events first (they reference other tables)
+      await db.delete(eventsRaw).where(eq(eventsRaw.instagramPostId, eventsRaw.instagramPostId));
+
+      // Delete runs for Instagram sources
+      const instagramSourceIds = await db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(eq(sources.sourceType, 'instagram'));
+
+      if (instagramSourceIds.length > 0) {
+        for (const { id } of instagramSourceIds) {
+          await db.delete(runs).where(eq(runs.sourceId, id));
+        }
+      }
+
+      // Delete sources
+      await db.delete(sources).where(eq(sources.sourceType, 'instagram'));
+
+      // Delete sessions and accounts
+      await db.delete(instagramSessions);
+      await db.delete(instagramAccounts);
+
       const results = {
         sourcesCreated: 0,
-        sourcesUpdated: 0,
         accountsCreated: 0,
-        accountsUpdated: 0,
         sessionsCreated: 0,
-        sessionsUpdated: 0,
         eventsCreated: 0,
-        eventsUpdated: 0,
         imagesRestored: 0,
       };
 
