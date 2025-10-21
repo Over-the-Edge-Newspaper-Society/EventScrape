@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -36,6 +37,7 @@ interface InstagramSettings {
   apifyResultsLimit: number
   fetchDelayMinutes: number
   autoExtractNewPosts: boolean
+  geminiPrompt: string | null
   hasApifyToken: boolean
   hasGeminiKey: boolean
   defaultScraperType: 'apify' | 'instagram-private-api'
@@ -62,6 +64,7 @@ export function InstagramSettings() {
   const [apifyResultsLimit, setApifyResultsLimit] = useState<number | undefined>(undefined)
   const [fetchDelayMinutes, setFetchDelayMinutes] = useState<number | undefined>(undefined)
   const [autoExtractNewPosts, setAutoExtractNewPosts] = useState(false)
+  const [geminiPrompt, setGeminiPrompt] = useState('')
   const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api' | undefined>(undefined)
   const [allowPerAccountOverride, setAllowPerAccountOverride] = useState<boolean | undefined>(undefined)
 
@@ -87,6 +90,7 @@ export function InstagramSettings() {
       setApifyResultsLimit(settings.apifyResultsLimit)
       setFetchDelayMinutes(settings.fetchDelayMinutes)
       setAutoExtractNewPosts(settings.autoExtractNewPosts ?? false)
+      setGeminiPrompt(settings.geminiPrompt || '')
       setDefaultScraperType(settings.defaultScraperType || 'instagram-private-api')
       setAllowPerAccountOverride(settings.allowPerAccountOverride ?? true)
     }
@@ -183,6 +187,8 @@ export function InstagramSettings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['backups'] })
       toast.success(`Backup created: ${data.filename}`)
+      // Automatically download the created backup
+      handleDownloadBackup(data.filename)
     },
     onError: () => {
       toast.error('Failed to create backup')
@@ -279,6 +285,16 @@ export function InstagramSettings() {
     updateSettings.mutate({
       defaultScraperType,
       allowPerAccountOverride,
+    })
+  }
+
+  const handleSavePrompt = () => {
+    if (!geminiPrompt || geminiPrompt.trim() === '') {
+      toast.error('Prompt cannot be empty')
+      return
+    }
+    updateSettings.mutate({
+      geminiPrompt,
     })
   }
 
@@ -434,6 +450,40 @@ export function InstagramSettings() {
               </a>
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* AI Extraction Prompt */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SettingsIcon className="h-5 w-5" />
+            AI Extraction Prompt
+          </CardTitle>
+          <CardDescription>
+            Customize the prompt used by Gemini to extract event data from Instagram images
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="gemini-prompt">Gemini Extraction Prompt</Label>
+            <Textarea
+              id="gemini-prompt"
+              value={geminiPrompt}
+              onChange={(e) => setGeminiPrompt(e.target.value)}
+              placeholder="Enter the AI prompt for event extraction..."
+              className="min-h-[300px] font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              This prompt instructs the AI how to extract event information from poster images.
+              Leave empty to use the default prompt.
+            </p>
+          </div>
+
+          <Button onClick={handleSavePrompt} disabled={updateSettings.isPending}>
+            <Save className="h-4 w-4 mr-2" />
+            Save Prompt
+          </Button>
         </CardContent>
       </Card>
 
@@ -633,98 +683,123 @@ export function InstagramSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Create Backup */}
-          <div className="space-y-2">
-            <Label>Create New Backup</Label>
-            <Button
-              onClick={() => createBackup.mutate()}
-              disabled={createBackup.isPending}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              {createBackup.isPending ? 'Creating...' : 'Download Backup ZIP'}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Includes database data and cached Instagram images
-            </p>
+          {/* Create & Download Backup Section */}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Create New Backup</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Creates and downloads a ZIP file with database data and cached Instagram images
+              </p>
+              <Button
+                onClick={() => createBackup.mutate()}
+                disabled={createBackup.isPending}
+                className="w-full sm:w-auto"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {createBackup.isPending ? 'Creating Backup...' : 'Create & Download Backup'}
+              </Button>
+            </div>
           </div>
 
           <Separator />
 
-          {/* Restore from Backup */}
-          <div className="space-y-2">
-            <Label htmlFor="backup-file">Restore from Backup ZIP</Label>
-            <Input
-              id="backup-file"
-              type="file"
-              accept=".zip"
-              onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
-            />
-            <Button
-              onClick={handleRestoreBackup}
-              disabled={!backupFile || restoreBackup.isPending}
-              variant="outline"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              {restoreBackup.isPending ? 'Restoring...' : 'Restore Backup'}
-            </Button>
+          {/* Restore Section */}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Restore from Backup</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Upload a backup ZIP file to restore Instagram data
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                id="backup-file"
+                type="file"
+                accept=".zip"
+                onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleRestoreBackup}
+                disabled={!backupFile || restoreBackup.isPending}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                {restoreBackup.isPending ? 'Restoring...' : 'Restore Backup'}
+              </Button>
+            </div>
           </div>
 
           <Separator />
 
-          {/* Import Old SQLite */}
-          <div className="space-y-2">
-            <Label htmlFor="sqlite-file">Import from Old Event-Monitor</Label>
-            <Input
-              id="sqlite-file"
-              type="file"
-              accept=".db,.sqlite,.sqlite3,.zip"
-              onChange={(e) => setSqliteFile(e.target.files?.[0] || null)}
-            />
-            <Button
-              onClick={handleImportSqlite}
-              disabled={!sqliteFile || importSqlite.isPending}
-              variant="outline"
-            >
-              <Database className="h-4 w-4 mr-2" />
-              {importSqlite.isPending ? 'Importing...' : 'Import from Event-Monitor'}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Import clubs and images from old Event-Monitor backup (ZIP) or SQLite database file
-            </p>
+          {/* Import from Old System Section */}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Import from Old Event-Monitor</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Import clubs and images from old Event-Monitor backup (ZIP) or SQLite database file
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                id="sqlite-file"
+                type="file"
+                accept=".db,.sqlite,.sqlite3,.zip"
+                onChange={(e) => setSqliteFile(e.target.files?.[0] || null)}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleImportSqlite}
+                disabled={!sqliteFile || importSqlite.isPending}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                <Database className="h-4 w-4 mr-2" />
+                {importSqlite.isPending ? 'Importing...' : 'Import Data'}
+              </Button>
+            </div>
           </div>
 
           <Separator />
 
-          {/* Available Backups */}
-          <div className="space-y-2">
-            <Label>Available Backups</Label>
+          {/* Available Backups Section */}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Available Backups</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Download or delete previously created backups
+              </p>
+            </div>
             {backups && backups.length > 0 ? (
               <div className="space-y-2">
                 {backups.map((backup) => (
                   <div
                     key={backup.filename}
-                    className="flex items-center justify-between p-3 border rounded-lg"
+                    className="flex items-center justify-between p-3 border rounded-lg bg-muted/50"
                   >
-                    <div>
-                      <p className="text-sm font-medium">{backup.filename}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{backup.filename}</p>
                       <p className="text-xs text-muted-foreground">
-                        {(backup.size / 1024 / 1024).toFixed(2)} MB •{' '}
-                        {new Date(backup.createdAt).toLocaleString()}
+                        {(backup.size / 1024 / 1024).toFixed(2)} MB • Created {new Date(backup.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 ml-4">
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleDownloadBackup(backup.filename)}
+                        title="Download backup"
                       >
                         <Download className="h-4 w-4" />
                       </Button>
                       <Button
                         size="sm"
-                        variant="destructive"
+                        variant="outline"
                         onClick={() => handleDeleteBackup(backup.filename)}
                         disabled={deleteBackup.isPending}
+                        className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                        title="Delete backup"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -733,7 +808,13 @@ export function InstagramSettings() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No backups available</p>
+              <div className="text-center py-8 border rounded-lg bg-muted/30">
+                <Database className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No backups available</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Create your first backup to get started
+                </p>
+              </div>
             )}
           </div>
         </CardContent>

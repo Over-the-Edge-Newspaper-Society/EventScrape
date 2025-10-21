@@ -6,13 +6,33 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// API URL for fetching settings
+const API_BASE_URL = process.env.API_URL || 'http://localhost:3001';
+
 // Load the Gemini prompt
 const GEMINI_PROMPT_PATH = path.join(__dirname, 'gemini-prompt.md');
 let GEMINI_PROMPT: string;
 
 async function loadPrompt() {
   if (!GEMINI_PROMPT) {
+    // Try to fetch prompt from database first
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/instagram-settings/keys`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.geminiPrompt && data.geminiPrompt.trim() !== '') {
+          GEMINI_PROMPT = data.geminiPrompt;
+          console.log('[Gemini] Using custom prompt from database');
+          return GEMINI_PROMPT;
+        }
+      }
+    } catch (error) {
+      console.warn('[Gemini] Failed to fetch prompt from API, using default from file:', error);
+    }
+
+    // Fallback to file-based prompt
     GEMINI_PROMPT = await fs.readFile(GEMINI_PROMPT_PATH, 'utf-8');
+    console.log('[Gemini] Using default prompt from file');
   }
   return GEMINI_PROMPT;
 }

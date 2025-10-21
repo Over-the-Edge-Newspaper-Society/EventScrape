@@ -432,6 +432,8 @@ export const instagramSettings = pgTable('instagram_settings', {
   // API keys (encrypted)
   apifyApiToken: text('apify_api_token'),
   geminiApiKey: text('gemini_api_key'),
+  // AI extraction settings
+  geminiPrompt: text('gemini_prompt'),
   // Scraping configuration
   apifyActorId: text('apify_actor_id').default('apify/instagram-profile-scraper'),
   apifyResultsLimit: integer('apify_results_limit').default(10),

@@ -9,6 +9,7 @@ const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton setting
 const updateSettingsSchema = z.object({
   apifyApiToken: z.string().optional(),
   geminiApiKey: z.string().optional(),
+  geminiPrompt: z.string().optional(),
   apifyActorId: z.string().optional(),
   apifyResultsLimit: z.number().int().positive().optional(),
   fetchDelayMinutes: z.number().int().positive().optional(),
@@ -26,6 +27,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           apifyResultsLimit: instagramSettings.apifyResultsLimit,
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
+          geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
           createdAt: instagramSettings.createdAt,
@@ -45,6 +47,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             apifyResultsLimit: instagramSettings.apifyResultsLimit,
             fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
             autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
+            geminiPrompt: instagramSettings.geminiPrompt,
             hasApifyToken: instagramSettings.apifyApiToken,
             hasGeminiKey: instagramSettings.geminiApiKey,
             createdAt: instagramSettings.createdAt,
@@ -85,6 +88,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (data.apifyApiToken !== undefined) updateData.apifyApiToken = data.apifyApiToken;
       if (data.geminiApiKey !== undefined) updateData.geminiApiKey = data.geminiApiKey;
+      if (data.geminiPrompt !== undefined) updateData.geminiPrompt = data.geminiPrompt;
       if (data.apifyActorId !== undefined) updateData.apifyActorId = data.apifyActorId;
       if (data.apifyResultsLimit !== undefined) updateData.apifyResultsLimit = data.apifyResultsLimit;
       if (data.fetchDelayMinutes !== undefined) updateData.fetchDelayMinutes = data.fetchDelayMinutes;
@@ -100,6 +104,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           apifyResultsLimit: instagramSettings.apifyResultsLimit,
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
+          geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
           createdAt: instagramSettings.createdAt,
@@ -164,12 +169,13 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         .select({
           apifyApiToken: instagramSettings.apifyApiToken,
           geminiApiKey: instagramSettings.geminiApiKey,
+          geminiPrompt: instagramSettings.geminiPrompt,
         })
         .from(instagramSettings)
         .where(eq(instagramSettings.id, SETTINGS_ID));
 
       if (!settings) {
-        return { apifyApiToken: null, geminiApiKey: null };
+        return { apifyApiToken: null, geminiApiKey: null, geminiPrompt: null };
       }
 
       return settings;
