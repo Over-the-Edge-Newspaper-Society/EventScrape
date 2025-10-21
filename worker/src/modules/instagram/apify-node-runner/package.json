@@ -1,0 +1,9 @@
+{
+  "name": "apify-node-runner",
+  "version": "1.0.0",
+  "description": "Node.js runner for Apify actor calls",
+  "type": "module",
+  "dependencies": {
+    "apify-client": "^2.9.3"
+  }
+}

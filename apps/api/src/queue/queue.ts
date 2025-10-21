@@ -35,8 +35,15 @@ export const matchJobSchema = z.object({
   sourceIds: z.array(z.string().uuid()).optional(),
 });
 
+export const instagramScrapeJobSchema = z.object({
+  accountId: z.string().uuid(),
+  runId: z.string().uuid().optional(),
+  postLimit: z.number().positive().optional(),
+});
+
 export type ScrapeJobData = z.infer<typeof scrapeJobSchema>;
 export type MatchJobData = z.infer<typeof matchJobSchema>;
+export type InstagramScrapeJobData = z.infer<typeof instagramScrapeJobSchema>;
 
 // Create queues
 export const scrapeQueue = new Queue<ScrapeJobData>('scrape-queue', {
@@ -75,9 +82,28 @@ export const matchQueue = new Queue<MatchJobData>('match-queue', {
   },
 });
 
+export const instagramScrapeQueue = new Queue<InstagramScrapeJobData>('instagram-scrape-queue', {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 5000, // Longer delay for Instagram rate limits
+    },
+    removeOnComplete: {
+      age: 3600,
+      count: 100,
+    },
+    removeOnFail: {
+      age: 24 * 3600,
+    },
+  },
+});
+
 // Queue events for monitoring
 export const scrapeQueueEvents = new QueueEvents('scrape-queue', { connection });
 export const matchQueueEvents = new QueueEvents('match-queue', { connection });
+export const instagramScrapeQueueEvents = new QueueEvents('instagram-scrape-queue', { connection });
 
 // Helper functions
 export async function enqueueScrapeJob(data: ScrapeJobData) {
@@ -90,6 +116,13 @@ export async function enqueueScrapeJob(data: ScrapeJobData) {
 export async function enqueueMatchJob(data: MatchJobData) {
   const job = await matchQueue.add('match', data, {
     jobId: `match-${Date.now()}`,
+  });
+  return job;
+}
+
+export async function enqueueInstagramScrapeJob(data: InstagramScrapeJobData) {
+  const job = await instagramScrapeQueue.add('instagram-scrape', data, {
+    jobId: `instagram-scrape-${data.accountId}-${Date.now()}`,
   });
   return job;
 }
@@ -109,6 +142,13 @@ export async function getQueueStatus() {
     matchQueue.getFailedCount(),
   ]);
 
+  const [instagramWaiting, instagramActive, instagramCompleted, instagramFailed] = await Promise.all([
+    instagramScrapeQueue.getWaitingCount(),
+    instagramScrapeQueue.getActiveCount(),
+    instagramScrapeQueue.getCompletedCount(),
+    instagramScrapeQueue.getFailedCount(),
+  ]);
+
   return {
     scrape: {
       waiting: scrapeWaiting,
@@ -122,6 +162,12 @@ export async function getQueueStatus() {
       completed: matchCompleted,
       failed: matchFailed,
     },
+    instagram: {
+      waiting: instagramWaiting,
+      active: instagramActive,
+      completed: instagramCompleted,
+      failed: instagramFailed,
+    },
   };
 }
 
@@ -129,7 +175,9 @@ export async function getQueueStatus() {
 export async function closeQueues() {
   await scrapeQueue.close();
   await matchQueue.close();
+  await instagramScrapeQueue.close();
   await scrapeQueueEvents.close();
   await matchQueueEvents.close();
+  await instagramScrapeQueueEvents.close();
   await connection.quit();
 }

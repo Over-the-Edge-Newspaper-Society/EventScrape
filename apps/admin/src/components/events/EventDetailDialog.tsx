@@ -24,6 +24,10 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
   const seriesDates = getSeriesDates(eventData.raw)
   const isSeriesEvent = seriesDates.length > 1
 
+  // Check if raw data contains Gemini extraction (from Instagram posts)
+  const isGeminiExtraction = eventData.raw?.events && Array.isArray(eventData.raw.events) && eventData.raw.events.length > 0
+  const geminiEvent = isGeminiExtraction ? eventData.raw.events[0] : null
+
   const formatFieldValue = (value: any, fieldName: string) => {
     if (value === null || value === undefined) {
       return <span className="text-muted-foreground italic">Not provided</span>
@@ -56,10 +60,53 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
       )
     }
 
+    if (fieldName === 'extractionNotes' && value) {
+      return (
+        <div className="text-sm text-muted-foreground max-h-32 overflow-y-auto">
+          {value}
+        </div>
+      )
+    }
+
+    if (fieldName === 'extractionConfidence' && typeof value === 'number') {
+      const percentage = Math.round(value * 100)
+      const color = percentage >= 80 ? 'text-green-600' : percentage >= 60 ? 'text-yellow-600' : 'text-red-600'
+      return <span className={`font-semibold ${color}`}>{percentage}%</span>
+    }
+
     return String(value)
   }
 
-  const structuredFields = [
+  // Build structured fields based on whether we have Gemini extraction data
+  const structuredFields = geminiEvent ? [
+    // Display Gemini extraction data
+    { key: 'id', label: 'Event ID', value: eventData.id },
+    { key: 'sourceEventId', label: 'Instagram Post ID', value: eventData.sourceEventId },
+    { key: 'title', label: 'Title', value: geminiEvent.title },
+    { key: 'description', label: 'Description', value: geminiEvent.description },
+    { key: 'startDate', label: 'Start Date', value: geminiEvent.startDate },
+    { key: 'startTime', label: 'Start Time', value: geminiEvent.startTime },
+    { key: 'endDate', label: 'End Date', value: geminiEvent.endDate },
+    { key: 'endTime', label: 'End Time', value: geminiEvent.endTime },
+    { key: 'timezone', label: 'Timezone', value: geminiEvent.timezone },
+    { key: 'venueName', label: 'Venue Name', value: geminiEvent.venue?.name },
+    { key: 'venueAddress', label: 'Venue Address', value: geminiEvent.venue?.address },
+    { key: 'city', label: 'City', value: geminiEvent.venue?.city },
+    { key: 'region', label: 'Region', value: geminiEvent.venue?.region },
+    { key: 'country', label: 'Country', value: geminiEvent.venue?.country },
+    { key: 'organizer', label: 'Organizer', value: geminiEvent.organizer },
+    { key: 'category', label: 'Category', value: geminiEvent.category },
+    { key: 'price', label: 'Price', value: geminiEvent.price },
+    { key: 'tags', label: 'Tags', value: geminiEvent.tags },
+    { key: 'contactEmail', label: 'Contact Email', value: geminiEvent.contactInfo?.email },
+    { key: 'contactPhone', label: 'Contact Phone', value: geminiEvent.contactInfo?.phone },
+    { key: 'website', label: 'Website', value: geminiEvent.contactInfo?.website },
+    { key: 'registrationUrl', label: 'Registration URL', value: geminiEvent.registrationUrl },
+    { key: 'additionalInfo', label: 'Additional Info', value: geminiEvent.additionalInfo },
+    { key: 'extractionConfidence', label: 'Extraction Confidence', value: eventData.raw?.extractionConfidence?.overall },
+    { key: 'extractionNotes', label: 'Extraction Notes', value: eventData.raw?.extractionConfidence?.notes },
+  ] : [
+    // Display regular database fields
     { key: 'id', label: 'Event ID', value: eventData.id },
     { key: 'sourceEventId', label: 'Source Event ID', value: eventData.sourceEventId },
     { key: 'title', label: 'Title', value: eventData.title },
@@ -128,7 +175,7 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
                   <div key={key} className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
                     <div className="font-medium text-foreground">{label}:</div>
                     <div className="col-span-3 break-words">
-                      {key === 'url' || key === 'imageUrl' ? (
+                      {(key === 'url' || key === 'imageUrl' || key === 'registrationUrl' || key === 'website') ? (
                         value ? (
                           <a
                             href={String(value)}

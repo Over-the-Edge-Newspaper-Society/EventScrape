@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 
@@ -6,6 +6,10 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { Layout } from '@/components/Layout'
 import { Dashboard } from '@/pages/Dashboard'
 import { Sources } from '@/pages/Sources'
+import { InstagramSources } from '@/pages/InstagramSources'
+import { InstagramSettings } from '@/pages/InstagramSettings'
+import { Events } from '@/pages/Events'
+import { InstagramReview } from '@/pages/InstagramReview'
 import { RawEvents } from '@/pages/RawEvents'
 import { CanonicalEvents } from '@/pages/CanonicalEvents'
 import { Matches } from '@/pages/Matches'
@@ -35,8 +39,14 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/sources" element={<Sources />} />
-                <Route path="/events/raw" element={<RawEvents />} />
-                <Route path="/events/canonical" element={<CanonicalEvents />} />
+                <Route path="/instagram" element={<InstagramSources />} />
+                <Route path="/instagram/settings" element={<InstagramSettings />} />
+                <Route path="/events" element={<Events />}>
+                  <Route index element={<Navigate to="/events/raw" replace />} />
+                  <Route path="raw" element={<RawEvents />} />
+                  <Route path="canonical" element={<CanonicalEvents />} />
+                </Route>
+                <Route path="/review" element={<InstagramReview />} />
                 <Route path="/matches" element={<Matches />} />
                 <Route path="/runs" element={<Runs />} />
                 <Route path="/schedules" element={<Schedules />} />

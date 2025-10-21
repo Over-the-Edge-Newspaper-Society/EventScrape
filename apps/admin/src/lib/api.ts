@@ -265,12 +265,67 @@ export const wordpressApi = {
     }),
 }
 
+// Instagram API
+export const instagramApi = {
+  getAll: () => fetchApi<{ sources: InstagramSource[] }>('/instagram-sources'),
+  getById: (id: string) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`),
+  create: (data: CreateInstagramSourceData) => fetchApi<{ source: InstagramSource }>('/instagram-sources', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  update: (id: string, data: Partial<CreateInstagramSourceData>) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
+  trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
+  uploadSession: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
+    fetchApi<{ message: string; session: InstagramSession }>('/instagram-sources/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getSession: (username: string) => fetchApi<{ session: InstagramSession }>(`/instagram-sources/sessions/${username}`),
+  deleteSession: (username: string) => fetchApi<{ message: string }>(`/instagram-sources/sessions/${username}`, { method: 'DELETE' }),
+}
+
+// Instagram Review API
+export const instagramReviewApi = {
+  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'all' }) => {
+    const searchParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) {
+          searchParams.append(key, String(value))
+        }
+      })
+    }
+    return fetchApi<InstagramReviewQueueResponse>(`/instagram-review/queue?${searchParams}`)
+  },
+  classifyPost: (id: string, data: { isEventPoster: boolean; classificationConfidence?: number }) =>
+    fetchApi<{ message: string; post: EventRaw }>(`/instagram-review/${id}/classify`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }) =>
+    fetchApi<{
+      success: boolean;
+      message: string;
+      extraction: any;
+      eventsCreated: number;
+    }>(`/instagram-review/${id}/extract`, {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
+  getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
+}
+
 // Types
 export interface Source {
   id: string
   name: string
   baseUrl: string
   moduleKey: string
+  sourceType?: string
   active: boolean
   defaultTimezone: string
   notes?: string
@@ -355,11 +410,18 @@ export interface EventRaw {
   lastSeenAt?: string
   raw: any
   contentHash: string
+  // Instagram-specific fields
+  instagramAccountId?: string
+  instagramPostId?: string
+  instagramCaption?: string
+  localImagePath?: string
+  isEventPoster?: boolean | null
+  classificationConfidence?: number
 }
 
 export interface EventWithSource {
   event: EventRaw
-  source: Pick<Source, 'id' | 'name' | 'moduleKey' | 'baseUrl'>
+  source: Pick<Source, 'id' | 'name' | 'moduleKey' | 'baseUrl' | 'sourceType'>
 }
 
 export interface CanonicalEvent {
@@ -542,4 +604,76 @@ export interface WordPressCategory {
   id: number
   name: string
   slug: string
+}
+
+export interface InstagramSource {
+  id: string
+  name: string
+  instagramUsername: string
+  classificationMode: 'manual' | 'auto'
+  instagramScraperType: 'apify' | 'instagram-private-api'
+  active: boolean
+  defaultTimezone: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+  lastChecked?: string
+}
+
+export interface CreateInstagramSourceData {
+  name: string
+  instagramUsername: string
+  classificationMode?: 'manual' | 'auto'
+  instagramScraperType?: 'apify' | 'instagram-private-api'
+  active?: boolean
+  defaultTimezone?: string
+  notes?: string
+}
+
+export interface InstagramSession {
+  id: string
+  username: string
+  uploadedAt: string
+  expiresAt?: string
+  lastUsedAt?: string
+  isValid: boolean
+}
+
+export interface InstagramEventRaw extends EventRaw {
+  instagramPostId?: string
+  instagramCaption?: string
+  localImagePath?: string
+  isEventPoster?: boolean | null
+  classificationConfidence?: number
+}
+
+export interface InstagramEventWithSource {
+  event: InstagramEventRaw
+  source: Pick<Source, 'id' | 'name' | 'moduleKey'> & { instagramUsername: string | null }
+  account?: {
+    id: string
+    name: string
+    instagramUsername: string | null
+    classificationMode: 'manual' | 'auto'
+    active: boolean
+  } | null
+}
+
+export interface InstagramReviewQueueResponse {
+  posts: InstagramEventWithSource[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+    hasNext: boolean
+    hasPrev: boolean
+  }
+}
+
+export interface InstagramReviewStats {
+  unclassified: number
+  markedAsEvent: number
+  markedAsNotEvent: number
+  total: number
 }
