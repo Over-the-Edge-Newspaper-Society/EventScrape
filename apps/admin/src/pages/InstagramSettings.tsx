@@ -203,8 +203,6 @@ export function InstagramSettings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
       queryClient.invalidateQueries({ queryKey: ['backups'] })
-      const total = (data.accountsCreated || 0) + (data.accountsUpdated || 0) + (data.sourcesCreated || 0) + (data.sourcesUpdated || 0) + (data.eventsCreated || 0) + (data.eventsUpdated || 0)
-      const created = (data.accountsCreated || 0) + (data.sourcesCreated || 0) + (data.eventsCreated || 0)
       const updated = (data.accountsUpdated || 0) + (data.sourcesUpdated || 0) + (data.eventsUpdated || 0)
       toast.success(`Restored ${data.accountsCreated || 0} accounts, ${data.eventsCreated} events${updated > 0 ? ` (${updated} updated)` : ''}`)
       setBackupFile(null)
