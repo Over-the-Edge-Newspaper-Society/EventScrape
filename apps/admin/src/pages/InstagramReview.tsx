@@ -482,15 +482,35 @@ export function InstagramReview() {
                                     <div className="flex items-start gap-2">
                                       <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
                                       <div>
-                                        <p className="text-xs font-medium text-muted-foreground">Post Date</p>
+                                        <p className="text-xs font-medium text-muted-foreground">Instagram Post Date</p>
                                         <p className="text-sm">
-                                          {new Date(event.scrapedAt).toLocaleDateString(undefined, {
-                                            weekday: 'long',
-                                            year: 'numeric',
-                                            month: 'long',
-                                            day: 'numeric',
-                                          })}
+                                          {(() => {
+                                            // Try to extract Instagram post timestamp from raw data
+                                            const parsedRaw = parseEventRaw(event.raw);
+                                            const instagramTimestamp =
+                                              parsedRaw?.instagram?.timestamp ||
+                                              parsedRaw?.timestamp ||
+                                              parsedRaw?.post?.timestamp;
+
+                                            const displayDate = instagramTimestamp
+                                              ? new Date(instagramTimestamp)
+                                              : new Date(event.scrapedAt);
+
+                                            return displayDate.toLocaleDateString(undefined, {
+                                              weekday: 'long',
+                                              year: 'numeric',
+                                              month: 'long',
+                                              day: 'numeric',
+                                            });
+                                          })()}
                                         </p>
+                                        {!parseEventRaw(event.raw)?.instagram?.timestamp &&
+                                         !parseEventRaw(event.raw)?.timestamp &&
+                                         !parseEventRaw(event.raw)?.post?.timestamp && (
+                                          <p className="text-xs text-muted-foreground italic">
+                                            (Showing scraped date - post date not available)
+                                          </p>
+                                        )}
                                       </div>
                                     </div>
                                   )}

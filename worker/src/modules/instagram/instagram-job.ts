@@ -275,6 +275,19 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                 const endDateTime = event.endDate ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`) : null;
                 const timezone = event.timezone || account.default_timezone || 'America/Vancouver';
 
+                // Combine Instagram post data with Gemini extraction result
+                const rawData = {
+                  ...geminiResult,
+                  instagram: {
+                    timestamp: post.timestamp.toISOString(),
+                    postId: post.id,
+                    caption: post.caption,
+                    imageUrl: post.imageUrl,
+                    permalink: post.permalink,
+                    isVideo: post.isVideo,
+                  }
+                };
+
                 await db`
                   INSERT INTO events_raw (
                     source_id, run_id, source_event_id, title, description_html,
@@ -292,7 +305,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     ${event.tags ? JSON.stringify(event.tags) : null},
                     ${post.permalink || `https://instagram.com/p/${post.id}/`},
                     ${post.imageUrl || null},
-                    ${JSON.stringify(geminiResult)},
+                    ${JSON.stringify(rawData)},
                     ${post.id},
                     ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
                     ${confidence}, ${isEventPoster ?? true}

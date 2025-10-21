@@ -224,21 +224,44 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       ).href;
       const { extractEventFromImageFile } = await import(importPath);
 
+      // Try to extract Instagram timestamp from existing raw data if available
+      let instagramTimestamp = post.scrapedAt;
+      try {
+        const existingRaw = post.raw ? JSON.parse(post.raw as string) : null;
+        if (existingRaw?.instagram?.timestamp) {
+          instagramTimestamp = new Date(existingRaw.instagram.timestamp);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+
       // Run Gemini extraction
       const geminiResult = await extractEventFromImageFile(
         fullImagePath,
         GEMINI_API_KEY,
         {
           caption: post.instagramCaption || undefined,
-          postTimestamp: post.scrapedAt || undefined,
+          postTimestamp: instagramTimestamp || undefined,
         }
       );
+
+      // Combine Instagram post data with Gemini extraction result
+      const rawData = {
+        ...geminiResult,
+        instagram: {
+          timestamp: instagramTimestamp?.toISOString() || post.scrapedAt,
+          postId: post.instagramPostId,
+          caption: post.instagramCaption,
+          imageUrl: post.imageUrl,
+          localImagePath: post.localImagePath,
+        }
+      };
 
       // Update the post with extracted data
       await db
         .update(eventsRaw)
         .set({
-          raw: JSON.stringify(geminiResult),
+          raw: JSON.stringify(rawData),
         })
         .where(eq(eventsRaw.id, id));
 
@@ -247,6 +270,19 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       // Optionally create new event records
       if (options.createEvents && geminiResult.events && geminiResult.events.length > 0) {
         const timezone = source.defaultTimezone || 'America/Vancouver';
+
+        // Delete existing event records with the same instagram_post_id to avoid duplicates
+        // This happens when re-extracting a post that was previously extracted
+        if (post.instagramPostId) {
+          const deleteResult = await db
+            .delete(eventsRaw)
+            .where(eq(eventsRaw.instagramPostId, post.instagramPostId))
+            .returning();
+
+          if (deleteResult.length > 0) {
+            fastify.log.info(`Deleted ${deleteResult.length} existing record(s) for Instagram post ${post.instagramPostId} to avoid duplicates`);
+          }
+        }
 
         // Create a manual extraction run for these events
         const [manualRun] = await db.insert(runs).values({
@@ -264,7 +300,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`)
             : null;
 
-          // Create new event record
+          // Create new event record with Instagram metadata
           await db.insert(eventsRaw).values({
             sourceId: INSTAGRAM_SOURCE_ID,
             runId: manualRun.id, // Use the manual extraction run ID
@@ -285,7 +321,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             tags: event.tags ? JSON.stringify(event.tags) : null,
             url: post.url || `https://instagram.com/p/${post.instagramPostId}/`,
             imageUrl: post.imageUrl,
-            raw: JSON.stringify(geminiResult),
+            raw: JSON.stringify(rawData),
             contentHash: `${post.instagramPostId}-extraction-${Date.now()}`,
             instagramAccountId: post.instagramAccountId,
             instagramPostId: post.instagramPostId,
