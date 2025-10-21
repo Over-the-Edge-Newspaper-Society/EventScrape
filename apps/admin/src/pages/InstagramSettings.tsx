@@ -1,37 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { API_BASE_URL } from '@/lib/api'
 import { toast } from 'sonner'
-import {
-  Key,
-  Save,
-  Trash2,
-  Upload,
-  Download,
-  Database,
-  Settings as SettingsIcon,
-  CheckCircle,
-  Info,
-  Globe
-} from 'lucide-react'
+import { ApiKeysSection } from '@/components/instagram-settings/ApiKeysSection'
+import { AiPromptSection } from '@/components/instagram-settings/AiPromptSection'
+import { GlobalScraperSection } from '@/components/instagram-settings/GlobalScraperSection'
+import { ScrapingConfigSection } from '@/components/instagram-settings/ScrapingConfigSection'
+import { BulkImportSection } from '@/components/instagram-settings/BulkImportSection'
+import { BackupTransferSection } from '@/components/instagram-settings/BackupTransferSection'
 
-interface InstagramSettings {
+export interface InstagramSettings {
   id: string
   apifyActorId: string
   apifyResultsLimit: number
@@ -345,480 +323,73 @@ export function InstagramSettings() {
         </p>
       </div>
 
-      {/* API Keys Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" />
-            API Keys
-          </CardTitle>
-          <CardDescription>
-            Store API keys for Apify and Gemini services
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Apify Token */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="apify-token">Apify Personal API Token</Label>
-              {settings?.hasApifyToken && (
-                <Badge variant="default" className="flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" />
-                  Token saved
-                </Badge>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Input
-                id="apify-token"
-                type="password"
-                placeholder="apify_api_..."
-                value={apifyToken}
-                onChange={(e) => setApifyToken(e.target.value)}
-              />
-              <Button onClick={handleSaveApifyToken} disabled={updateSettings.isPending}>
-                <Save className="h-4 w-4 mr-2" />
-                Save
-              </Button>
-              {settings?.hasApifyToken && (
-                <Button
-                  variant="outline"
-                  onClick={() => removeApifyToken.mutate()}
-                  disabled={removeApifyToken.isPending}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Get your token from{' '}
-              <a
-                href="https://console.apify.com/account/integrations"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                Apify Console → Integrations → Personal API tokens
-              </a>
-            </p>
-          </div>
+      <ApiKeysSection
+        settings={settings}
+        apifyToken={apifyToken}
+        setApifyToken={setApifyToken}
+        geminiKey={geminiKey}
+        setGeminiKey={setGeminiKey}
+        handleSaveApifyToken={handleSaveApifyToken}
+        handleSaveGeminiKey={handleSaveGeminiKey}
+        updateSettingsPending={updateSettings.isPending}
+        removeApifyToken={() => removeApifyToken.mutate()}
+        removeApifyTokenPending={removeApifyToken.isPending}
+        removeGeminiKey={() => removeGeminiKey.mutate()}
+        removeGeminiKeyPending={removeGeminiKey.isPending}
+      />
 
-          <Separator />
+      <AiPromptSection
+        geminiPrompt={geminiPrompt}
+        setGeminiPrompt={setGeminiPrompt}
+        handleSavePrompt={handleSavePrompt}
+        updateSettingsPending={updateSettings.isPending}
+      />
 
-          {/* Gemini Key */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="gemini-key">Gemini API Key</Label>
-              {settings?.hasGeminiKey && (
-                <Badge variant="default" className="flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" />
-                  Key saved
-                </Badge>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Input
-                id="gemini-key"
-                type="password"
-                placeholder="AI..."
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-              />
-              <Button onClick={handleSaveGeminiKey} disabled={updateSettings.isPending}>
-                <Save className="h-4 w-4 mr-2" />
-                Save
-              </Button>
-              {settings?.hasGeminiKey && (
-                <Button
-                  variant="outline"
-                  onClick={() => removeGeminiKey.mutate()}
-                  disabled={removeGeminiKey.isPending}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Get your key from{' '}
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                Google AI Studio
-              </a>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <GlobalScraperSection
+        defaultScraperType={defaultScraperType}
+        setDefaultScraperType={setDefaultScraperType}
+        allowPerAccountOverride={allowPerAccountOverride}
+        setAllowPerAccountOverride={setAllowPerAccountOverride}
+        handleSaveGlobalScraperSettings={handleSaveGlobalScraperSettings}
+        updateSettingsPending={updateSettings.isPending}
+      />
 
-      {/* AI Extraction Prompt */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <SettingsIcon className="h-5 w-5" />
-            AI Extraction Prompt
-          </CardTitle>
-          <CardDescription>
-            Customize the prompt used by Gemini to extract event data from Instagram images
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="gemini-prompt">Gemini Extraction Prompt</Label>
-            <Textarea
-              id="gemini-prompt"
-              value={geminiPrompt}
-              onChange={(e) => setGeminiPrompt(e.target.value)}
-              placeholder="Enter the AI prompt for event extraction..."
-              className="min-h-[300px] font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              This prompt instructs the AI how to extract event information from poster images.
-              Leave empty to use the default prompt.
-            </p>
-          </div>
+      <ScrapingConfigSection
+        apifyActorId={apifyActorId}
+        setApifyActorId={setApifyActorId}
+        apifyResultsLimit={apifyResultsLimit}
+        setApifyResultsLimit={setApifyResultsLimit}
+        fetchDelayMinutes={fetchDelayMinutes}
+        setFetchDelayMinutes={setFetchDelayMinutes}
+        autoExtractNewPosts={autoExtractNewPosts}
+        setAutoExtractNewPosts={setAutoExtractNewPosts}
+        handleSaveSettings={handleSaveSettings}
+        updateSettingsPending={updateSettings.isPending}
+      />
 
-          <Button onClick={handleSavePrompt} disabled={updateSettings.isPending}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Prompt
-          </Button>
-        </CardContent>
-      </Card>
+      <BulkImportSection
+        csvFile={csvFile}
+        setCsvFile={setCsvFile}
+        handleCsvUpload={handleCsvUpload}
+        importCsvPending={importCsv.isPending}
+      />
 
-      {/* Global Scraper Backend Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Global Scraper Backend
-          </CardTitle>
-          <CardDescription>
-            Configure the default scraper backend for all Instagram accounts
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="default-scraper-type">Default Scraper Backend</Label>
-            <Select
-              value={defaultScraperType || 'instagram-private-api'}
-              onValueChange={(value: 'apify' | 'instagram-private-api') => setDefaultScraperType(value)}
-            >
-              <SelectTrigger id="default-scraper-type">
-                <SelectValue placeholder="Select scraper backend" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="instagram-private-api">
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">instagram-private-api</span>
-                    <span className="text-xs text-muted-foreground">Free, requires session</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="apify">
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">Apify</span>
-                    <span className="text-xs text-muted-foreground">Paid, reliable official API</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              This setting will apply to all Instagram accounts by default
-            </p>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="allow-override">Allow Per-Account Override</Label>
-                <p className="text-xs text-muted-foreground">
-                  When enabled, accounts can override the global setting
-                </p>
-              </div>
-              <Switch
-                id="allow-override"
-                checked={allowPerAccountOverride ?? true}
-                onCheckedChange={setAllowPerAccountOverride}
-              />
-            </div>
-          </div>
-
-          <Button onClick={handleSaveGlobalScraperSettings} disabled={updateSettings.isPending}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Global Scraper Settings
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Scraping Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <SettingsIcon className="h-5 w-5" />
-            Scraping Configuration
-          </CardTitle>
-          <CardDescription>
-            Configure Apify scraper and automation settings
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="actor-id">Apify Actor ID</Label>
-              <Input
-                id="actor-id"
-                value={apifyActorId}
-                onChange={(e) => setApifyActorId(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Default: apify/instagram-profile-scraper
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="results-limit">Results Limit per Source</Label>
-              <Input
-                id="results-limit"
-                type="number"
-                min="1"
-                max="100"
-                value={apifyResultsLimit}
-                onChange={(e) => setApifyResultsLimit(parseInt(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                How many posts to fetch from Apify
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="fetch-delay">Fetch Delay (minutes)</Label>
-              <Input
-                id="fetch-delay"
-                type="number"
-                min="1"
-                max="60"
-                value={fetchDelayMinutes}
-                onChange={(e) => setFetchDelayMinutes(parseInt(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                Delay between scraping each source
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="auto-extract" className="flex items-center gap-2">
-                Auto-Extract New Posts
-                <Info className="h-4 w-4 text-muted-foreground" />
-              </Label>
-              <Switch
-                id="auto-extract"
-                checked={autoExtractNewPosts}
-                onCheckedChange={setAutoExtractNewPosts}
-              />
-              <p className="text-xs text-muted-foreground">
-                Automatically extract events from new posts using Gemini
-              </p>
-            </div>
-          </div>
-
-          <Button onClick={handleSaveSettings} disabled={updateSettings.isPending}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Configuration
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* CSV Bulk Import */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Bulk Import from CSV
-          </CardTitle>
-          <CardDescription>
-            Upload a CSV file to import multiple Instagram sources at once
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              CSV must include columns: <strong>name</strong>, <strong>username</strong>.
-              Optional: <strong>active</strong>, <strong>classification_mode</strong>
-            </AlertDescription>
-          </Alert>
-
-          <div className="space-y-2">
-            <Label htmlFor="csv-file">Select CSV File</Label>
-            <Input
-              id="csv-file"
-              type="file"
-              accept=".csv"
-              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-            />
-          </div>
-
-          <Button
-            onClick={handleCsvUpload}
-            disabled={!csvFile || importCsv.isPending}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            {importCsv.isPending ? 'Importing...' : 'Import CSV'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Backup & Restore */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
-            Backup & Transfer
-          </CardTitle>
-          <CardDescription>
-            Create backups or restore from previous backups
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Create & Download Backup Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Create New Backup</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Creates and downloads a ZIP file with database data and cached Instagram images
-              </p>
-              <Button
-                onClick={() => createBackup.mutate()}
-                disabled={createBackup.isPending}
-                className="w-full sm:w-auto"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                {createBackup.isPending ? 'Creating Backup...' : 'Create & Download Backup'}
-              </Button>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Restore Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Restore from Backup</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Upload a backup ZIP file to restore Instagram data
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input
-                id="backup-file"
-                type="file"
-                accept=".zip"
-                onChange={(e) => setBackupFile(e.target.files?.[0] || null)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleRestoreBackup}
-                disabled={!backupFile || restoreBackup.isPending}
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {restoreBackup.isPending ? 'Restoring...' : 'Restore Backup'}
-              </Button>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Import from Old System Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Import from Old Event-Monitor</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Import clubs and images from old Event-Monitor backup (ZIP) or SQLite database file
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input
-                id="sqlite-file"
-                type="file"
-                accept=".db,.sqlite,.sqlite3,.zip"
-                onChange={(e) => setSqliteFile(e.target.files?.[0] || null)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleImportSqlite}
-                disabled={!sqliteFile || importSqlite.isPending}
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
-                <Database className="h-4 w-4 mr-2" />
-                {importSqlite.isPending ? 'Importing...' : 'Import Data'}
-              </Button>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Available Backups Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold mb-2">Available Backups</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Download or delete previously created backups
-              </p>
-            </div>
-            {backups && backups.length > 0 ? (
-              <div className="space-y-2">
-                {backups.map((backup) => (
-                  <div
-                    key={backup.filename}
-                    className="flex items-center justify-between p-3 border rounded-lg bg-muted/50"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{backup.filename}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {(backup.size / 1024 / 1024).toFixed(2)} MB • Created {new Date(backup.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 ml-4">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDownloadBackup(backup.filename)}
-                        title="Download backup"
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteBackup(backup.filename)}
-                        disabled={deleteBackup.isPending}
-                        className="text-destructive hover:bg-destructive hover:text-destructive-foreground"
-                        title="Delete backup"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 border rounded-lg bg-muted/30">
-                <Database className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No backups available</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Create your first backup to get started
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <BackupTransferSection
+        backups={backups}
+        backupFile={backupFile}
+        setBackupFile={setBackupFile}
+        sqliteFile={sqliteFile}
+        setSqliteFile={setSqliteFile}
+        createBackupPending={createBackup.isPending}
+        createBackup={() => createBackup.mutate()}
+        handleRestoreBackup={handleRestoreBackup}
+        restoreBackupPending={restoreBackup.isPending}
+        handleImportSqlite={handleImportSqlite}
+        importSqlitePending={importSqlite.isPending}
+        handleDownloadBackup={handleDownloadBackup}
+        handleDeleteBackup={handleDeleteBackup}
+        deleteBackupPending={deleteBackup.isPending}
+      />
     </div>
   )
 }
