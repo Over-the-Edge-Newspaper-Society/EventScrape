@@ -263,7 +263,9 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .where(eq(sources.moduleKey, source.moduleKey));
 
           if (!existing) {
-            await db.insert(sources).values(source);
+            // Remove the id field to let the database generate a new one
+            const { id, ...sourceWithoutId } = source;
+            await db.insert(sources).values(sourceWithoutId);
             results.sourcesCreated++;
           }
         } catch (error: any) {
@@ -280,7 +282,9 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             .where(eq(instagramSessions.username, session.username));
 
           if (!existing) {
-            await db.insert(instagramSessions).values(session);
+            // Remove the id field to let the database generate a new one
+            const { id, ...sessionWithoutId } = session;
+            await db.insert(instagramSessions).values(sessionWithoutId);
             results.sessionsCreated++;
           }
         } catch (error: any) {
@@ -291,17 +295,20 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       // Restore events
       for (const event of eventsData) {
         try {
+          // Check by instagramPostId instead of id (since id is auto-incrementing)
           const [existing] = await db
             .select()
             .from(eventsRaw)
-            .where(eq(eventsRaw.id, event.id));
+            .where(eq(eventsRaw.instagramPostId, event.instagramPostId));
 
           if (!existing) {
-            await db.insert(eventsRaw).values(event);
+            // Remove the id field to let the database generate a new one
+            const { id, ...eventWithoutId } = event;
+            await db.insert(eventsRaw).values(eventWithoutId);
             results.eventsCreated++;
           }
         } catch (error: any) {
-          fastify.log.warn(`Failed to restore event ${event.id}:`, error.message);
+          fastify.log.warn(`Failed to restore event ${event.instagramPostId || event.id}:`, error.message);
         }
       }
 
