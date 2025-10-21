@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { db } from '../db/connection.js';
-import { sources, instagramSessions, eventsRaw, runs } from '../db/schema.js';
+import { sources, instagramSessions, eventsRaw, runs, instagramAccounts } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import archiver from 'archiver';
 import path from 'path';
@@ -72,6 +72,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Add database export (JSON format)
       const sourcesData = await db.select().from(sources).where(eq(sources.sourceType, 'instagram'));
+      const accountsData = await db.select().from(instagramAccounts);
       const sessionsData = await db.select().from(instagramSessions);
       const eventsData = await db
         .select()
@@ -79,6 +80,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         .where(eq(eventsRaw.instagramPostId, eventsRaw.instagramPostId)); // Filter Instagram events
 
       archive.append(JSON.stringify(sourcesData, null, 2), { name: 'sources.json' });
+      archive.append(JSON.stringify(accountsData, null, 2), { name: 'accounts.json' });
       archive.append(JSON.stringify(sessionsData, null, 2), { name: 'sessions.json' });
       archive.append(JSON.stringify(eventsData, null, 2), { name: 'events.json' });
 
@@ -242,12 +244,22 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       const sessionsJson = await fs.readFile(path.join(extractDir, 'sessions.json'), 'utf-8');
       const eventsJson = await fs.readFile(path.join(extractDir, 'events.json'), 'utf-8');
 
+      // accounts.json is optional for backward compatibility
+      let accountsJson = '[]';
+      try {
+        accountsJson = await fs.readFile(path.join(extractDir, 'accounts.json'), 'utf-8');
+      } catch {
+        fastify.log.info('No accounts.json found, skipping Instagram accounts restore');
+      }
+
       const sourcesData = JSON.parse(sourcesJson);
+      const accountsData = JSON.parse(accountsJson);
       const sessionsData = JSON.parse(sessionsJson);
       const eventsData = JSON.parse(eventsJson);
 
       const results = {
         sourcesCreated: 0,
+        accountsCreated: 0,
         sessionsCreated: 0,
         eventsCreated: 0,
         imagesRestored: 0,
@@ -270,6 +282,26 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
           }
         } catch (error: any) {
           fastify.log.warn(`Failed to restore source ${source.name}:`, error.message);
+        }
+      }
+
+      // Restore Instagram accounts
+      for (const account of accountsData) {
+        try {
+          // Check if already exists
+          const [existing] = await db
+            .select()
+            .from(instagramAccounts)
+            .where(eq(instagramAccounts.instagramUsername, account.instagramUsername));
+
+          if (!existing) {
+            // Remove the id field to let the database generate a new one
+            const { id, ...accountWithoutId } = account;
+            await db.insert(instagramAccounts).values(accountWithoutId);
+            results.accountsCreated++;
+          }
+        } catch (error: any) {
+          fastify.log.warn(`Failed to restore Instagram account ${account.instagramUsername}:`, error.message);
         }
       }
 
@@ -412,20 +444,38 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       try {
-        // Import clubs as sources
+        // Import clubs as Instagram accounts (and sources for backward compatibility)
         const clubs = sqlite.prepare('SELECT * FROM clubs').all() as any[];
 
         for (const club of clubs) {
           try {
             const moduleKey = `instagram_${club.username.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
 
-            // Check if already exists
-            const [existing] = await db
+            // Check if Instagram account already exists
+            const [existingAccount] = await db
+              .select()
+              .from(instagramAccounts)
+              .where(eq(instagramAccounts.instagramUsername, club.username));
+
+            if (!existingAccount) {
+              await db.insert(instagramAccounts).values({
+                name: club.name,
+                instagramUsername: club.username,
+                classificationMode: club.classification_mode === 'ai' ? 'auto' : 'manual',
+                instagramScraperType: 'instagram-private-api',
+                active: club.active === 1,
+                defaultTimezone: 'America/Vancouver',
+                notes: null,
+              });
+            }
+
+            // Also create in sources table for backward compatibility (sourceId is NOT NULL in eventsRaw)
+            const [existingSource] = await db
               .select()
               .from(sources)
               .where(eq(sources.moduleKey, moduleKey));
 
-            if (!existing) {
+            if (!existingSource) {
               await db.insert(sources).values({
                 name: club.name,
                 baseUrl: `https://instagram.com/${club.username}`,
@@ -436,6 +486,9 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
                 active: club.active === 1,
                 defaultTimezone: 'America/Vancouver',
               });
+            }
+
+            if (!existingAccount && !existingSource) {
               results.clubsImported++;
             }
           } catch (error: any) {
@@ -444,17 +497,29 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // Import posts as events_raw
-        // First, create a mapping of old club IDs to new source IDs
+        // First, create mappings of old club IDs to new IDs
         const clubToSourceMap = new Map<number, string>();
+        const clubToAccountMap = new Map<number, string>();
+
         for (const club of clubs) {
           const moduleKey = `instagram_${club.username.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+
           const [source] = await db
             .select()
             .from(sources)
             .where(eq(sources.moduleKey, moduleKey));
 
+          const [account] = await db
+            .select()
+            .from(instagramAccounts)
+            .where(eq(instagramAccounts.instagramUsername, club.username));
+
           if (source) {
             clubToSourceMap.set(club.id, source.id);
+          }
+
+          if (account) {
+            clubToAccountMap.set(club.id, account.id);
           }
         }
 
@@ -464,6 +529,8 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         for (const post of posts) {
           try {
             const sourceId = clubToSourceMap.get(post.club_id);
+            const accountId = clubToAccountMap.get(post.club_id);
+
             if (!sourceId) {
               results.errors.push(`Post ${post.instagram_id}: Source not found for club_id ${post.club_id}`);
               continue;
@@ -500,6 +567,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
             await db.insert(eventsRaw).values({
               sourceId,
               runId: run.id,
+              instagramAccountId: accountId || null,
               title: `Instagram Post ${post.instagram_id}`,
               descriptionHtml: post.caption || '',
               startDatetime: postTimestamp,
@@ -518,6 +586,9 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
                 original_post_id: post.id,
                 processed: post.processed,
                 manual_review_notes: post.manual_review_notes,
+                instagram: {
+                  timestamp: post.post_timestamp, // Store Instagram post timestamp for UI
+                },
               },
               contentHash: `instagram_${post.instagram_id}`,
             });
