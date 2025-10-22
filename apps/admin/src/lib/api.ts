@@ -279,6 +279,7 @@ export const instagramApi = {
   }),
   delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
   trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
+  triggerAllActive: () => fetchApi<{ message: string; accountsQueued: number; jobs: Array<{ accountId: string; username: string; jobId: string }> }>('/instagram-sources/trigger-all-active', { method: 'POST' }),
   uploadSession: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
     fetchApi<{ message: string; session: InstagramSession }>('/instagram-sources/sessions', {
       method: 'POST',
@@ -286,6 +287,17 @@ export const instagramApi = {
     }),
   getSession: (username: string) => fetchApi<{ session: InstagramSession }>(`/instagram-sources/sessions/${username}`),
   deleteSession: (username: string) => fetchApi<{ message: string }>(`/instagram-sources/sessions/${username}`, { method: 'DELETE' }),
+}
+
+// Instagram Apify API
+export const instagramApifyApi = {
+  fetchRunSnapshot: (runId: string, limit?: number) =>
+    fetchApi<{ success: boolean; runId: string; posts: any[]; input: any }>(`/instagram-apify/run-snapshot/${runId}${limit ? `?limit=${limit}` : ''}`),
+  importRun: (runId: string, limit?: number) =>
+    fetchApi<{ success: boolean; runId: string; stats: { attempted: number; created: number; skippedExisting: number; missingAccounts: number }; message: string }>(
+      `/instagram-apify/run/${runId}/import${limit ? `?limit=${limit}` : ''}`,
+      { method: 'POST' }
+    ),
 }
 
 // Instagram Review API

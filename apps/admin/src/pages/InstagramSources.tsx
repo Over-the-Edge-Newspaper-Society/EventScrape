@@ -10,9 +10,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { instagramApi, InstagramSource, CreateInstagramSourceData, API_BASE_URL } from '@/lib/api'
+import { instagramApi, instagramApifyApi, InstagramSource, CreateInstagramSourceData, API_BASE_URL } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Plus, CheckCircle, Pause, Instagram, Upload, Zap, Settings, Trash2, Key } from 'lucide-react'
+import { Plus, CheckCircle, Pause, Instagram, Upload, Zap, Settings, Trash2, Key, Download, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 
@@ -29,6 +29,12 @@ export function InstagramSources() {
   const [sessionUsername, setSessionUsername] = useState('')
   const [sessionData, setSessionData] = useState('')
   const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'all'>('active')
+
+  // Apify run import state
+  const [apifyRunId, setApifyRunId] = useState('')
+  const [apifyRunLimit, setApifyRunLimit] = useState<number>(10)
+  const [apifyRunResult, setApifyRunResult] = useState<string | null>(null)
+  const [apifyRunError, setApifyRunError] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState<CreateInstagramSourceData>({
@@ -105,6 +111,17 @@ export function InstagramSources() {
     },
   })
 
+  const triggerAllActiveMutation = useMutation({
+    mutationFn: () => instagramApi.triggerAllActive(),
+    onSuccess: (data) => {
+      toast.success(`Queued scrape jobs for ${data.accountsQueued} active accounts`)
+      queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
+    },
+    onError: (error) => {
+      toast.error(`Failed to trigger scrape: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    },
+  })
+
   const uploadSessionMutation = useMutation({
     mutationFn: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
       instagramApi.uploadSession(data),
@@ -116,6 +133,24 @@ export function InstagramSources() {
     },
     onError: (error) => {
       toast.error(`Failed to upload session: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    },
+  })
+
+  const importApifyRunMutation = useMutation({
+    mutationFn: ({ runId, limit }: { runId: string; limit: number }) =>
+      instagramApifyApi.importRun(runId, limit),
+    onSuccess: (data) => {
+      toast.success(data.message)
+      setApifyRunResult(data.message)
+      setApifyRunError(null)
+      setApifyRunId('')
+      queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
+    },
+    onError: (error) => {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to import Apify run: ${errorMessage}`)
+      setApifyRunError(errorMessage)
+      setApifyRunResult(null)
     },
   })
 
@@ -177,6 +212,21 @@ export function InstagramSources() {
     }
   }
 
+  const handleTriggerAllActive = async () => {
+    if (activeSources === 0) {
+      toast.error('No active Instagram accounts to scrape')
+      return
+    }
+
+    if (confirm(`Are you sure you want to scrape all ${activeSources} active Instagram accounts?`)) {
+      try {
+        await triggerAllActiveMutation.mutateAsync()
+      } catch (error) {
+        console.error('Trigger all failed:', error)
+      }
+    }
+  }
+
   const handleUploadSession = async () => {
     try {
       const parsedSession = JSON.parse(sessionData)
@@ -186,6 +236,25 @@ export function InstagramSources() {
       })
     } catch (error) {
       toast.error('Invalid session JSON format')
+    }
+  }
+
+  const handleImportApifyRun = async () => {
+    const runId = apifyRunId.trim()
+    if (!runId) {
+      setApifyRunError('Please enter an Apify run ID')
+      return
+    }
+
+    const normalizedLimit = Math.min(Math.max(Math.round(apifyRunLimit), 1), 100)
+    setApifyRunLimit(normalizedLimit)
+    setApifyRunError(null)
+    setApifyRunResult(null)
+
+    try {
+      await importApifyRunMutation.mutateAsync({ runId, limit: normalizedLimit })
+    } catch (error) {
+      console.error('Import Apify run failed:', error)
     }
   }
 
@@ -259,6 +328,74 @@ export function InstagramSources() {
         </Card>
       )}
 
+      {/* Load Existing Apify Run */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Load Existing Apify Run</CardTitle>
+          <CardDescription>
+            Import posts from a previous Apify Instagram scraping run
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-[2fr,auto] gap-3">
+              <div>
+                <Label htmlFor="apify-run-id">Apify Run ID</Label>
+                <Input
+                  id="apify-run-id"
+                  type="text"
+                  value={apifyRunId}
+                  onChange={(e) => setApifyRunId(e.target.value)}
+                  placeholder="e.g., H8k9J2lP1A2B3C4D"
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <Label htmlFor="apify-run-limit">Post Limit</Label>
+                <Input
+                  id="apify-run-limit"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={apifyRunLimit}
+                  onChange={(e) => setApifyRunLimit(parseInt(e.target.value) || 10)}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleImportApifyRun}
+                disabled={importApifyRunMutation.isPending || !apifyRunId.trim()}
+                className="flex items-center gap-2"
+              >
+                {importApifyRunMutation.isPending ? (
+                  <Download className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {importApifyRunMutation.isPending ? 'Importing...' : 'Import Posts'}
+              </Button>
+            </div>
+
+            {apifyRunResult && (
+              <div className="flex items-start gap-2 text-sm text-green-600 bg-green-50 p-3 rounded-md">
+                <CheckCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>{apifyRunResult}</span>
+              </div>
+            )}
+
+            {apifyRunError && (
+              <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-md">
+                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>{apifyRunError}</span>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Add Source */}
       <Card>
         <CardContent className="pt-6">
@@ -283,6 +420,15 @@ export function InstagramSources() {
               >
                 <Key className="h-4 w-4" />
                 Upload Session
+              </Button>
+              <Button
+                onClick={handleTriggerAllActive}
+                variant="outline"
+                disabled={activeSources === 0 || triggerAllActiveMutation.isPending}
+                className="flex items-center gap-2"
+              >
+                <Zap className="h-4 w-4" />
+                Scrape All Active ({activeSources})
               </Button>
               <Button onClick={handleAdd} className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />

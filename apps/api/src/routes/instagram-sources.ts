@@ -220,6 +220,46 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // POST /api/instagram-sources/trigger-all-active - Trigger scrape for all active accounts
+  fastify.post('/trigger-all-active', async (request, reply) => {
+    try {
+      // Fetch all active accounts
+      const accounts = await db
+        .select()
+        .from(instagramAccounts)
+        .where(eq(instagramAccounts.active, true));
+
+      if (accounts.length === 0) {
+        reply.status(400);
+        return { error: 'No active Instagram accounts found' };
+      }
+
+      // Enqueue jobs for each account
+      const jobs = [];
+      for (const account of accounts) {
+        const job = await enqueueInstagramScrapeJob({
+          accountId: account.id,
+          postLimit: 10
+        });
+        jobs.push({
+          accountId: account.id,
+          username: account.instagramUsername,
+          jobId: job.id,
+        });
+      }
+
+      return {
+        message: `Queued ${accounts.length} scrape jobs for active accounts`,
+        accountsQueued: accounts.length,
+        jobs,
+      };
+    } catch (error: any) {
+      fastify.log.error('Failed to scrape all active accounts:', error);
+      reply.status(500);
+      return { error: 'Failed to scrape all active accounts' };
+    }
+  });
+
   // POST /api/instagram-sessions - Upload Instagram session
   fastify.post('/sessions', async (request, reply) => {
     try {
