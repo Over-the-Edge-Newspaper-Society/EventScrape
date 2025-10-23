@@ -182,5 +182,41 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
       return { error: e?.message || 'Failed to trigger schedule' }
     }
   })
+
+  // Trigger all active schedules
+  fastify.post('/trigger-all-active', async (_req, reply) => {
+    try {
+      const activeSchedules = await db.select().from(schedules).where(eq(schedules.active, true))
+
+      if (activeSchedules.length === 0) {
+        return { message: 'No active schedules found', triggered: [] }
+      }
+
+      const triggered = []
+      for (const schedule of activeSchedules) {
+        try {
+          await triggerScheduleNow({
+            scheduleId: schedule.id,
+            scheduleType: schedule.scheduleType,
+            sourceId: schedule.sourceId || undefined,
+            wordpressSettingsId: schedule.wordpressSettingsId || undefined,
+            config: schedule.config || undefined,
+          })
+          triggered.push({ id: schedule.id, type: schedule.scheduleType, status: 'triggered' })
+        } catch (err: any) {
+          triggered.push({ id: schedule.id, type: schedule.scheduleType, status: 'failed', error: err.message })
+        }
+      }
+
+      reply.status(200)
+      return {
+        message: `Triggered ${triggered.length} active schedules`,
+        triggered
+      }
+    } catch (e: any) {
+      reply.status(500)
+      return { error: e?.message || 'Failed to trigger schedules' }
+    }
+  })
 }
 
