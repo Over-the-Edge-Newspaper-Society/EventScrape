@@ -45,8 +45,8 @@ services:
       dockerfile: Dockerfile
       target: api
     container_name: eventscrape-api
-    ports:
-      - "3001:3001"
+    expose:
+      - "3001"
     environment:
       DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
       REDIS_URL: redis://redis:6379
@@ -79,8 +79,8 @@ services:
       args:
         ADMIN_API_URL: ${ADMIN_API_URL:-http://__HOST__:3001/api}
     container_name: eventscrape-admin
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://api:3001/api}
       NODE_ENV: production
@@ -90,6 +90,23 @@ services:
       eventscrape:
         aliases:
           - admin
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: eventscrape-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - api
+      - admin
+    networks:
+      - eventscrape
     restart: unless-stopped
 
   worker:

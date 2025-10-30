@@ -60,3 +60,11 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# SSL Certificates (keep directory structure)
+ssl/*
+!ssl/.gitkeep
+certbot/*
+!certbot/www/
+certbot/www/*
+!certbot/www/.gitkeep
