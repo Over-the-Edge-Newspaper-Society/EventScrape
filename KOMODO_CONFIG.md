@@ -1,8 +1,39 @@
 # Komodo Deployment Configuration
 
+This guide explains how to deploy EventScrape on Komodo using Komodo's built-in reverse proxy with SSL.
+
+## Quick Setup (Step-by-Step)
+
+### Step 1: Configure Komodo Reverse Proxy
+
+In Komodo's Server settings, add two routes:
+
+**Route 1: API (configure this FIRST!)**
+- Path: `/api/*`
+- Target: `http://localhost:3001/api/*`
+- SSL: Enabled (Komodo will handle HTTPS)
+
+**Route 2: Frontend (configure this SECOND!)**
+- Path: `/*`
+- Target: `http://localhost:3000/*`
+- SSL: Enabled (Komodo will handle HTTPS)
+
+> **Note:** Route order matters! API route must come before the catch-all frontend route.
+
+### Step 2: Set Environment Variables in Komodo
+
+Update your stack's environment variables (see section below for complete list).
+
+### Step 3: Deploy
+
+```bash
+docker-compose down
+docker-compose up -d --build
+```
+
 ## Environment Variables for HTTPS Deployment
 
-When using nginx reverse proxy with HTTPS, update your Komodo deployment environment variables:
+When using Komodo's reverse proxy with HTTPS, use these environment variables:
 
 ### Updated Configuration
 
@@ -63,37 +94,26 @@ API_URL=http://api:3001
 ### In Komodo Stack Configuration
 
 **Admin Service:**
-- **Remove external port mapping** (no `3000:3000`)
-- Only nginx should expose ports 80 and 443
-- Internal communication: `admin:3000` (Docker network)
+- **Expose port:** `3000:3000`
+- Komodo's reverse proxy will route traffic to this port
 
 **API Service:**
-- **Remove external port mapping** (no `3001:3001`)
-- Only nginx should expose ports 80 and 443
-- Internal communication: `api:3001` (Docker network)
+- **Expose port:** `3001:3001`
+- Komodo's reverse proxy will route traffic to this port
 
-**Nginx Service:**
-- **Expose:** `80:80` and `443:443`
-- Maps to admin and api internally
-
-Example Komodo stack ports configuration:
+Example docker-compose ports configuration:
 ```yaml
 services:
-  nginx:
-    ports:
-      - "80:80"
-      - "443:443"
-
   api:
-    # No external ports - only internal Docker network
-    expose:
-      - "3001"
+    ports:
+      - "3001:3001"
 
   admin:
-    # No external ports - only internal Docker network
-    expose:
-      - "3000"
+    ports:
+      - "3000:3000"
 ```
+
+> **Note:** Komodo handles SSL termination, so your containers only need to expose HTTP ports.
 
 ## Komodo Deployment Steps
 
@@ -120,17 +140,19 @@ In Komodo:
 ```bash
 # SSH into your server and run:
 
+# Check services are running
+docker-compose ps
+
 # Check admin container environment
 docker exec eventscrape-admin env | grep VITE_API_URL
 
 # Check if hardcoded URLs still exist (should return nothing)
 docker exec eventscrape-admin sh -c "grep -o 'http://10\\.70\\.20\\.171' /app/dist/assets/*.js | head -5"
 
-# Check nginx is running and proxying
-docker exec eventscrape-nginx nginx -t
+# Test API health endpoint
+curl http://localhost:3001/api/health
 
 # Check logs
-docker logs eventscrape-nginx
 docker logs eventscrape-api
 docker logs eventscrape-admin
 ```
@@ -160,19 +182,35 @@ docker logs eventscrape-admin
 - Update `CORS_ALLOWED_ORIGINS` to include `https://eventscrape.overtheedgepaper.ca`
 - Restart API container after changing CORS settings
 
-## Architecture with Nginx
+## Architecture with Komodo Reverse Proxy
 
 ```
 Internet
    ↓ (HTTPS :443)
-Nginx (eventscrape-nginx)
-   ├─→ / → Admin (admin:3000) - Frontend
-   └─→ /api/ → API (api:3001) - Backend
+Komodo Reverse Proxy
+   ├─→ / → Admin (localhost:3000) - Frontend
+   └─→ /api/ → API (localhost:3001) - Backend
           ↓
     ┌─────┴─────┐
     ↓           ↓
 PostgreSQL   Redis
 ```
+
+## Komodo Reverse Proxy Configuration
+
+In Komodo, configure your server to route:
+
+1. **Frontend (Admin) Routes:**
+   - Source: `https://eventscrape.overtheedgepaper.ca/*`
+   - Target: `http://localhost:3000/*`
+   - Protocol: HTTP → HTTPS (Komodo handles SSL)
+
+2. **API Routes:**
+   - Source: `https://eventscrape.overtheedgepaper.ca/api/*`
+   - Target: `http://localhost:3001/api/*`
+   - Protocol: HTTP → HTTPS (Komodo handles SSL)
+
+**Important:** The API route must be configured BEFORE the frontend route (order matters!)
 
 ## Testing After Deployment
 
