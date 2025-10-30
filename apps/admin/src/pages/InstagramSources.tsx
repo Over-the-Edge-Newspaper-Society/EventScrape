@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -10,14 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import {
-  instagramApi,
-  instagramApifyApi,
-  InstagramSource,
-  CreateInstagramSourceData,
-  API_BASE_URL,
-  InstagramScrapeJobStatus,
-} from '@/lib/api'
+import { instagramApi, instagramApifyApi, InstagramSource, CreateInstagramSourceData, API_BASE_URL } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import {
   Plus,
@@ -35,6 +28,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
+import { useInstagramScrapeProgress } from '@/hooks/useInstagramScrapeProgress'
+import { InstagramScrapeProgressCard } from '@/components/instagram/InstagramScrapeProgressCard'
 
 interface InstagramSettings {
   defaultScraperType: 'apify' | 'instagram-private-api'
@@ -49,9 +44,6 @@ export function InstagramSources() {
   const [sessionUsername, setSessionUsername] = useState('')
   const [sessionData, setSessionData] = useState('')
   const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'all'>('active')
-
-  const [activeScrapeJobs, setActiveScrapeJobs] = useState<Array<{ jobId: string; accountId: string; username: string }>>([])
-  const [scrapeJobsCompletedAt, setScrapeJobsCompletedAt] = useState<number | null>(null)
 
   // Apify run import state
   const [apifyRunId, setApifyRunId] = useState('')
@@ -85,6 +77,13 @@ export function InstagramSources() {
     },
   })
 
+  const {
+    isVisible: showScrapeProgress,
+    progress: scrapeProgress,
+    startTracking: startScrapeProgressTracking,
+    jobIds: trackedScrapeJobIds,
+  } = useInstagramScrapeProgress()
+
   const createMutation = useMutation({
     mutationFn: (data: CreateInstagramSourceData) => instagramApi.create(data),
     onSuccess: () => {
@@ -95,6 +94,26 @@ export function InstagramSources() {
     },
     onError: (error) => {
       toast.error(`Failed to create source: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    },
+  })
+
+  const cancelJobsMutation = useMutation({
+    mutationFn: (jobIds: string[]) => instagramApi.cancelJobs(jobIds),
+    onSuccess: (data) => {
+      const removed = data.results.filter(result => result.action === 'removed').length
+      const cancelRequested = data.results.filter(result => result.action === 'cancel_requested').length
+
+      if (removed > 0 || cancelRequested > 0) {
+        const parts = []
+        if (removed > 0) parts.push(`${removed} queued`)
+        if (cancelRequested > 0) parts.push(`${cancelRequested} in-progress`)
+        toast.success(`Cancellation requested for ${parts.join(' & ')} Instagram jobs`)
+      } else {
+        toast.info('Instagram scrapes already finished')
+      }
+    },
+    onError: (error) => {
+      toast.error(`Failed to cancel Instagram scrapes: ${error instanceof Error ? error.message : 'Unknown error'}`)
     },
   })
 
@@ -138,8 +157,7 @@ export function InstagramSources() {
     mutationFn: () => instagramApi.triggerAllActive(),
     onSuccess: (data) => {
       toast.success(`Queued scrape jobs for ${data.accountsQueued} active accounts`)
-      setActiveScrapeJobs(data.jobs ?? [])
-      setScrapeJobsCompletedAt(null)
+      startScrapeProgressTracking(data.jobs ?? [])
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
     },
     onError: (error) => {
@@ -178,144 +196,6 @@ export function InstagramSources() {
       setApifyRunResult(null)
     },
   })
-
-  const trackedJobIds = useMemo(() => {
-    if (activeScrapeJobs.length === 0) {
-      return []
-    }
-    const ids = activeScrapeJobs.map(job => job.jobId)
-    ids.sort()
-    return ids
-  }, [activeScrapeJobs])
-
-  const jobStatusesQuery = useQuery({
-    queryKey: ['instagram-scrape-job-statuses', trackedJobIds],
-    queryFn: () => instagramApi.getJobStatuses(trackedJobIds),
-    enabled: trackedJobIds.length > 0,
-    refetchInterval: (data) => {
-      if (trackedJobIds.length === 0) return false
-      if (!data) return 3000
-      const finishedStates = new Set(['completed', 'failed', 'error', 'missing'])
-      const finishedCount = data.jobs.filter(job => finishedStates.has(job.state)).length
-      return finishedCount >= trackedJobIds.length ? false : 3000
-    },
-  })
-
-  const jobStatuses = jobStatusesQuery.data
-
-  const scrapeProgress = useMemo(() => {
-    const total = activeScrapeJobs.length
-    const statusMap = new Map<string, InstagramScrapeJobStatus>()
-
-    jobStatuses?.jobs.forEach(job => {
-      statusMap.set(job.jobId, job)
-    })
-
-    const counts = {
-      queued: 0,
-      running: 0,
-      completed: 0,
-      failed: 0,
-      missing: 0,
-    }
-
-    const runningJobs: string[] = []
-    const queuedJobs: string[] = []
-    const failedJobs: Array<{ username: string; reason: string | null }> = []
-    const completedJobs: string[] = []
-
-    if (total === 0) {
-      return {
-        total,
-        counts,
-        percentage: 0,
-        finished: false,
-        finishedCount: 0,
-        runningJobs,
-        queuedJobs,
-        failedJobs,
-        completedJobs,
-      }
-    }
-
-    activeScrapeJobs.forEach(job => {
-      const status = statusMap.get(job.jobId)
-      const username = job.username || job.accountId
-
-      if (!status) {
-        counts.queued += 1
-        queuedJobs.push(username)
-        return
-      }
-
-      switch (status.state) {
-        case 'completed':
-          counts.completed += 1
-          completedJobs.push(username)
-          break
-        case 'failed':
-        case 'error':
-          counts.failed += 1
-          failedJobs.push({ username, reason: status.failedReason || null })
-          break
-        case 'missing':
-          counts.failed += 1
-          counts.missing += 1
-          failedJobs.push({ username, reason: 'Job no longer found in queue' })
-          break
-        case 'active':
-          counts.running += 1
-          runningJobs.push(username)
-          break
-        default:
-          counts.queued += 1
-          queuedJobs.push(username)
-          break
-      }
-    })
-
-    const finishedCount = counts.completed + counts.failed
-    const percentage = total > 0 ? Math.round((finishedCount / total) * 100) : 0
-    const finished = total > 0 && finishedCount >= total
-
-    return {
-      total,
-      counts,
-      percentage,
-      finished,
-      finishedCount,
-      runningJobs,
-      queuedJobs,
-      failedJobs,
-      completedJobs,
-    }
-  }, [activeScrapeJobs, jobStatuses])
-
-  useEffect(() => {
-    if (scrapeProgress.total === 0) return
-    if (!scrapeProgress.finished) return
-    if (scrapeJobsCompletedAt !== null) return
-    setScrapeJobsCompletedAt(Date.now())
-  }, [scrapeProgress.total, scrapeProgress.finished, scrapeJobsCompletedAt])
-
-  useEffect(() => {
-    if (scrapeJobsCompletedAt === null) return
-    const timeoutId = window.setTimeout(() => {
-      setActiveScrapeJobs([])
-      setScrapeJobsCompletedAt(null)
-    }, 8000)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [scrapeJobsCompletedAt])
-
-  const formatHandle = (name: string) => (name.startsWith('@') ? name : `@${name}`)
-
-  const summarizeUserList = (usernames: string[]) => {
-    if (!usernames.length) return ''
-    const visible = usernames.slice(0, 3).map(name => formatHandle(name)).join(', ')
-    const remaining = usernames.length - 3
-    return remaining > 0 ? `${visible} +${remaining} more` : visible
-  }
 
   const resetForm = () => {
     setFormData({
@@ -388,6 +268,13 @@ export function InstagramSources() {
         console.error('Trigger all failed:', error)
       }
     }
+  }
+
+  const handleCancelScrapeJobs = () => {
+    if (!trackedScrapeJobIds.length || cancelJobsMutation.isPending) {
+      return
+    }
+    cancelJobsMutation.mutate(trackedScrapeJobIds)
   }
 
   const handleUploadSession = async () => {
@@ -605,85 +492,12 @@ export function InstagramSources() {
               </Button>
             </div>
           </div>
-          {activeScrapeJobs.length > 0 && (
-            <div className="mt-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4">
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    {scrapeProgress.finished ? (
-                      <CheckCircle className="h-4 w-4" />
-                    ) : (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    )}
-                    <span>
-                      {scrapeProgress.finished
-                        ? 'Instagram scrape queue finished'
-                        : 'Scraping Instagram accounts...'}
-                    </span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {scrapeProgress.finishedCount}/{scrapeProgress.total} done
-                  </span>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Progress</span>
-                    <span>{scrapeProgress.percentage}%</span>
-                  </div>
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-2 rounded-full bg-primary transition-[width]"
-                      style={{ width: `${scrapeProgress.percentage}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
-                  <span>Queued: {scrapeProgress.counts.queued}</span>
-                  <span>Running: {scrapeProgress.counts.running}</span>
-                  <span className="text-foreground">Completed: {scrapeProgress.counts.completed}</span>
-                  <span className={scrapeProgress.counts.failed > 0 ? 'text-destructive' : undefined}>
-                    Failed: {scrapeProgress.counts.failed}
-                  </span>
-                </div>
-                {(scrapeProgress.runningJobs.length > 0 || scrapeProgress.queuedJobs.length > 0) && (
-                  <div className="flex flex-wrap gap-3 text-xs">
-                    {scrapeProgress.runningJobs.length > 0 && (
-                      <span className="text-foreground">
-                        Running: {summarizeUserList(scrapeProgress.runningJobs)}
-                      </span>
-                    )}
-                    {scrapeProgress.queuedJobs.length > 0 && (
-                      <span className="text-muted-foreground">
-                        Queued: {summarizeUserList(scrapeProgress.queuedJobs)}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {scrapeProgress.failedJobs.length > 0 && (
-                  <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-                      <div>
-                        <p className="font-medium">Some accounts failed</p>
-                        <ul className="mt-1 space-y-1">
-                          {scrapeProgress.failedJobs.slice(0, 3).map((job, index) => (
-                            <li key={`${job.username}-${index}`}>
-                              {formatHandle(job.username)}
-                              {job.reason ? ` — ${job.reason}` : ''}
-                            </li>
-                          ))}
-                        </ul>
-                        {scrapeProgress.failedJobs.length > 3 && (
-                          <p className="mt-1 text-[11px]">
-                            +{scrapeProgress.failedJobs.length - 3} more
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+          {showScrapeProgress && (
+            <InstagramScrapeProgressCard
+              progress={scrapeProgress}
+              onCancel={trackedScrapeJobIds.length > 0 ? handleCancelScrapeJobs : undefined}
+              isCancelling={cancelJobsMutation.isPending}
+            />
           )}
         </CardContent>
       </Card>

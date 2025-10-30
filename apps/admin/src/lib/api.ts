@@ -1,19 +1,31 @@
 const resolveApiBaseUrl = () => {
-  const configured = import.meta.env.VITE_API_URL
+  const configured = import.meta.env.VITE_API_URL?.trim()
+
   if (typeof window !== 'undefined') {
     if (configured && configured.length > 0) {
-      let value = configured.replace('__HOST__', window.location.hostname)
+      let value = configured
+        .replace('__HOST__', window.location.hostname)
+        .replace('__ORIGIN__', window.location.origin)
+
+      if (value.startsWith('/')) {
+        return `${window.location.origin}${value}`
+      }
+
       if (!/^https?:\/\//i.test(value)) {
         // Allow values like "api:3001/api" to resolve relative to current protocol
         value = `${window.location.protocol}//${value.replace(/^\/\//, '')}`
       }
+
       return value
     }
-    return `${window.location.protocol}//${window.location.hostname}:3001/api`
+
+    return `${window.location.origin}/api`
   }
+
   if (configured && configured.length > 0) {
     return configured
   }
+
   return 'http://localhost:3001/api'
 }
 
@@ -282,6 +294,11 @@ export const instagramApi = {
   triggerAllActive: () => fetchApi<{ message: string; accountsQueued: number; jobs: Array<{ accountId: string; username: string; jobId: string }> }>('/instagram-sources/trigger-all-active', { method: 'POST' }),
   getJobStatuses: (jobIds: string[]) =>
     fetchApi<{ jobs: InstagramScrapeJobStatus[] }>('/instagram-sources/jobs/status', {
+      method: 'POST',
+      body: JSON.stringify({ jobIds }),
+    }),
+  cancelJobs: (jobIds: string[]) =>
+    fetchApi<{ results: InstagramScrapeCancelResult[] }>('/instagram-sources/jobs/cancel', {
       method: 'POST',
       body: JSON.stringify({ jobIds }),
     }),
@@ -706,4 +723,11 @@ export interface InstagramScrapeJobStatus {
   finishedOn?: number | null
   timestamp?: number | null
   data?: any
+  cancelState?: 'requested' | 'cancelled' | null
+}
+
+export interface InstagramScrapeCancelResult {
+  jobId: string
+  state: string | null
+  action: 'removed' | 'cancel_requested' | 'already_finished' | 'missing'
 }

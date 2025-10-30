@@ -61,14 +61,16 @@ export class ApifyScraper {
     knownPostIds: Set<string> = new Set()
   ): Promise<ApifyInstagramPost[]> {
     try {
-      // Use Apify's Instagram Profile Scraper
-      // Actor ID: apify/instagram-profile-scraper
-      const run = await this.client.actor('apify/instagram-profile-scraper').call({
+      // Use Apify's Instagram Post Scraper
+      // Actor ID: apify/instagram-post-scraper
+      const profileUrl = `https://www.instagram.com/${username}/`;
+      const run = await this.client.actor('apify/instagram-post-scraper').call({
+        username: [username],
         usernames: [username],
+        directUrls: [profileUrl],
         resultsLimit: Math.max(limit * 2, 20), // Fetch more to account for filtering
-        resultsType: 'posts',
-        searchType: 'user',
-        searchLimit: 1,
+        maxItems: Math.max(limit * 2, 20),
+        skipPinnedPosts: false,
       });
 
       // Wait for the run to finish
@@ -101,7 +103,7 @@ export class ApifyScraper {
           imageUrl: item.displayUrl || item.thumbnailUrl || null,
           videoUrl: item.videoUrl || null,
           isVideo: item.type === 'Video' || !!item.videoUrl,
-          permalink: `https://www.instagram.com/p/${postId}/`,
+          permalink: item.url || item.permalink || `https://www.instagram.com/p/${postId}/`,
           likesCount: item.likesCount,
           commentsCount: item.commentsCount,
         };

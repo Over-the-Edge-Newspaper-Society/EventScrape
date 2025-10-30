@@ -18,7 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Environment configuration
-const DEFAULT_APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID || 'apify/instagram-profile-scraper';
+const DEFAULT_APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID || 'apify/instagram-post-scraper';
 const APIFY_BATCH_SIZE = parseInt(process.env.APIFY_BATCH_SIZE || '8', 10);
 const APIFY_RUN_TIMEOUT_SECONDS = parseInt(process.env.APIFY_RUN_TIMEOUT_SECONDS || '180', 10);
 const APIFY_USE_NODE_CLIENT = process.env.APIFY_USE_NODE_CLIENT !== 'false'; // default true
@@ -477,6 +477,7 @@ export class EnhancedApifyClient {
     const runInput = {
       directUrls,
       username: chunk,
+      usernames: chunk,
       resultsLimit: chunkLimit,
       maxItems: chunkLimit,
       skipPinnedPosts: false,
@@ -624,8 +625,11 @@ export class EnhancedApifyClient {
       throw new ApifyClientError('Instagram URL is required');
     }
 
+    const derivedUsername = this.extractUsernameFromItem({ inputUrl: url });
     const runInput = {
       directUrls: [url],
+      username: derivedUsername ? [derivedUsername] : undefined,
+      usernames: derivedUsername ? [derivedUsername] : undefined,
       resultsLimit: limit,
       maxItems: limit,
       skipPinnedPosts: false,

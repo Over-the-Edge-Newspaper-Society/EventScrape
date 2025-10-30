@@ -7,6 +7,10 @@ const connection = new IORedis(redisUrl, {
   maxRetriesPerRequest: null, // Fix BullMQ deprecation warning
 });
 
+const INSTAGRAM_CANCEL_KEY_PREFIX = 'instagram-scrape:cancel:';
+
+const instagramCancelKey = (jobId: string) => `${INSTAGRAM_CANCEL_KEY_PREFIX}${jobId}`;
+
 // Define job data schemas
 export const scrapeJobSchema = z.object({
   sourceId: z.string().uuid(),
@@ -104,6 +108,26 @@ export const instagramScrapeQueue = new Queue<InstagramScrapeJobData>('instagram
 export const scrapeQueueEvents = new QueueEvents('scrape-queue', { connection });
 export const matchQueueEvents = new QueueEvents('match-queue', { connection });
 export const instagramScrapeQueueEvents = new QueueEvents('instagram-scrape-queue', { connection });
+
+export async function markInstagramJobCancelRequested(jobId: string, ttlSeconds: number = 3600) {
+  await connection.set(instagramCancelKey(jobId), 'requested', 'EX', ttlSeconds);
+}
+
+export async function markInstagramJobCancelled(jobId: string, ttlSeconds: number = 3600) {
+  await connection.set(instagramCancelKey(jobId), 'cancelled', 'EX', ttlSeconds);
+}
+
+export async function clearInstagramJobCancelState(jobId: string) {
+  await connection.del(instagramCancelKey(jobId));
+}
+
+export async function getInstagramJobCancelState(jobId: string): Promise<'requested' | 'cancelled' | null> {
+  const value = await connection.get(instagramCancelKey(jobId));
+  if (value === 'requested' || value === 'cancelled') {
+    return value;
+  }
+  return null;
+}
 
 // Helper functions
 export async function enqueueScrapeJob(data: ScrapeJobData) {
