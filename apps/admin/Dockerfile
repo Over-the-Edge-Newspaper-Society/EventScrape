@@ -31,10 +31,14 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
+# Accept build arguments
+ARG VITE_API_URL=/api
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build the application
+# Build the application with environment variables
+ENV VITE_API_URL=$VITE_API_URL
 RUN pnpm --filter @eventscrape/admin build
 
 # Production image, copy all the files and run next

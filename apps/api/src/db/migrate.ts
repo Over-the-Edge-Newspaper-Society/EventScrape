@@ -234,6 +234,32 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0018 (Instagram parent runs)
+    try {
+      const sql18 = await readFile(migrationPath('0018_instagram_parent_runs.sql'), 'utf-8');
+      await migrationClient.unsafe(sql18);
+      console.log('✅ Applied migration 0018 (Instagram parent runs)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0018 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0018 not applied');
+      }
+    }
+
+    // Apply incremental migration 0019 (Instagram auto classify)
+    try {
+      const sql19 = await readFile(migrationPath('0019_instagram_auto_classify.sql'), 'utf-8');
+      await migrationClient.unsafe(sql19);
+      console.log('✅ Applied migration 0019 (Instagram auto classify)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0019 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0019 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
