@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { exportsApi, CreateExportData } from '@/lib/api'
+import { exportsApi, CreateExportData, API_BASE_URL } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, AlertCircle, ExternalLink, Clock } from 'lucide-react'
 import { ExportWizard } from '@/components/exports/ExportWizard'
@@ -235,8 +235,7 @@ export function Exports() {
                             variant="outline"
                             className="flex items-center gap-1 h-8"
                             onClick={() => {
-                              const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-                              const downloadUrl = `${apiUrl}/exports/${row.export.id}/download`;
+                              const downloadUrl = `${API_BASE_URL}/exports/${row.export.id}/download`;
 
                               // Create temporary anchor element to trigger download with proper filename
                               const link = document.createElement('a');
