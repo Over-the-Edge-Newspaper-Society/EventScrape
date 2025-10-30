@@ -50,7 +50,7 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         .offset(offset);
 
       const parentIds = runsWithSources.map(item => item.run.id);
-      let childRuns: Array<{ run: typeof runs.$inferSelect; source: { id: string | null; name: string | null; moduleKey: string | null } }> = [];
+      let childRuns: Array<{ run: typeof runs.$inferSelect; source: { id: string; name: string; moduleKey: string } | null }> = [];
 
       if (parentIds.length > 0) {
         childRuns = await db

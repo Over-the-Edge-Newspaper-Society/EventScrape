@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '../db/connection.js';
+import { db, queryClient } from '../db/connection.js';
 import { instagramAccounts, runs } from '../db/schema.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -85,11 +85,13 @@ export async function triggerAllActiveInstagramScrapes(options: TriggerInstagram
       parentRunId,
     });
 
-    await db`
-      UPDATE runs
-      SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('jobId', ${job.id})
-      WHERE id = ${childRunId}
-    `;
+    if (job.id) {
+      await queryClient`
+        UPDATE runs
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('jobId', ${job.id})
+        WHERE id = ${childRunId}
+      `;
+    }
 
     jobs.push({
       accountId: account.id,
@@ -240,7 +242,7 @@ export async function cancelInstagramScrapeJobs(jobIds: string[]): Promise<Insta
     if (state === 'active') {
       await markInstagramJobCancelRequested(jobId);
       if (runIdFromJob) {
-        await db`
+        await queryClient`
           UPDATE runs
           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cancelRequested', true)
           WHERE id = ${runIdFromJob}
@@ -265,7 +267,7 @@ export async function cancelInstagramScrapeJobs(jobIds: string[]): Promise<Insta
 }
 
 async function findRunByJobId(jobId: string) {
-  const rows = await db`
+  const rows = await queryClient`
     SELECT id, parent_run_id
     FROM runs
     WHERE metadata ->> 'jobId' = ${jobId}
@@ -275,7 +277,7 @@ async function findRunByJobId(jobId: string) {
 }
 
 async function markRunAsCancelled(runId: string) {
-  await db`
+  await queryClient`
     UPDATE runs
     SET status = 'partial',
         finished_at = NOW(),
@@ -285,7 +287,7 @@ async function markRunAsCancelled(runId: string) {
 }
 
 async function updateBatchRunSummary(parentRunId: string) {
-  const [summary] = await db`
+  const [summary] = await queryClient`
     SELECT
       COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE status = 'success')::int AS success_count,
@@ -312,7 +314,7 @@ async function updateBatchRunSummary(parentRunId: string) {
       ? 'partial'
       : 'success';
 
-  await db`
+  await queryClient`
     UPDATE runs
     SET status = ${nextStatus},
         events_found = ${eventsTotal},

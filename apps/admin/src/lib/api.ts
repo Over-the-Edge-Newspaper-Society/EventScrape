@@ -297,7 +297,8 @@ export const instagramApi = {
       accountsQueued: number
       postLimit?: number
       batchSize?: number | null
-      jobs: Array<{ accountId: string; username: string; jobId: string }>
+      parentRunId?: string
+      jobs: Array<{ accountId: string; username: string; jobId: string; runId: string }>
     }>('/instagram-sources/trigger-all-active', {
       method: 'POST',
       body: JSON.stringify(options || {}),

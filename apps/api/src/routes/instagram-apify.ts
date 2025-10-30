@@ -9,17 +9,55 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pipeline } from 'node:stream/promises';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { v4 } from 'uuid';
+import axios from 'axios';
 import { db } from '../db/connection.js';
-import { instagramSettings, instagramAccounts, eventsRaw } from '../db/schema.js';
+import { instagramSettings, instagramAccounts, eventsRaw, runs } from '../db/schema.js';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+const INSTAGRAM_IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Ensure images directory exists
+if (!fs.existsSync(INSTAGRAM_IMAGES_DIR)) {
+  fs.mkdirSync(INSTAGRAM_IMAGES_DIR, { recursive: true });
+}
+
+/**
+ * Download an Instagram image and save it locally
+ * @returns The local filename (not full path) or null if download fails
+ */
+async function downloadInstagramImage(imageUrl: string, postId: string): Promise<string | null> {
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: 'stream',
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    // Extract extension from URL or use jpg as default
+    const urlPath = new URL(imageUrl).pathname;
+    const ext = path.extname(urlPath) || '.jpg';
+    const filename = `${postId}${ext}`;
+    const filepath = path.join(INSTAGRAM_IMAGES_DIR, filename);
+
+    // Save the image
+    await pipeline(response.data, fs.createWriteStream(filepath));
+
+    return filename; // Return just the filename, not the full path
+  } catch (error: any) {
+    console.error(`Failed to download image for post ${postId}:`, error.message);
+    return null;
+  }
+}
 
 type EnhancedApifyClientModule = typeof import('../../../../worker/src/modules/instagram/enhanced-apify-client.js');
 let enhancedClientModulePromise: Promise<EnhancedApifyClientModule> | null = null;
@@ -186,6 +224,12 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         .from(instagramSettings)
         .where(eq(instagramSettings.id, SETTINGS_ID));
 
+      // Create a run record for this import
+      const [runRecord] = await db.insert(runs).values({
+        sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
+        status: 'running',
+      }).returning();
+
       const stats = {
         attempted: posts.length,
         created: 0,
@@ -217,12 +261,18 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           continue;
         }
 
+        // Download image if available
+        let localImagePath: string | null = null;
+        if (postData.imageUrl) {
+          localImagePath = await downloadInstagramImage(postData.imageUrl, postData.id);
+        }
+
         // Create event_raw record (without extraction for now)
         const timestamp = new Date(postData.timestamp);
 
         await db.insert(eventsRaw).values({
           sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-          runId: v4(), // Generate new run ID for snapshot import
+          runId: runRecord.id,
           sourceEventId: postData.id,
           title: postData.caption?.slice(0, 200) || 'Instagram Post',
           descriptionHtml: postData.caption || '',
@@ -230,6 +280,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           timezone: account.defaultTimezone || 'America/Vancouver',
           url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
           imageUrl: postData.imageUrl,
+          localImagePath: localImagePath,
           raw: JSON.stringify(postData),
           contentHash: postData.id,
           instagramAccountId: account.id,
@@ -239,6 +290,15 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
 
         stats.created++;
       }
+
+      // Update run status
+      await db.update(runs)
+        .set({
+          status: stats.created > 0 ? 'success' : 'partial',
+          finishedAt: new Date(),
+          eventsFound: stats.created,
+        })
+        .where(eq(runs.id, runRecord.id));
 
       const message = stats.created > 0
         ? `Imported ${stats.created} new post(s) from Apify snapshot.`
@@ -397,6 +457,13 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           };
         }
 
+        // Create a run record for this import
+        const [runRecord] = await db.insert(runs).values({
+          sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
+          status: 'running',
+          metadata: { apifyRunId: runId },
+        }).returning();
+
         // Import posts
         const stats = {
           attempted: snapshot.posts.length,
@@ -434,12 +501,18 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
             continue;
           }
 
+          // Download image if available
+          let localImagePath: string | null = null;
+          if (postData.imageUrl) {
+            localImagePath = await downloadInstagramImage(postData.imageUrl, postData.id);
+          }
+
           // Create event_raw record
           const timestamp = new Date(postData.timestamp);
 
           await db.insert(eventsRaw).values({
             sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-            runId: v4(), // Generate new run ID for snapshot import
+            runId: runRecord.id,
             sourceEventId: postData.id,
             title: postData.caption?.slice(0, 200) || 'Instagram Post',
             descriptionHtml: postData.caption || '',
@@ -447,6 +520,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
             timezone: account.defaultTimezone || 'America/Vancouver',
             url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
             imageUrl: postData.imageUrl,
+            localImagePath: localImagePath,
             raw: JSON.stringify(postData),
             contentHash: postData.id,
             instagramAccountId: account.id,
@@ -456,6 +530,15 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
 
           stats.created++;
         }
+
+        // Update run status
+        await db.update(runs)
+          .set({
+            status: stats.created > 0 ? 'success' : 'partial',
+            finishedAt: new Date(),
+            eventsFound: stats.created,
+          })
+          .where(eq(runs.id, runRecord.id));
 
         const message = stats.created > 0
           ? `Imported ${stats.created} new post(s) from Apify run ${runId}.`
