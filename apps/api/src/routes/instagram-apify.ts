@@ -6,6 +6,9 @@
  * - Batch operations
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
@@ -14,6 +17,41 @@ import { db } from '../db/connection.js';
 import { instagramSettings, instagramAccounts, eventsRaw } from '../db/schema.js';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+type EnhancedApifyClientModule = typeof import('../../../../worker/src/modules/instagram/enhanced-apify-client.js');
+let enhancedClientModulePromise: Promise<EnhancedApifyClientModule> | null = null;
+
+const loadEnhancedApifyClientModule = async (): Promise<EnhancedApifyClientModule> => {
+  if (!enhancedClientModulePromise) {
+    enhancedClientModulePromise = resolveEnhancedApifyClientModule();
+  }
+  return enhancedClientModulePromise;
+};
+
+const resolveEnhancedApifyClientModule = async (): Promise<EnhancedApifyClientModule> => {
+  // Resolve the enhanced Apify client from any available build artifact.
+  const candidatePaths = [
+    path.resolve(__dirname, '../worker/src/modules/instagram/enhanced-apify-client.js'),
+    path.resolve(__dirname, '../worker/dist/modules/instagram/enhanced-apify-client.js'),
+    path.resolve(__dirname, '../../../../worker/dist/modules/instagram/enhanced-apify-client.js'),
+    path.resolve(__dirname, '../../../../worker/src/modules/instagram/enhanced-apify-client.js'),
+    path.resolve(process.cwd(), 'worker/dist/modules/instagram/enhanced-apify-client.js'),
+    path.resolve(process.cwd(), 'worker/src/modules/instagram/enhanced-apify-client.js'),
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      return import(pathToFileURL(candidate).href) as Promise<EnhancedApifyClientModule>;
+    }
+  }
+
+  throw new Error(
+    'Enhanced Apify client module not found. Build the worker package or ensure worker modules are copied into the API dist.'
+  );
+};
 
 // Validation schemas
 const testFetchSchema = z.object({
@@ -64,10 +102,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Dynamic import to avoid loading in non-worker context
-      // @ts-ignore - Cross-package import, resolved at runtime
-      const { createEnhancedApifyClient } = await import(
-        '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
-      );
+      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,
@@ -115,10 +150,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           return { error: 'Apify API token not configured' };
         }
 
-        // @ts-ignore - Cross-package import, resolved at runtime
-        const { createEnhancedApifyClient } = await import(
-          '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
-        );
+        const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
         const client = await createEnhancedApifyClient(
           settings.apifyApiToken,
@@ -265,10 +297,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Apify API token not configured' };
       }
 
-      // @ts-ignore - Cross-package import, resolved at runtime
-      const { createEnhancedApifyClient } = await import(
-        '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
-      );
+      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,
@@ -345,10 +374,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           return { error: 'Apify API token not configured' };
         }
 
-        // @ts-ignore - Cross-package import, resolved at runtime
-        const { createEnhancedApifyClient } = await import(
-          '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
-        );
+        const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
         const client = await createEnhancedApifyClient(
           settings.apifyApiToken,
@@ -472,10 +498,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      // @ts-ignore - Cross-package import, resolved at runtime
-      const { createEnhancedApifyClient } = await import(
-        '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
-      );
+      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,

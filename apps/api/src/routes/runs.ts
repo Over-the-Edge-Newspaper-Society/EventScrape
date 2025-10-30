@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, asc } from 'drizzle-orm';
+import { eq, desc, and, asc, isNull, inArray, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db/connection.js';
 import { runs, sources, eventsRaw } from '../db/schema.js';
@@ -9,6 +9,7 @@ import { enqueueScrapeJob } from '../queue/queue.js';
 const querySchema = z.object({
   sourceId: z.string().uuid().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),
+  page: z.coerce.number().int().positive().default(1),
 });
 
 export const runsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -17,12 +18,20 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
     try {
       const query = querySchema.parse(request.query);
       
-      const conditions = [];
+      const conditions = [isNull(runs.parentRunId)];
       if (query.sourceId) {
         conditions.push(eq(runs.sourceId, query.sourceId));
       }
-      
-      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const whereClause = and(...conditions);
+      const offset = (query.page - 1) * query.limit;
+
+      const [{ count: totalRaw = 0 }] = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(runs)
+        .where(whereClause);
+
+      const total = Number(totalRaw);
 
       const runsWithSources = await db
         .select({
@@ -37,9 +46,83 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
         .leftJoin(sources, eq(runs.sourceId, sources.id))
         .where(whereClause)
         .orderBy(desc(runs.startedAt))
-        .limit(query.limit);
+        .limit(query.limit)
+        .offset(offset);
 
-      return { runs: runsWithSources };
+      const parentIds = runsWithSources.map(item => item.run.id);
+      let childRuns: Array<{ run: typeof runs.$inferSelect; source: { id: string | null; name: string | null; moduleKey: string | null } }> = [];
+
+      if (parentIds.length > 0) {
+        childRuns = await db
+          .select({
+            run: runs,
+            source: {
+              id: sources.id,
+              name: sources.name,
+              moduleKey: sources.moduleKey,
+            },
+          })
+          .from(runs)
+          .leftJoin(sources, eq(runs.sourceId, sources.id))
+          .where(inArray(runs.parentRunId, parentIds))
+          .orderBy(asc(runs.startedAt));
+      }
+
+      const childrenByParent = new Map<string, typeof childRuns>();
+      for (const child of childRuns) {
+        const parentId = child.run.parentRunId;
+        if (!parentId) continue;
+        if (!childrenByParent.has(parentId)) {
+          childrenByParent.set(parentId, []);
+        }
+        childrenByParent.get(parentId)!.push(child);
+      }
+
+      const runsWithChildren = runsWithSources.map(item => {
+        const children = childrenByParent.get(item.run.id) ?? [];
+        const summary = children.reduce(
+          (acc, child) => {
+            acc.total += 1;
+            switch (child.run.status) {
+              case 'success':
+                acc.success += 1;
+                break;
+              case 'error':
+              case 'partial':
+                acc.failed += 1;
+                break;
+              case 'running':
+                acc.running += 1;
+                acc.pending += 1;
+                break;
+              case 'queued':
+                acc.queued += 1;
+                acc.pending += 1;
+                break;
+              default:
+                break;
+            }
+            return acc;
+          },
+          { total: 0, success: 0, failed: 0, pending: 0, running: 0, queued: 0 }
+        );
+
+        return {
+          ...item,
+          children,
+          summary,
+        };
+      });
+
+      return {
+        runs: runsWithChildren,
+        pagination: {
+          page: query.page,
+          limit: query.limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / query.limit)),
+        },
+      };
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         reply.status(400);
@@ -97,7 +180,21 @@ export const runsRoutes: FastifyPluginAsync = async (fastify) => {
       .where(eq(eventsRaw.runId, id))
       .orderBy(asc(eventsRaw.startDatetime));
 
-    return { run: { ...result[0], events } };
+    const childRuns = await db
+      .select({
+        run: runs,
+        source: {
+          id: sources.id,
+          name: sources.name,
+          moduleKey: sources.moduleKey,
+        },
+      })
+      .from(runs)
+      .leftJoin(sources, eq(runs.sourceId, sources.id))
+      .where(eq(runs.parentRunId, id))
+      .orderBy(asc(runs.startedAt));
+
+    return { run: { ...result[0], events, children: childRuns } };
   });
 
   // Trigger a new scrape run for a source

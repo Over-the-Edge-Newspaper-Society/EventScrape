@@ -17,9 +17,9 @@ export function Dashboard() {
     queryFn: () => sourcesApi.getAll(),
   })
 
-  const { data: runs } = useQuery({
-    queryKey: ['runs', { limit: 10 }],
-    queryFn: () => runsApi.getAll({ limit: 10 }),
+  const { data: runsList } = useQuery({
+    queryKey: ['runs', { limit: 10, page: 1 }],
+    queryFn: () => runsApi.getAll({ limit: 10, page: 1 }),
   })
 
   const { data: rawEvents } = useQuery({
@@ -34,7 +34,7 @@ export function Dashboard() {
 
   const activeSources = sources?.sources.filter(s => s.active).length || 0
   const totalSources = sources?.sources.length || 0
-  const recentRuns = runs?.runs.slice(0, 5) || []
+  const recentRuns = runsList?.runs.slice(0, 5) || []
   const totalEvents = rawEvents?.pagination.total || 0
   const pendingMatchesCount = pendingMatches?.matches.length || 0
 

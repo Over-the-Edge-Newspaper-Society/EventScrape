@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -21,6 +21,8 @@ export function Runs() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [page, setPage] = useState<number>(1)
+  const [pageSize, setPageSize] = useState<number>(20)
   const [selectedSourceForTrigger, setSelectedSourceForTrigger] = useState<string>('')
   const [scrapeMode, setScrapeMode] = useState<'full' | 'incremental'>('full')
   const [scrapeAllPages, setScrapeAllPages] = useState(true)
@@ -32,10 +34,19 @@ export function Runs() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   // Poster Import UI moved to dedicated page
 
-  const { data: runs, isLoading: runsLoading } = useQuery({
-    queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter }],
-    queryFn: () => runsApi.getAll({ sourceId: sourceFilter === 'all' ? undefined : sourceFilter }),
-    refetchInterval: 5000, // Refresh every 5 seconds to get real-time updates
+  useEffect(() => {
+    setPage(1)
+  }, [sourceFilter, statusFilter])
+
+  const { data: runsData, isLoading: runsLoading } = useQuery({
+    queryKey: ['runs', { sourceId: sourceFilter === 'all' ? undefined : sourceFilter, page, limit: pageSize }],
+    queryFn: () => runsApi.getAll({
+      sourceId: sourceFilter === 'all' ? undefined : sourceFilter,
+      page,
+      limit: pageSize,
+    }),
+    keepPreviousData: true,
+    refetchInterval: 5000,
   })
 
   const { data: sources } = useQuery({
@@ -288,8 +299,24 @@ export function Runs() {
     )
   }
 
+  const runItems = runsData?.runs ?? []
+  const pagination = runsData?.pagination
+  const totalRuns = pagination?.total ?? runItems.length
+  const totalPages = pagination?.totalPages ?? 1
+
+  const statusCounts = useMemo(() => {
+    return runItems.reduce(
+      (acc, item) => {
+        const status = item.run.status
+        acc[status] = (acc[status] ?? 0) + 1
+        return acc
+      },
+      { success: 0, error: 0, running: 0, partial: 0, queued: 0 } as Record<string, number>
+    )
+  }, [runItems])
+
   // Filter runs by status if needed
-  const filteredRuns = runs?.runs.filter(runData => {
+  const filteredRuns = runItems.filter(runData => {
     if (statusFilter === 'all') return true
     return runData.run.status === statusFilter
   }) || []
@@ -744,9 +771,11 @@ export function Runs() {
         <CardHeader>
           <CardTitle>Run History</CardTitle>
           <CardDescription>
-            {runs?.runs.length
-              ? `${filteredRuns.length} of ${runs.runs.length} runs`
-              : 'Loading run history...'}
+            {runsLoading
+              ? 'Loading run history...'
+              : totalRuns === 0
+              ? 'No runs available yet'
+              : `Showing ${filteredRuns.length} run${filteredRuns.length === 1 ? '' : 's'} on page ${page} of ${totalPages} • ${totalRuns} total`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -777,7 +806,7 @@ export function Runs() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRuns.map(({ run, source }) => {
+                {filteredRuns.map(({ run, source, summary }) => {
                   const startDate = new Date(run.startedAt)
                   const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
                   
@@ -788,6 +817,10 @@ export function Runs() {
                     : 0
                   
                   const durationFormatted = `${Math.floor(duration / 1000)}s`
+                  const summaryData = summary || { total: 0, success: 0, failed: 0, pending: 0, running: 0, queued: 0 }
+                  const queuedCount = Math.max(summaryData.pending - summaryData.running, 0)
+                  const metadata = (run.metadata ?? {}) as Record<string, any>
+                  const options = metadata.options as { postLimit?: number; batchSize?: number } | undefined
                   
                   return (
                     <TableRow key={run.id}>
@@ -828,6 +861,21 @@ export function Runs() {
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-muted-foreground">{run.pagesCrawled} pages</span>
                           </div>
+                          {summaryData.total > 0 && (
+                            <div className="text-xs text-muted-foreground space-y-0.5">
+                              <div>
+                                {summaryData.success} done • {summaryData.running} running • {queuedCount} queued • {summaryData.failed} failed
+                              </div>
+                              <div>
+                                {summaryData.total} account{summaryData.total === 1 ? '' : 's'} in batch
+                              </div>
+                            </div>
+                          )}
+                          {options && (
+                            <div className="text-xs text-muted-foreground">
+                              Posts/account: {options.postLimit ?? 'default'} • Batch size: {options.batchSize ?? 'default'}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -862,6 +910,32 @@ export function Runs() {
               </TableBody>
             </Table>
           )}
+
+          {!runsLoading && totalRuns > 0 && (
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mt-4">
+              <div className="text-sm text-muted-foreground">
+                Page {page} of {totalPages} • {totalRuns} total runs
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                  disabled={page === 1 || runsLoading}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={page >= totalPages || runsLoading}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -881,7 +955,7 @@ export function Runs() {
               <CheckCircle className="h-8 w-8 text-green-600" />
               <div>
                 <p className="text-2xl font-bold">
-                  {runs?.runs.filter(r => r.run.status === 'success').length || 0}
+                  {statusCounts.success || 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Successful</p>
               </div>
@@ -895,7 +969,7 @@ export function Runs() {
               <XCircle className="h-8 w-8 text-destructive" />
               <div>
                 <p className="text-2xl font-bold">
-                  {runs?.runs.filter(r => r.run.status === 'error').length || 0}
+                  {statusCounts.error || 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Failed</p>
               </div>
@@ -909,7 +983,7 @@ export function Runs() {
               <RotateCcw className="h-8 w-8 text-blue-600" />
               <div>
                 <p className="text-2xl font-bold">
-                  {runs?.runs.filter(r => r.run.status === 'running').length || 0}
+                  {statusCounts.running || 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Running</p>
               </div>
@@ -923,7 +997,7 @@ export function Runs() {
               <Activity className="h-8 w-8 text-purple-600" />
               <div>
                 <p className="text-2xl font-bold">
-                  {runs?.runs.reduce((sum, r) => sum + r.run.eventsFound, 0) || 0}
+                  {runItems.reduce((sum, r) => sum + r.run.eventsFound, 0) || 0}
                 </p>
                 <p className="text-sm text-muted-foreground">Total Events</p>
               </div>

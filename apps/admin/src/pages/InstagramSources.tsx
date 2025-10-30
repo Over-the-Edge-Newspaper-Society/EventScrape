@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -44,6 +44,13 @@ export function InstagramSources() {
   const [sessionUsername, setSessionUsername] = useState('')
   const [sessionData, setSessionData] = useState('')
   const [activeTab, setActiveTab] = useState<'active' | 'inactive' | 'all'>('active')
+  const [confirmScrapeAllOpen, setConfirmScrapeAllOpen] = useState(false)
+  const [scrapeOptions, setScrapeOptions] = useState({
+    accountLimit: 0,
+    postsPerAccount: 10,
+    batchSize: 8,
+  })
+  const lastScrapeOptionsRef = useRef<{ accountLimit?: number; postsPerAccount?: number; batchSize?: number } | null>(null)
 
   // Apify run import state
   const [apifyRunId, setApifyRunId] = useState('')
@@ -67,6 +74,17 @@ export function InstagramSources() {
     queryFn: () => instagramApi.getAll(),
   })
 
+  const activeAccountPreview = useMemo(() => {
+    if (!sources?.sources) return []
+    return sources.sources
+      .filter(source => source.active)
+      .map(source => ({
+        id: source.id,
+        username: source.instagramUsername,
+        name: source.name,
+      }))
+  }, [sources])
+
   // Fetch Instagram settings to check if per-account override is allowed
   const { data: settingsData } = useQuery({
     queryKey: ['instagram-settings'],
@@ -77,12 +95,20 @@ export function InstagramSources() {
     },
   })
 
-  const {
+const {
     isVisible: showScrapeProgress,
     progress: scrapeProgress,
     startTracking: startScrapeProgressTracking,
     jobIds: trackedScrapeJobIds,
-  } = useInstagramScrapeProgress()
+} = useInstagramScrapeProgress()
+
+type TriggerAllVariables = {
+  postLimit?: number
+  accountLimit?: number
+  batchSize?: number
+}
+
+type TriggerAllResponse = Awaited<ReturnType<typeof instagramApi.triggerAllActive>>
 
   const createMutation = useMutation({
     mutationFn: (data: CreateInstagramSourceData) => instagramApi.create(data),
@@ -153,11 +179,19 @@ export function InstagramSources() {
     },
   })
 
-  const triggerAllActiveMutation = useMutation({
-    mutationFn: () => instagramApi.triggerAllActive(),
-    onSuccess: (data) => {
+  const triggerAllActiveMutation = useMutation<TriggerAllResponse, Error, TriggerAllVariables>({
+    mutationFn: (options) => instagramApi.triggerAllActive(options),
+    onSuccess: (data, variables) => {
       toast.success(`Queued scrape jobs for ${data.accountsQueued} active accounts`)
-      startScrapeProgressTracking(data.jobs ?? [])
+      if (data.jobs?.length) {
+        startScrapeProgressTracking(data.jobs)
+      }
+      const { accountLimit, postLimit, batchSize } = variables || {}
+      lastScrapeOptionsRef.current = {
+        accountLimit,
+        postsPerAccount: postLimit,
+        batchSize,
+      }
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
     },
     onError: (error) => {
@@ -255,19 +289,21 @@ export function InstagramSources() {
     }
   }
 
-  const handleTriggerAllActive = async () => {
+  const handleTriggerAllActive = () => {
     if (activeSources === 0) {
       toast.error('No active Instagram accounts to scrape')
       return
     }
-
-    if (confirm(`Are you sure you want to scrape all ${activeSources} active Instagram accounts?`)) {
-      try {
-        await triggerAllActiveMutation.mutateAsync()
-      } catch (error) {
-        console.error('Trigger all failed:', error)
-      }
-    }
+    const previous = lastScrapeOptionsRef.current
+    const initialAccountLimit = previous?.accountLimit && previous.accountLimit > 0
+      ? Math.min(previous.accountLimit, activeSources)
+      : activeSources
+    setScrapeOptions({
+      accountLimit: initialAccountLimit,
+      postsPerAccount: previous?.postsPerAccount && previous.postsPerAccount > 0 ? previous.postsPerAccount : 10,
+      batchSize: previous?.batchSize && previous.batchSize > 0 ? previous.batchSize : 8,
+    })
+    setConfirmScrapeAllOpen(true)
   }
 
   const handleCancelScrapeJobs = () => {
@@ -275,6 +311,24 @@ export function InstagramSources() {
       return
     }
     cancelJobsMutation.mutate(trackedScrapeJobIds)
+  }
+
+  const handleConfirmScrapeAll = async () => {
+    const normalizedPostLimit = Math.min(Math.max(Math.round(scrapeOptions.postsPerAccount || 10), 1), 100)
+    const normalizedBatchSize = Math.min(Math.max(Math.round(scrapeOptions.batchSize || 8), 1), 25)
+    const accountLimitValue = Math.round(scrapeOptions.accountLimit || 0)
+    const normalizedAccountLimit = accountLimitValue > 0 ? Math.min(accountLimitValue, activeSources) : undefined
+
+    try {
+      await triggerAllActiveMutation.mutateAsync({
+        postLimit: normalizedPostLimit,
+        accountLimit: normalizedAccountLimit,
+        batchSize: normalizedBatchSize,
+      })
+      setConfirmScrapeAllOpen(false)
+    } catch (error) {
+      console.error('Trigger all failed:', error)
+    }
   }
 
   const handleUploadSession = async () => {
@@ -501,6 +555,114 @@ export function InstagramSources() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={confirmScrapeAllOpen} onOpenChange={setConfirmScrapeAllOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Scrape all active Instagram accounts?</DialogTitle>
+            <DialogDescription>
+              This will queue scrapes for {activeSources} active account{activeSources === 1 ? '' : 's'}. Jobs run
+              sequentially to respect rate limits.
+            </DialogDescription>
+          </DialogHeader>
+          {activeSources > 0 && (
+            <div className="space-y-4 text-sm text-muted-foreground">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label htmlFor="scrape-account-limit">Accounts to queue</Label>
+                  <Input
+                    id="scrape-account-limit"
+                    type="number"
+                    min={1}
+                    max={activeSources}
+                    value={Math.min(scrapeOptions.accountLimit || activeSources, activeSources)}
+                    onChange={(event) => {
+                      const parsed = parseInt(event.target.value, 10)
+                      setScrapeOptions(prev => ({
+                        ...prev,
+                        accountLimit: Number.isNaN(parsed) ? prev.accountLimit : parsed,
+                      }))
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Default: all {activeSources} active accounts</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scrape-post-limit">Posts per account</Label>
+                  <Input
+                    id="scrape-post-limit"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={scrapeOptions.postsPerAccount}
+                    onChange={(event) => {
+                      const parsed = parseInt(event.target.value, 10)
+                      setScrapeOptions(prev => ({
+                        ...prev,
+                        postsPerAccount: Number.isNaN(parsed) ? prev.postsPerAccount : parsed,
+                      }))
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Higher values take longer and consume more API quota</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scrape-batch-size">Profiles per Apify batch</Label>
+                  <Input
+                    id="scrape-batch-size"
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={scrapeOptions.batchSize}
+                    onChange={(event) => {
+                      const parsed = parseInt(event.target.value, 10)
+                      setScrapeOptions(prev => ({
+                        ...prev,
+                        batchSize: Number.isNaN(parsed) ? prev.batchSize : parsed,
+                      }))
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Controls how many usernames are fetched together</p>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1">Accounts to scrape:</p>
+                <ul className="list-disc pl-4">
+                  {activeAccountPreview.slice(0, 5).map(account => (
+                    <li key={account.id}>
+                      @{account.username}{' '}
+                      <span className="text-xs text-muted-foreground">({account.name})</span>
+                    </li>
+                  ))}
+                </ul>
+                {activeSources > 5 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    +{activeSources - 5} more active account{activeSources - 5 === 1 ? '' : 's'}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmScrapeAllOpen(false)}
+              disabled={triggerAllActiveMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmScrapeAll}
+              disabled={triggerAllActiveMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              {triggerAllActiveMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Start scrapes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Sources Table */}
       <Card>

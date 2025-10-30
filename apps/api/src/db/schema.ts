@@ -126,9 +126,12 @@ export const runs = pgTable('runs', {
   pagesCrawled: integer('pages_crawled').default(0),
   eventsFound: integer('events_found').default(0),
   errorsJsonb: jsonb('errors_jsonb'),
+  parentRunId: uuid('parent_run_id'),
+  metadata: jsonb('metadata'),
 }, (table) => ({
   sourceIdIdx: index('runs_source_id_idx').on(table.sourceId),
   startedAtIdx: index('runs_started_at_idx').on(table.startedAt),
+  parentRunIdIdx: index('runs_parent_run_id_idx').on(table.parentRunId),
 }));
 
 export const eventsRaw = pgTable('events_raw', {

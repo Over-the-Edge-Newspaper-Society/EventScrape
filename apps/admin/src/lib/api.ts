@@ -114,7 +114,7 @@ export const eventsApi = {
 
 // Runs API
 export const runsApi = {
-  getAll: (params?: { sourceId?: string; limit?: number }) => {
+  getAll: (params?: { sourceId?: string; limit?: number; page?: number }) => {
     const searchParams = new URLSearchParams()
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -123,7 +123,7 @@ export const runsApi = {
         }
       })
     }
-    return fetchApi<{ runs: RunWithSource[] }>(`/runs?${searchParams}`)
+    return fetchApi<{ runs: RunListItem[]; pagination: RunsPagination }>(`/runs?${searchParams}`)
   },
   getById: (id: string) => fetchApi<{ run: RunWithSourceAndEvents }>(`/runs/${id}`),
   triggerScrape: (sourceKey: string, options?: any) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
@@ -291,7 +291,17 @@ export const instagramApi = {
   }),
   delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
   trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
-  triggerAllActive: () => fetchApi<{ message: string; accountsQueued: number; jobs: Array<{ accountId: string; username: string; jobId: string }> }>('/instagram-sources/trigger-all-active', { method: 'POST' }),
+  triggerAllActive: (options?: { postLimit?: number; accountLimit?: number; batchSize?: number }) =>
+    fetchApi<{
+      message: string
+      accountsQueued: number
+      postLimit?: number
+      batchSize?: number | null
+      jobs: Array<{ accountId: string; username: string; jobId: string }>
+    }>('/instagram-sources/trigger-all-active', {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
   getJobStatuses: (jobIds: string[]) =>
     fetchApi<{ jobs: InstagramScrapeJobStatus[] }>('/instagram-sources/jobs/status', {
       method: 'POST',
@@ -389,11 +399,34 @@ export interface Run {
   pagesCrawled: number
   eventsFound: number
   errorsJsonb?: any
+  parentRunId?: string | null
+  metadata?: any
 }
 
 export interface RunWithSource {
   run: Run
   source: Pick<Source, 'id' | 'name' | 'moduleKey'>
+}
+
+export interface RunChildSummary {
+  total: number
+  success: number
+  failed: number
+  pending: number
+  running: number
+  queued: number
+}
+
+export interface RunListItem extends RunWithSource {
+  children: RunWithSource[]
+  summary: RunChildSummary
+}
+
+export interface RunsPagination {
+  page: number
+  limit: number
+  total: number
+  totalPages: number
 }
 
 export interface RunEventSummary {
@@ -414,6 +447,7 @@ export interface RunEventSummary {
 
 export interface RunWithSourceAndEvents extends RunWithSource {
   events: RunEventSummary[]
+  children?: RunWithSource[]
 }
 
 export interface EventRaw {

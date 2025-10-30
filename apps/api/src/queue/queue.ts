@@ -43,6 +43,8 @@ export const instagramScrapeJobSchema = z.object({
   accountId: z.string().uuid(),
   runId: z.string().uuid().optional(),
   postLimit: z.number().positive().optional(),
+  batchSize: z.number().int().positive().optional(),
+  parentRunId: z.string().uuid().optional(),
 });
 
 export type ScrapeJobData = z.infer<typeof scrapeJobSchema>;

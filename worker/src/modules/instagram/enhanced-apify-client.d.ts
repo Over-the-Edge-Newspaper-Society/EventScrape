@@ -102,7 +102,7 @@ export declare class EnhancedApifyClient {
     /**
      * Batch process multiple usernames in one or more Apify runs
      */
-    fetchPostsBatch(usernames: string[], limitPerUsername: number, knownIdsMap?: Map<string, Set<string>>): Promise<Map<string, ApifyPost[]>>;
+    fetchPostsBatch(usernames: string[], limitPerUsername: number, knownIdsMap?: Map<string, Set<string>>, batchSizeOverride?: number): Promise<Map<string, ApifyPost[]>>;
     /**
      * Process a chunk of usernames
      */

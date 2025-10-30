@@ -312,16 +312,16 @@ export class EnhancedApifyClient {
     /**
      * Batch process multiple usernames in one or more Apify runs
      */
-    async fetchPostsBatch(usernames, limitPerUsername, knownIdsMap = new Map()) {
+    async fetchPostsBatch(usernames, limitPerUsername, knownIdsMap = new Map(), batchSizeOverride) {
         if (usernames.length === 0) {
             return new Map();
         }
         const postsByUser = new Map();
         usernames.forEach(username => postsByUser.set(username, []));
-        const batchSize = Math.max(APIFY_BATCH_SIZE, 1);
+        const effectiveBatchSize = Math.max(batchSizeOverride ?? APIFY_BATCH_SIZE, 1);
         const chunks = [];
-        for (let i = 0; i < usernames.length; i += batchSize) {
-            chunks.push(usernames.slice(i, i + batchSize));
+        for (let i = 0; i < usernames.length; i += effectiveBatchSize) {
+            chunks.push(usernames.slice(i, i + effectiveBatchSize));
         }
         for (const chunk of chunks) {
             await this.processChunk(chunk, limitPerUsername, knownIdsMap, postsByUser);

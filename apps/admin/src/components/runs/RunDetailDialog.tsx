@@ -50,6 +50,11 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
   const { run, source, events } = data.run
   const startDate = new Date(run.startedAt)
   const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
+  const childrenRuns = data.run.children ?? []
+  const isBatchRun = childrenRuns.length > 0
+  const runMetadata = (run.metadata ?? {}) as Record<string, any>
+  const batchOptions = runMetadata.options as { postLimit?: number; batchSize?: number } | undefined
+  const batchSummary = runMetadata.batch as { total?: number; success?: number; failed?: number; pending?: number } | undefined
 
   const duration = finishDate && !isNaN(finishDate.getTime()) && !isNaN(startDate.getTime())
     ? finishDate.getTime() - startDate.getTime()
@@ -64,6 +69,21 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
     if (!value) return '—'
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+  }
+
+  const renderStatusBadge = (status: string) => {
+    switch (status) {
+      case 'success':
+        return <Badge variant="success">success</Badge>
+      case 'error':
+        return <Badge variant="destructive">error</Badge>
+      case 'running':
+        return <Badge variant="warning">running</Badge>
+      case 'partial':
+        return <Badge variant="warning">partial</Badge>
+      default:
+        return <Badge variant="secondary">{status}</Badge>
+    }
   }
 
   return (
@@ -114,6 +134,18 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                 <span className="text-muted-foreground">Pages Crawled:</span>
                 <span>{run.pagesCrawled}</span>
               </div>
+              {isBatchRun && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Accounts:</span>
+                  <span>{childrenRuns.length}</span>
+                </div>
+              )}
+              {batchOptions && (
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Configuration:</span>
+                  <span>Posts/account {batchOptions.postLimit ?? 'default'} • Batch size {batchOptions.batchSize ?? 'default'}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -201,6 +233,64 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Batch Accounts */}
+        {isBatchRun && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Accounts in Batch</CardTitle>
+              <CardDescription>
+                {childrenRuns.length} account{childrenRuns.length === 1 ? '' : 's'} processed
+                {batchSummary && (
+                  <> • {batchSummary.success ?? 0} done, {batchSummary.pending ?? 0} pending, {batchSummary.failed ?? 0} failed</>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Account</TableHead>
+                      <TableHead>Events</TableHead>
+                      <TableHead>Started</TableHead>
+                      <TableHead>Finished</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {childrenRuns.map(child => {
+                      const childMetadata = (child.run.metadata ?? {}) as Record<string, any>
+                      const username = childMetadata.instagramUsername || '—'
+                      const childStart = new Date(child.run.startedAt)
+                      const childFinish = child.run.finishedAt ? new Date(child.run.finishedAt) : null
+
+                      return (
+                        <TableRow key={child.run.id}>
+                          <TableCell>{renderStatusBadge(child.run.status)}</TableCell>
+                          <TableCell>
+                            <div className="text-sm font-medium">@{username}</div>
+                            <div className="text-xs text-muted-foreground">{childMetadata.instagramAccountId || 'Account ID unknown'}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm font-medium">{child.run.eventsFound}</div>
+                            <div className="text-xs text-muted-foreground">{child.run.pagesCrawled} pages</div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {!isNaN(childStart.getTime()) ? childStart.toLocaleString() : '—'}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {childFinish && !isNaN(childFinish.getTime()) ? childFinish.toLocaleString() : '—'}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Live Logs */}
         <div className="h-[400px]">
@@ -295,4 +385,3 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
     </DialogContent>
   )
 }
-

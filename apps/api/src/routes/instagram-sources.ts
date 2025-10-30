@@ -227,18 +227,32 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // POST /api/instagram-sources/trigger-all-active - Trigger scrape for all active accounts
-  fastify.post('/trigger-all-active', async (_request, reply) => {
+  fastify.post('/trigger-all-active', async (request, reply) => {
+    const triggerAllSchema = z.object({
+      postLimit: z.number().int().min(1).max(100).optional(),
+      accountLimit: z.number().int().min(1).optional(),
+      batchSize: z.number().int().min(1).max(25).optional(),
+    });
+
     try {
-      const { accountsQueued, jobs } = await triggerAllActiveInstagramScrapes(10);
+      const options = triggerAllSchema.parse(request.body ?? {});
+      const { accountsQueued, jobs, postLimit, batchSize, parentRunId } = await triggerAllActiveInstagramScrapes(options);
       return {
         message: `Queued ${accountsQueued} scrape jobs for active accounts`,
         accountsQueued,
+        postLimit,
+        batchSize,
+        parentRunId,
         jobs,
       };
     } catch (error: any) {
       if (error instanceof NoActiveInstagramAccountsError) {
         reply.status(400);
         return { error: error.message };
+      }
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { error: 'Validation error', details: error.errors };
       }
 
       fastify.log.error('Failed to scrape all active accounts:', error);

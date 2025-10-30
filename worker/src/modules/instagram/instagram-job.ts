@@ -17,6 +17,8 @@ export interface InstagramScrapeJobData {
   accountId: string;
   runId?: string;
   postLimit?: number;
+  batchSize?: number;
+  parentRunId?: string;
 }
 
 const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_images';
@@ -46,7 +48,31 @@ const INSTAGRAM_SOURCE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
  * Main Instagram scrape job handler
  */
 export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>) {
-  const { accountId, postLimit = 10 } = job.data;
+  const { accountId, postLimit = 10, batchSize, parentRunId } = job.data;
+  let runId = job.data.runId || uuidv4();
+
+  if (!job.data.runId) {
+    await db`
+      INSERT INTO runs (id, source_id, status, parent_run_id)
+      VALUES (${runId}, ${INSTAGRAM_SOURCE_ID}, 'queued', ${parentRunId ?? null})
+    `;
+  }
+
+  await db`
+    UPDATE runs
+    SET status = 'running',
+        started_at = COALESCE(started_at, NOW())
+    WHERE id = ${runId}
+  `;
+
+  if (parentRunId) {
+    await db`
+      UPDATE runs
+      SET status = CASE WHEN status = 'queued' THEN 'running' ELSE status END,
+          started_at = COALESCE(started_at, NOW())
+      WHERE id = ${parentRunId}
+    `;
+  }
 
   job.log(`Starting Instagram scrape for account ${accountId}`);
 
@@ -104,7 +130,8 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
               const posts = await enhancedClient.fetchPostsBatch(
                 [username],
                 limit,
-                new Map([[username, knownPostIds]])
+                new Map([[username, knownPostIds]]),
+                batchSize
               );
 
               const userPosts = posts.get(username) || [];
@@ -202,11 +229,15 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
     job.log(`Fetched ${posts.length} new posts`);
 
-    // 5. Create a run record for the Instagram source
-    const runId = job.data.runId || uuidv4();
     await db`
-      INSERT INTO runs (id, source_id, status, started_at, events_found, pages_crawled)
-      VALUES (${runId}, ${INSTAGRAM_SOURCE_ID}, 'running', NOW(), 0, 1)
+      UPDATE runs
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+        'instagramAccountId', ${account.id},
+        'instagramUsername', ${account.instagram_username},
+        'postLimit', ${postLimit},
+        'batchSize', ${batchSize ?? null}
+      )
+      WHERE id = ${runId}
     `;
 
     let eventsCreated = 0;
@@ -324,10 +355,19 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
       }
     }
 
+    const pagesCrawled = Math.max(posts.length, 1);
+
     // 7. Update run status
     await db`
       UPDATE runs
-      SET status = 'success', finished_at = NOW(), events_found = ${eventsCreated}
+      SET status = 'success',
+          finished_at = NOW(),
+          events_found = ${eventsCreated},
+          pages_crawled = ${pagesCrawled},
+          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+            'postsFetched', ${posts.length},
+            'eventsCreated', ${eventsCreated}
+          )
       WHERE id = ${runId}
     `;
 
@@ -339,6 +379,10 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     `;
 
     job.log(`Instagram scrape completed: ${eventsCreated} events created`);
+
+    if (parentRunId) {
+      await refreshInstagramBatchRun(parentRunId);
+    }
 
     return {
       success: true,
@@ -366,6 +410,70 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     }
 
     job.log(`Instagram scrape failed: ${error.message}`);
+
+    await db`
+      UPDATE runs
+      SET status = 'error',
+          finished_at = NOW(),
+          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('error', ${error.message})
+      WHERE id = ${runId}
+    `;
+
+    if (parentRunId) {
+      await refreshInstagramBatchRun(parentRunId);
+    }
+
     throw error;
+  }
+}
+
+async function refreshInstagramBatchRun(parentRunId: string) {
+  try {
+    const [summary] = await db`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'success')::int AS success_count,
+        COUNT(*) FILTER (WHERE status IN ('error', 'partial'))::int AS failed_count,
+        COUNT(*) FILTER (WHERE status IN ('queued', 'running'))::int AS pending_count,
+        COALESCE(SUM(events_found), 0)::int AS events_total,
+        COALESCE(SUM(pages_crawled), 0)::int AS pages_total
+      FROM runs
+      WHERE parent_run_id = ${parentRunId}
+    `;
+
+    if (!summary) {
+      return;
+    }
+
+    const pendingCount = Number(summary.pending_count ?? 0);
+    const failedCount = Number(summary.failed_count ?? 0);
+    const eventsTotal = Number(summary.events_total ?? 0);
+    const pagesTotal = Number(summary.pages_total ?? 0);
+
+    const nextStatus = pendingCount > 0
+      ? 'running'
+      : failedCount > 0
+        ? 'partial'
+        : 'success';
+
+    await db`
+      UPDATE runs
+      SET status = ${nextStatus},
+          events_found = ${eventsTotal},
+          pages_crawled = ${pagesTotal},
+          finished_at = CASE WHEN ${pendingCount} = 0 THEN NOW() ELSE finished_at END,
+          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+            'batch',
+            jsonb_build_object(
+              'total', ${Number(summary.total ?? 0)},
+              'success', ${Number(summary.success_count ?? 0)},
+              'failed', ${failedCount},
+              'pending', ${pendingCount}
+            )
+          )
+      WHERE id = ${parentRunId}
+    `;
+  } catch (error) {
+    logger.error(`Failed to refresh parent Instagram run ${parentRunId}:`, error);
   }
 }

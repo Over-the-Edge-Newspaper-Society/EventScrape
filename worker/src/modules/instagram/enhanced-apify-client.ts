@@ -433,7 +433,8 @@ export class EnhancedApifyClient {
   async fetchPostsBatch(
     usernames: string[],
     limitPerUsername: number,
-    knownIdsMap: Map<string, Set<string>> = new Map()
+    knownIdsMap: Map<string, Set<string>> = new Map(),
+    batchSizeOverride?: number
   ): Promise<Map<string, ApifyPost[]>> {
     if (usernames.length === 0) {
       return new Map();
@@ -442,11 +443,11 @@ export class EnhancedApifyClient {
     const postsByUser = new Map<string, ApifyPost[]>();
     usernames.forEach(username => postsByUser.set(username, []));
 
-    const batchSize = Math.max(APIFY_BATCH_SIZE, 1);
+    const effectiveBatchSize = Math.max(batchSizeOverride ?? APIFY_BATCH_SIZE, 1);
     const chunks: string[][] = [];
 
-    for (let i = 0; i < usernames.length; i += batchSize) {
-      chunks.push(usernames.slice(i, i + batchSize));
+    for (let i = 0; i < usernames.length; i += effectiveBatchSize) {
+      chunks.push(usernames.slice(i, i + effectiveBatchSize));
     }
 
     for (const chunk of chunks) {

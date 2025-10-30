@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { instagramApi, InstagramScrapeJobStatus } from '@/lib/api'
 
+const STORAGE_KEY = 'instagramScrapeActiveJobs'
+
 export interface InstagramScrapeJobSummary {
   jobId: string
   accountId: string
   username: string
+  runId?: string
 }
 
 export interface ScrapeProgressCounts {
@@ -56,6 +59,28 @@ const DEFAULT_PROGRESS: ScrapeProgressSummary = {
 export function useInstagramScrapeProgress() {
   const [activeJobs, setActiveJobs] = useState<InstagramScrapeJobSummary[]>([])
   const [completedAt, setCompletedAt] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((item): item is InstagramScrapeJobSummary =>
+          item && typeof item.jobId === 'string' && typeof item.accountId === 'string' && typeof item.username === 'string'
+        )
+        if (valid.length > 0) {
+          setActiveJobs(valid)
+        } else {
+          window.sessionStorage.removeItem(STORAGE_KEY)
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to restore Instagram job tracking state:', error)
+      window.sessionStorage.removeItem(STORAGE_KEY)
+    }
+  }, [])
 
   const trackedJobIds = useMemo(() => {
     if (activeJobs.length === 0) {
@@ -192,8 +217,29 @@ export function useInstagramScrapeProgress() {
     return () => window.clearTimeout(timeoutId)
   }, [completedAt])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (activeJobs.length === 0) {
+      window.sessionStorage.removeItem(STORAGE_KEY)
+      return
+    }
+    const payload = activeJobs.map(job => ({
+      jobId: job.jobId,
+      accountId: job.accountId,
+      username: job.username,
+      runId: job.runId,
+    }))
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  }, [activeJobs])
+
   const startTracking = useCallback((jobs: InstagramScrapeJobSummary[]) => {
-    setActiveJobs(jobs)
+    if (!jobs.length) return
+    setActiveJobs(prev => {
+      const combined = new Map<string, InstagramScrapeJobSummary>()
+      prev.forEach(job => combined.set(job.jobId, job))
+      jobs.forEach(job => combined.set(job.jobId, job))
+      return Array.from(combined.values())
+    })
     setCompletedAt(null)
   }, [])
 
