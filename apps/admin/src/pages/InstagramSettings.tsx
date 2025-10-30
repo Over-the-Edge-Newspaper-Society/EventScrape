@@ -290,9 +290,7 @@ export function InstagramSettings() {
   }
 
   const handleClassifyBacklog = () => {
-    if (confirm('This will classify all unclassified posts in the backlog. Continue?')) {
-      classifyBacklog.mutate()
-    }
+    classifyBacklog.mutate()
   }
 
   const handleSaveGlobalScraperSettings = () => {

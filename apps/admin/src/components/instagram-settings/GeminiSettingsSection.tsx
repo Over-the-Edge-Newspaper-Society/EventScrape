@@ -1,7 +1,18 @@
+import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Sparkles, Save, Info, PlayCircle } from 'lucide-react'
 
 interface GeminiSettingsSectionProps {
@@ -25,6 +36,8 @@ export function GeminiSettingsSection({
   updateSettingsPending,
   classifyBacklogPending,
 }: GeminiSettingsSectionProps) {
+  const [showBacklogDialog, setShowBacklogDialog] = useState(false)
+
   return (
     <Card>
       <CardHeader>
@@ -79,7 +92,7 @@ export function GeminiSettingsSection({
             </div>
             <div className="flex gap-2">
               <Button
-                onClick={handleClassifyBacklog}
+                onClick={() => setShowBacklogDialog(true)}
                 disabled={classifyBacklogPending}
                 variant="outline"
               >
@@ -94,6 +107,29 @@ export function GeminiSettingsSection({
           </div>
         </div>
       </CardContent>
+
+      <AlertDialog open={showBacklogDialog} onOpenChange={setShowBacklogDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Classify Backlog Posts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will use Gemini AI to classify all unclassified Instagram posts in the backlog.
+              Up to 100 posts will be processed at a time. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                handleClassifyBacklog()
+                setShowBacklogDialog(false)
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
