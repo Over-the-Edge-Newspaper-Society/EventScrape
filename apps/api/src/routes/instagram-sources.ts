@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { instagramAccounts, instagramSessions } from '../db/schema.js';
 import { v4 as uuidv4 } from 'uuid';
-import { enqueueInstagramScrapeJob } from '../queue/queue.js';
+import { enqueueInstagramScrapeJob, instagramScrapeQueue } from '../queue/queue.js';
 
 const createSourceSchema = z.object({
   name: z.string().min(1),
@@ -257,6 +257,63 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.error('Failed to scrape all active accounts:', error);
       reply.status(500);
       return { error: 'Failed to scrape all active accounts' };
+    }
+  });
+
+  // POST /api/instagram-sources/jobs/status - Get status for a batch of Instagram scrape jobs
+  fastify.post('/jobs/status', async (request, reply) => {
+    const jobStatusSchema = z.object({
+      jobIds: z.array(z.string().min(1)).min(1),
+    });
+
+    try {
+      const { jobIds } = jobStatusSchema.parse(request.body);
+
+      const results = await Promise.all(jobIds.map(async (jobId) => {
+        try {
+          const job = await instagramScrapeQueue.getJob(jobId);
+
+          if (!job) {
+            return {
+              jobId,
+              state: 'missing' as const,
+            };
+          }
+
+          const state = await job.getState();
+
+          return {
+            jobId,
+            state,
+            progress: typeof job.progress === 'number' ? job.progress : null,
+            attemptsMade: job.attemptsMade,
+            failedReason: job.failedReason || null,
+            returnvalue: job.returnvalue ?? null,
+            processedOn: job.processedOn ?? null,
+            finishedOn: job.finishedOn ?? null,
+            timestamp: job.timestamp ?? null,
+            data: job.data ?? null,
+          };
+        } catch (error) {
+          fastify.log.error({ err: error, jobId }, 'Failed to fetch Instagram job status');
+          return {
+            jobId,
+            state: 'error' as const,
+            failedReason: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      }));
+
+      return { jobs: results };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { error: 'Validation error', details: error.errors };
+      }
+
+      fastify.log.error('Failed to fetch Instagram job statuses:', error);
+      reply.status(500);
+      return { error: 'Failed to fetch Instagram job statuses' };
     }
   });
 

@@ -280,6 +280,11 @@ export const instagramApi = {
   delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
   trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
   triggerAllActive: () => fetchApi<{ message: string; accountsQueued: number; jobs: Array<{ accountId: string; username: string; jobId: string }> }>('/instagram-sources/trigger-all-active', { method: 'POST' }),
+  getJobStatuses: (jobIds: string[]) =>
+    fetchApi<{ jobs: InstagramScrapeJobStatus[] }>('/instagram-sources/jobs/status', {
+      method: 'POST',
+      body: JSON.stringify({ jobIds }),
+    }),
   uploadSession: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
     fetchApi<{ message: string; session: InstagramSession }>('/instagram-sources/sessions', {
       method: 'POST',
@@ -688,4 +693,17 @@ export interface InstagramReviewStats {
   markedAsEvent: number
   markedAsNotEvent: number
   total: number
+}
+
+export interface InstagramScrapeJobStatus {
+  jobId: string
+  state: string
+  progress?: number | null
+  attemptsMade?: number
+  failedReason?: string | null
+  returnvalue?: any
+  processedOn?: number | null
+  finishedOn?: number | null
+  timestamp?: number | null
+  data?: any
 }
