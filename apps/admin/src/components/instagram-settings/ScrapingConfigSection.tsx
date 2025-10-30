@@ -2,8 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Settings as SettingsIcon, Save, Info } from 'lucide-react'
+import { Settings as SettingsIcon, Save } from 'lucide-react'
 
 interface ScrapingConfigSectionProps {
   apifyActorId: string
@@ -12,8 +11,6 @@ interface ScrapingConfigSectionProps {
   setApifyResultsLimit: (value: number) => void
   fetchDelayMinutes: number | undefined
   setFetchDelayMinutes: (value: number) => void
-  autoExtractNewPosts: boolean
-  setAutoExtractNewPosts: (value: boolean) => void
   handleSaveSettings: () => void
   updateSettingsPending: boolean
 }
@@ -25,8 +22,6 @@ export function ScrapingConfigSection({
   setApifyResultsLimit,
   fetchDelayMinutes,
   setFetchDelayMinutes,
-  autoExtractNewPosts,
-  setAutoExtractNewPosts,
   handleSaveSettings,
   updateSettingsPending,
 }: ScrapingConfigSectionProps) {
@@ -82,21 +77,6 @@ export function ScrapingConfigSection({
             />
             <p className="text-xs text-muted-foreground">
               Delay between scraping each source
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="auto-extract" className="flex items-center gap-2">
-              Auto-Extract New Posts
-              <Info className="h-4 w-4 text-muted-foreground" />
-            </Label>
-            <Switch
-              id="auto-extract"
-              checked={autoExtractNewPosts}
-              onCheckedChange={setAutoExtractNewPosts}
-            />
-            <p className="text-xs text-muted-foreground">
-              Automatically extract events from new posts using Gemini
             </p>
           </div>
         </div>

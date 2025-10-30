@@ -6,6 +6,7 @@ import { ApiKeysSection } from '@/components/instagram-settings/ApiKeysSection'
 import { AiPromptSection } from '@/components/instagram-settings/AiPromptSection'
 import { GlobalScraperSection } from '@/components/instagram-settings/GlobalScraperSection'
 import { ScrapingConfigSection } from '@/components/instagram-settings/ScrapingConfigSection'
+import { GeminiSettingsSection } from '@/components/instagram-settings/GeminiSettingsSection'
 import { BulkImportSection } from '@/components/instagram-settings/BulkImportSection'
 import { BackupTransferSection } from '@/components/instagram-settings/BackupTransferSection'
 
@@ -15,6 +16,7 @@ export interface InstagramSettings {
   apifyResultsLimit: number
   fetchDelayMinutes: number
   autoExtractNewPosts: boolean
+  autoClassifyWithAi: boolean
   geminiPrompt: string | null
   hasApifyToken: boolean
   hasGeminiKey: boolean
@@ -42,6 +44,7 @@ export function InstagramSettings() {
   const [apifyResultsLimit, setApifyResultsLimit] = useState<number | undefined>(undefined)
   const [fetchDelayMinutes, setFetchDelayMinutes] = useState<number | undefined>(undefined)
   const [autoExtractNewPosts, setAutoExtractNewPosts] = useState(false)
+  const [autoClassifyWithAi, setAutoClassifyWithAi] = useState(false)
   const [geminiPrompt, setGeminiPrompt] = useState('')
   const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api' | undefined>(undefined)
   const [allowPerAccountOverride, setAllowPerAccountOverride] = useState<boolean | undefined>(undefined)
@@ -68,6 +71,7 @@ export function InstagramSettings() {
       setApifyResultsLimit(settings.apifyResultsLimit)
       setFetchDelayMinutes(settings.fetchDelayMinutes)
       setAutoExtractNewPosts(settings.autoExtractNewPosts ?? false)
+      setAutoClassifyWithAi(settings.autoClassifyWithAi ?? false)
       setGeminiPrompt(settings.geminiPrompt || '')
       setDefaultScraperType(settings.defaultScraperType || 'instagram-private-api')
       setAllowPerAccountOverride(settings.allowPerAccountOverride ?? true)
@@ -234,6 +238,26 @@ export function InstagramSettings() {
     },
   })
 
+  const classifyBacklog = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/instagram-classify/backlog`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.message || 'Failed to classify backlog')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['events-raw'] })
+      toast.success(`Classified ${data.processed} posts from backlog`)
+    },
+    onError: (error: Error) => {
+      toast.error(`Classification failed: ${error.message}`)
+    },
+  })
+
   const handleSaveApifyToken = () => {
     if (!apifyToken) {
       toast.error('Please enter an Apify API token')
@@ -255,8 +279,20 @@ export function InstagramSettings() {
       apifyActorId,
       apifyResultsLimit,
       fetchDelayMinutes,
-      autoExtractNewPosts,
     })
+  }
+
+  const handleSaveGeminiSettings = () => {
+    updateSettings.mutate({
+      autoExtractNewPosts,
+      autoClassifyWithAi,
+    })
+  }
+
+  const handleClassifyBacklog = () => {
+    if (confirm('This will classify all unclassified posts in the backlog. Continue?')) {
+      classifyBacklog.mutate()
+    }
   }
 
   const handleSaveGlobalScraperSettings = () => {
@@ -361,10 +397,19 @@ export function InstagramSettings() {
         setApifyResultsLimit={setApifyResultsLimit}
         fetchDelayMinutes={fetchDelayMinutes}
         setFetchDelayMinutes={setFetchDelayMinutes}
-        autoExtractNewPosts={autoExtractNewPosts}
-        setAutoExtractNewPosts={setAutoExtractNewPosts}
         handleSaveSettings={handleSaveSettings}
         updateSettingsPending={updateSettings.isPending}
+      />
+
+      <GeminiSettingsSection
+        autoExtractNewPosts={autoExtractNewPosts}
+        setAutoExtractNewPosts={setAutoExtractNewPosts}
+        autoClassifyWithAi={autoClassifyWithAi}
+        setAutoClassifyWithAi={setAutoClassifyWithAi}
+        handleSaveSettings={handleSaveGeminiSettings}
+        handleClassifyBacklog={handleClassifyBacklog}
+        updateSettingsPending={updateSettings.isPending}
+        classifyBacklogPending={classifyBacklog.isPending}
       />
 
       <BulkImportSection

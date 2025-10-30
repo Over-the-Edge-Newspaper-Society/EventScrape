@@ -361,6 +361,14 @@ export const instagramReviewApi = {
       method: 'POST',
       body: JSON.stringify(options || {}),
     }),
+  aiClassifyPost: (id: string) =>
+    fetchApi<{
+      message: string
+      classification: InstagramAiClassificationResult
+      post: EventRaw
+    }>(`/instagram-review/${id}/ai-classify`, {
+      method: 'POST',
+    }),
   getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
 }
 
@@ -726,6 +734,14 @@ export interface InstagramEventWithSource {
     classificationMode: 'manual' | 'auto'
     active: boolean
   } | null
+}
+
+export interface InstagramAiClassificationResult {
+  isEventPoster: boolean
+  confidence?: number | null
+  reasoning?: string | null
+  cues?: string[] | null
+  shouldExtractEvents?: boolean
 }
 
 export interface InstagramReviewQueueResponse {

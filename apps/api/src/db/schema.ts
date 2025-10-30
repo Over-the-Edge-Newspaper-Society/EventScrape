@@ -446,6 +446,7 @@ export const instagramSettings = pgTable('instagram_settings', {
   allowPerAccountOverride: boolean('allow_per_account_override').default(true),
   // Automation settings
   autoExtractNewPosts: boolean('auto_extract_new_posts').default(false),
+  autoClassifyWithAi: boolean('auto_classify_with_ai').default(false),
   // Created/Updated
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { instagramSettings } from '../db/schema.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton settings
 
@@ -14,14 +17,35 @@ const updateSettingsSchema = z.object({
   apifyResultsLimit: z.number().int().positive().optional(),
   fetchDelayMinutes: z.number().int().positive().optional(),
   autoExtractNewPosts: z.boolean().optional(),
+  autoClassifyWithAi: z.boolean().optional(),
   defaultScraperType: z.enum(['apify', 'instagram-private-api']).optional(),
   allowPerAccountOverride: z.boolean().optional(),
 });
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DEFAULT_PROMPT_PATH = path.resolve(__dirname, '../assets/gemini-prompt.md');
+let defaultGeminiPrompt: string | null = null;
+
+async function getDefaultGeminiPrompt() {
+  if (defaultGeminiPrompt !== null) {
+    return defaultGeminiPrompt;
+  }
+
+  try {
+    defaultGeminiPrompt = await fs.readFile(DEFAULT_PROMPT_PATH, 'utf-8');
+  } catch (error) {
+    console.warn('[InstagramSettings] Failed to load default Gemini prompt:', error);
+    defaultGeminiPrompt = '';
+  }
+  return defaultGeminiPrompt;
+}
 
 export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-settings - Get Instagram settings
   fastify.get('/', async (request, reply) => {
     try {
+      const defaultPrompt = await getDefaultGeminiPrompt();
       const [settings] = await db
         .select({
           id: instagramSettings.id,
@@ -29,6 +53,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           apifyResultsLimit: instagramSettings.apifyResultsLimit,
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
+          autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
           geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
@@ -51,7 +76,8 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             apifyResultsLimit: instagramSettings.apifyResultsLimit,
             fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
             autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
-            geminiPrompt: instagramSettings.geminiPrompt,
+            autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
+            geminiPrompt: instagramSettings.geminiPrompt ?? defaultPrompt,
             hasApifyToken: instagramSettings.apifyApiToken,
             hasGeminiKey: instagramSettings.geminiApiKey,
             defaultScraperType: instagramSettings.defaultScraperType,
@@ -65,6 +91,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             ...newSettings,
             hasApifyToken: !!newSettings.hasApifyToken,
             hasGeminiKey: !!newSettings.hasGeminiKey,
+            geminiPrompt: newSettings.geminiPrompt ?? defaultPrompt,
           },
         };
       }
@@ -74,6 +101,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           ...settings,
           hasApifyToken: !!settings.hasApifyToken,
           hasGeminiKey: !!settings.hasGeminiKey,
+          geminiPrompt: settings.geminiPrompt ?? defaultPrompt,
         },
       };
     } catch (error: any) {
@@ -99,6 +127,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
       if (data.apifyResultsLimit !== undefined) updateData.apifyResultsLimit = data.apifyResultsLimit;
       if (data.fetchDelayMinutes !== undefined) updateData.fetchDelayMinutes = data.fetchDelayMinutes;
       if (data.autoExtractNewPosts !== undefined) updateData.autoExtractNewPosts = data.autoExtractNewPosts;
+      if (data.autoClassifyWithAi !== undefined) updateData.autoClassifyWithAi = data.autoClassifyWithAi;
       if (data.defaultScraperType !== undefined) updateData.defaultScraperType = data.defaultScraperType;
       if (data.allowPerAccountOverride !== undefined) updateData.allowPerAccountOverride = data.allowPerAccountOverride;
 
@@ -112,6 +141,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           apifyResultsLimit: instagramSettings.apifyResultsLimit,
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
+          autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
           geminiPrompt: instagramSettings.geminiPrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
@@ -121,11 +151,14 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           updatedAt: instagramSettings.updatedAt,
         });
 
+      const defaultPrompt = await getDefaultGeminiPrompt();
+
       return {
         settings: {
           ...updated,
           hasApifyToken: !!updated.hasApifyToken,
           hasGeminiKey: !!updated.hasGeminiKey,
+          geminiPrompt: updated.geminiPrompt ?? defaultPrompt,
         },
       };
     } catch (error: any) {

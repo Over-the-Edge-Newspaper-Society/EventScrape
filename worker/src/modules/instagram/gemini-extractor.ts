@@ -13,6 +13,9 @@ const API_BASE_URL = process.env.API_URL || 'http://localhost:3001';
 const GEMINI_PROMPT_PATH = path.join(__dirname, 'gemini-prompt.md');
 let GEMINI_PROMPT: string;
 
+const GEMINI_CLASSIFY_PROMPT_PATH = path.join(__dirname, 'gemini-classify-prompt.md');
+let GEMINI_CLASSIFY_PROMPT: string;
+
 async function loadPrompt() {
   if (!GEMINI_PROMPT) {
     // Try to fetch prompt from database first
@@ -35,6 +38,14 @@ async function loadPrompt() {
     console.log('[Gemini] Using default prompt from file');
   }
   return GEMINI_PROMPT;
+}
+
+async function loadClassificationPrompt() {
+  if (!GEMINI_CLASSIFY_PROMPT) {
+    GEMINI_CLASSIFY_PROMPT = await fs.readFile(GEMINI_CLASSIFY_PROMPT_PATH, 'utf-8');
+    console.log('[Gemini] Using classification prompt from file');
+  }
+  return GEMINI_CLASSIFY_PROMPT;
 }
 
 const GEMINI_MODEL_ID = process.env.GEMINI_MODEL_ID || 'gemini-2.0-flash-exp';
@@ -70,8 +81,17 @@ export interface GeminiEvent {
   additionalInfo?: string | null;
 }
 
+export interface GeminiClassificationResult {
+  isEventPoster: boolean;
+  confidence?: number | null;
+  reasoning?: string | null;
+  cues?: string[] | null;
+  shouldExtractEvents?: boolean;
+}
+
 export interface GeminiExtractionResult {
   events: GeminiEvent[];
+  classification?: GeminiClassificationResult;
   extractionConfidence?: {
     overall?: number;
     notes?: string;
@@ -114,7 +134,7 @@ function cleanResponseText(rawText: string): string {
 /**
  * Parse JSON from cleaned response text
  */
-function parseJsonFromText(rawText: string): GeminiExtractionResult {
+function parseJsonFromText<T>(rawText: string): T {
   const cleaned = cleanResponseText(rawText);
 
   if (!cleaned) {
@@ -122,13 +142,13 @@ function parseJsonFromText(rawText: string): GeminiExtractionResult {
   }
 
   try {
-    return JSON.parse(cleaned) as GeminiExtractionResult;
+    return JSON.parse(cleaned) as T;
   } catch (error) {
     // Try to extract JSON object using regex
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       try {
-        return JSON.parse(jsonMatch[0]) as GeminiExtractionResult;
+        return JSON.parse(jsonMatch[0]) as T;
       } catch (e) {
         throw new GeminiExtractionError('Failed to parse Gemini response as JSON');
       }
@@ -199,7 +219,90 @@ export async function extractEventFromImage(
       throw new GeminiExtractionError('Gemini response did not include text output');
     }
 
-    return parseJsonFromText(text);
+    return parseJsonFromText<GeminiExtractionResult>(text);
+  } catch (error: any) {
+    if (error instanceof GeminiExtractionError) {
+      throw error;
+    }
+    throw new GeminiExtractionError(`Gemini API error: ${error.message || error}`);
+  }
+}
+
+/**
+ * Classify whether an image represents an event poster using Gemini Vision API
+ */
+export async function classifyEventFromImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+  apiKey: string,
+  options?: {
+    caption?: string | null;
+    postTimestamp?: Date | null;
+  }
+): Promise<GeminiClassificationResult> {
+  if (!apiKey) {
+    throw new GeminiApiKeyMissing();
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_ID });
+
+    const prompt = await loadClassificationPrompt();
+
+    const parts: any[] = [
+      {
+        inlineData: {
+          data: imageBuffer.toString('base64'),
+          mimeType,
+        },
+      },
+      { text: prompt },
+    ];
+
+    const contextSections: string[] = [];
+
+    if (options?.postTimestamp) {
+      const timestamp = options.postTimestamp.toISOString().split('.')[0];
+      contextSections.push(
+        `Instagram post publication details:\n` +
+        `- Published on ${timestamp}.\n` +
+        `- Treat potential events as upcoming relative to this date unless the poster clearly indicates an earlier year.`
+      );
+    }
+
+    if (options?.caption) {
+      contextSections.push(`Instagram caption (additional context):\n${options.caption}`);
+    }
+
+    if (contextSections.length > 0) {
+      parts.push({ text: `Additional context:\n${contextSections.join('\n\n')}` });
+    }
+
+    const result = await model.generateContent(parts);
+    const response = result.response;
+    const text = response.text();
+
+    if (!text) {
+      throw new GeminiExtractionError('Gemini response did not include text output');
+    }
+
+    const classification = parseJsonFromText<GeminiClassificationResult>(text);
+
+    if (typeof classification.isEventPoster !== 'boolean') {
+      throw new GeminiExtractionError('Gemini classification response missing isEventPoster field');
+    }
+
+    if (typeof classification.confidence === 'number') {
+      const clamped = Math.max(0, Math.min(1, classification.confidence));
+      classification.confidence = Number.isFinite(clamped) ? clamped : null;
+    }
+
+    if (!Array.isArray(classification.cues)) {
+      classification.cues = classification.cues == null ? [] : [String(classification.cues)];
+    }
+
+    return classification;
   } catch (error: any) {
     if (error instanceof GeminiExtractionError) {
       throw error;
@@ -233,4 +336,30 @@ export async function extractEventFromImageFile(
   const mimeType = mimeTypeMap[ext] || 'image/jpeg';
 
   return extractEventFromImage(imageBuffer, mimeType, apiKey, options);
+}
+
+/**
+ * Classify whether a file path corresponds to an event poster
+ */
+export async function classifyEventFromImageFile(
+  imagePath: string,
+  apiKey: string,
+  options?: {
+    caption?: string | null;
+    postTimestamp?: Date | null;
+  }
+): Promise<GeminiClassificationResult> {
+  const imageBuffer = await fs.readFile(imagePath);
+
+  const ext = path.extname(imagePath).toLowerCase();
+  const mimeTypeMap: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+  };
+  const mimeType = mimeTypeMap[ext] || 'image/jpeg';
+
+  return classifyEventFromImage(imageBuffer, mimeType, apiKey, options);
 }

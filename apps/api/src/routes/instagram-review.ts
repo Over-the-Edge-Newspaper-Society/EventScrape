@@ -155,6 +155,122 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // POST /api/instagram-review/:id/ai-classify - Use Gemini to classify a post
+  fastify.post<{ Params: { id: string } }>('/:id/ai-classify', async (request, reply) => {
+    const { id } = request.params;
+
+    try {
+      const [settings] = await db
+        .select({ geminiApiKey: instagramSettings.geminiApiKey })
+        .from(instagramSettings)
+        .where(eq(instagramSettings.id, SETTINGS_ID));
+
+      const GEMINI_API_KEY = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+
+      if (!GEMINI_API_KEY) {
+        reply.status(400);
+        return { error: 'Gemini API key not configured' };
+      }
+
+      const [result] = await db
+        .select({
+          event: eventsRaw,
+          source: sources,
+        })
+        .from(eventsRaw)
+        .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .where(and(eq(eventsRaw.id, id), eq(sources.sourceType, 'instagram')));
+
+      if (!result) {
+        reply.status(404);
+        return { error: 'Instagram post not found' };
+      }
+
+      const { event: post } = result;
+
+      if (!post.localImagePath) {
+        reply.status(400);
+        return { error: 'Post does not have a local image. Image must be downloaded first.' };
+      }
+
+      const fullImagePath = path.join(DOWNLOAD_DIR, post.localImagePath);
+
+      let instagramTimestamp = post.scrapedAt;
+      try {
+        const existingRaw = post.raw ? JSON.parse(post.raw as string) : null;
+        if (existingRaw?.instagram?.timestamp) {
+          instagramTimestamp = new Date(existingRaw.instagram.timestamp);
+        }
+      } catch {
+        // ignore raw parsing errors
+      }
+
+      const importPath = new URL(
+        '../worker/src/modules/instagram/gemini-extractor.js',
+        import.meta.url
+      ).href;
+      const { classifyEventFromImageFile } = await import(importPath);
+
+      const classification = await classifyEventFromImageFile(
+        fullImagePath,
+        GEMINI_API_KEY,
+        {
+          caption: post.instagramCaption || undefined,
+          postTimestamp: instagramTimestamp || undefined,
+        }
+      );
+
+      const updatePayload: Record<string, any> = {
+        isEventPoster: classification.isEventPoster,
+        classificationConfidence: classification.confidence ?? null,
+      };
+
+      try {
+        const existingRaw = post.raw ? JSON.parse(post.raw as string) : null;
+        const classificationRecord = {
+          ...classification,
+          decidedAt: new Date().toISOString(),
+          method: 'gemini',
+        };
+
+        const mergedRaw =
+          existingRaw && typeof existingRaw === 'object'
+            ? {
+                ...existingRaw,
+                classification: {
+                  ...(existingRaw.classification || {}),
+                  gemini: classificationRecord,
+                },
+              }
+            : {
+                classification: {
+                  gemini: classificationRecord,
+                },
+              };
+
+        updatePayload.raw = JSON.stringify(mergedRaw);
+      } catch {
+        // Leave raw untouched if parsing fails
+      }
+
+      const [updated] = await db
+        .update(eventsRaw)
+        .set(updatePayload)
+        .where(eq(eventsRaw.id, id))
+        .returning();
+
+      return {
+        message: `AI marked post as ${classification.isEventPoster ? 'event' : 'not event'}`,
+        classification,
+        post: updated,
+      };
+    } catch (error: any) {
+      fastify.log.error(`Failed to AI-classify post ${id}:`, error);
+      reply.status(500);
+      return { error: error.message || 'Failed to classify post with AI' };
+    }
+  });
+
   // POST /api/instagram-review/:id/extract - Extract event data with Gemini
   fastify.post<{ Params: { id: string } }>('/:id/extract', async (request, reply) => {
     const { id } = request.params;

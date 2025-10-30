@@ -31,8 +31,16 @@ export interface GeminiEvent {
     } | null;
     additionalInfo?: string | null;
 }
+export interface GeminiClassificationResult {
+    isEventPoster: boolean;
+    confidence?: number | null;
+    reasoning?: string | null;
+    cues?: string[] | null;
+    shouldExtractEvents?: boolean;
+}
 export interface GeminiExtractionResult {
     events: GeminiEvent[];
+    classification?: GeminiClassificationResult;
     extractionConfidence?: {
         overall?: number;
         notes?: string;
@@ -55,10 +63,24 @@ export declare function extractEventFromImage(imageBuffer: Buffer, mimeType: str
     postTimestamp?: Date | null;
 }): Promise<GeminiExtractionResult>;
 /**
+ * Classify whether an image is an event poster using Gemini Vision API
+ */
+export declare function classifyEventFromImage(imageBuffer: Buffer, mimeType: string, apiKey: string, options?: {
+    caption?: string | null;
+    postTimestamp?: Date | null;
+}): Promise<GeminiClassificationResult>;
+/**
  * Extract event data from a file path
  */
 export declare function extractEventFromImageFile(imagePath: string, apiKey: string, options?: {
     caption?: string | null;
     postTimestamp?: Date | null;
 }): Promise<GeminiExtractionResult>;
+/**
+ * Classify whether a file path corresponds to an event poster
+ */
+export declare function classifyEventFromImageFile(imagePath: string, apiKey: string, options?: {
+    caption?: string | null;
+    postTimestamp?: Date | null;
+}): Promise<GeminiClassificationResult>;
 //# sourceMappingURL=gemini-extractor.d.ts.map

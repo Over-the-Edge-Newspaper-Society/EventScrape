@@ -153,6 +153,14 @@ export function InstagramSources() {
     mutationFn: (id: string) => instagramApi.trigger(id),
     onSuccess: (data) => {
       toast.success(`Scrape job queued for @${data.username}`)
+      // Start tracking this single job in the progress card
+      if (data.jobId) {
+        startScrapeProgressTracking([{
+          jobId: data.jobId,
+          accountId: data.sourceId,
+          username: data.username,
+        }])
+      }
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
     },
     onError: (error) => {

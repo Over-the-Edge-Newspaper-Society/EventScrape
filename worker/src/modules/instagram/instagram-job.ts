@@ -9,7 +9,7 @@ import { InstagramScraper, RateLimitError, InstagramAuthError, createScraperWith
 import { ApifyScraper, ApifyRateLimitError, ApifyAuthError, createApifyScraper } from './apify-scraper.js';
 import { createEnhancedApifyClient, ApifyClientError, ApifyRunTimeoutError } from './enhanced-apify-client.js';
 import { classify } from './classifier.js';
-import { extractEventFromImageFile } from './gemini-extractor.js';
+import { extractEventFromImageFile, classifyEventFromImageFile } from './gemini-extractor.js';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -29,7 +29,13 @@ const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton setting
  */
 async function getInstagramSettings() {
   const result = await db`
-    SELECT apify_api_token, gemini_api_key, default_scraper_type, allow_per_account_override
+    SELECT
+      apify_api_token,
+      gemini_api_key,
+      default_scraper_type,
+      allow_per_account_override,
+      auto_classify_with_ai,
+      auto_extract_new_posts
     FROM instagram_settings
     LIMIT 1
   `;
@@ -37,7 +43,9 @@ async function getInstagramSettings() {
     apify_api_token: null,
     gemini_api_key: null,
     default_scraper_type: 'instagram-private-api',
-    allow_per_account_override: true
+    allow_per_account_override: true,
+    auto_classify_with_ai: false,
+    auto_extract_new_posts: false
   };
 }
 
@@ -268,17 +276,107 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
         // 6b. Classify if mode is auto
         let isEventPoster: boolean | null = null;
         let confidence: number | null = null;
+        let aiClassification: any = null;
 
         if (account.classification_mode === 'auto') {
-          const [isEvent, conf] = classify(post.caption);
-          isEventPoster = isEvent;
-          confidence = conf;
-          job.log(`Classified post ${post.id}: isEvent=${isEvent}, confidence=${conf}`);
+          if (
+            settings.auto_classify_with_ai &&
+            GEMINI_API_KEY &&
+            localImagePath
+          ) {
+            try {
+              const fullImagePath = path.join(DOWNLOAD_DIR, localImagePath);
+              aiClassification = await classifyEventFromImageFile(
+                fullImagePath,
+                GEMINI_API_KEY,
+                {
+                  caption: post.caption,
+                  postTimestamp: post.timestamp,
+                }
+              );
+              isEventPoster = aiClassification.isEventPoster;
+              confidence = aiClassification.confidence ?? null;
+              job.log(`[AI] Classified post ${post.id}: isEvent=${aiClassification.isEventPoster}, confidence=${aiClassification.confidence ?? 'n/a'}`);
+            } catch (error: any) {
+              job.log(`[AI] Failed to classify post ${post.id}: ${error.message}`);
+            }
+          }
+
+          if (isEventPoster === null) {
+            const [isEvent, conf] = classify(post.caption);
+            isEventPoster = isEvent;
+            confidence = conf;
+            job.log(`Classified post ${post.id}: isEvent=${isEvent}, confidence=${conf}`);
+          }
+        }
+
+        const classificationTimestamp = aiClassification ? new Date().toISOString() : null;
+        const classificationRecord = aiClassification
+          ? {
+              gemini: {
+                ...aiClassification,
+                decidedAt: classificationTimestamp,
+                method: 'gemini-auto',
+              }
+            }
+          : null;
+
+        const captionText = post.caption?.trim() ?? '';
+        const baseTitle = captionText.split('\n').map((line) => line.trim()).find(Boolean) ?? `Instagram Post ${post.id}`;
+        const descriptionHtml = captionText;
+        const postUrl = post.permalink || `https://instagram.com/p/${post.id}/`;
+        const timezone = account.default_timezone || 'America/Vancouver';
+        const baseRawPayload: Record<string, any> = {
+          instagram: {
+            timestamp: post.timestamp.toISOString(),
+            postId: post.id,
+            caption: post.caption,
+            imageUrl: post.imageUrl,
+            permalink: post.permalink,
+            isVideo: post.isVideo,
+          }
+        };
+
+        if (classificationRecord) {
+          baseRawPayload.classification = classificationRecord;
+        }
+
+        try {
+          await db`
+            INSERT INTO events_raw (
+              source_id, run_id, source_event_id, title, description_html,
+              start_datetime, end_datetime, timezone, url, image_url, raw, content_hash,
+              instagram_account_id, instagram_post_id, instagram_caption, local_image_path,
+              classification_confidence, is_event_poster, last_updated_by_run_id
+            ) VALUES (
+              ${INSTAGRAM_SOURCE_ID}, ${runId}, ${post.id}, ${baseTitle}, ${descriptionHtml},
+              ${post.timestamp.toISOString()}, null, ${timezone}, ${postUrl}, ${post.imageUrl},
+              ${JSON.stringify(baseRawPayload)},
+              ${`instagram-post-${post.id}`},
+              ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
+              ${confidence}, ${isEventPoster}, ${runId}
+            )
+            ON CONFLICT (source_id, source_event_id) DO UPDATE
+            SET
+              description_html = EXCLUDED.description_html,
+              url = EXCLUDED.url,
+              image_url = COALESCE(EXCLUDED.image_url, events_raw.image_url),
+              instagram_caption = EXCLUDED.instagram_caption,
+              local_image_path = COALESCE(EXCLUDED.local_image_path, events_raw.local_image_path),
+              classification_confidence = COALESCE(EXCLUDED.classification_confidence, events_raw.classification_confidence),
+              is_event_poster = COALESCE(EXCLUDED.is_event_poster, events_raw.is_event_poster),
+              raw = EXCLUDED.raw,
+              last_updated_by_run_id = ${runId},
+              scraped_at = NOW(),
+              last_seen_at = NOW()
+          `;
+        } catch (error: any) {
+          job.log(`Failed to upsert base post ${post.id}: ${error.message}`);
         }
 
         // 6c. Extract event data with Gemini if classified as event or mode is manual
         const shouldExtract =
-          (account.classification_mode === 'auto' && isEventPoster) ||
+          (account.classification_mode === 'auto' && isEventPoster && settings.auto_extract_new_posts && (aiClassification?.shouldExtractEvents ?? true)) ||
           account.classification_mode === 'manual';
 
         let extractedData: any = null;
@@ -300,15 +398,25 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
             // 6d. Create event_raw records for each event in the extraction
             if (geminiResult.events && geminiResult.events.length > 0) {
-              for (const event of geminiResult.events) {
+              for (const [eventIndex, event] of geminiResult.events.entries()) {
                 // Parse date/time
                 const startDateTime = new Date(`${event.startDate}T${event.startTime || '00:00:00'}`);
                 const endDateTime = event.endDate ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`) : null;
                 const timezone = event.timezone || account.default_timezone || 'America/Vancouver';
 
                 // Combine Instagram post data with Gemini extraction result
+                const classificationEnvelope = classificationRecord
+                  ? {
+                      classification: {
+                        ...(geminiResult?.classification || {}),
+                        ...classificationRecord,
+                      }
+                    }
+                  : {};
+
                 const rawData = {
                   ...geminiResult,
+                  ...classificationEnvelope,
                   instagram: {
                     timestamp: post.timestamp.toISOString(),
                     postId: post.id,
@@ -328,7 +436,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     instagram_account_id, instagram_post_id, instagram_caption, local_image_path,
                     classification_confidence, is_event_poster
                   ) VALUES (
-                    ${INSTAGRAM_SOURCE_ID}, ${runId}, ${post.id}, ${event.title}, ${event.description || ''},
+                    ${INSTAGRAM_SOURCE_ID}, ${runId}, ${`${post.id}-event-${eventIndex}`}, ${event.title}, ${event.description || ''},
                     ${startDateTime.toISOString()}, ${endDateTime ? endDateTime.toISOString() : null}, ${timezone},
                     ${event.venue?.name || null}, ${event.venue?.address || null},
                     ${event.venue?.city || null}, ${event.venue?.region || null}, ${event.venue?.country || null},
@@ -337,7 +445,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     ${post.permalink || `https://instagram.com/p/${post.id}/`},
                     ${post.imageUrl || null},
                     ${JSON.stringify(rawData)},
-                    ${post.id},
+                    ${`${post.id}-event-${eventIndex}`},
                     ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
                     ${confidence}, ${isEventPoster ?? true}
                   )
