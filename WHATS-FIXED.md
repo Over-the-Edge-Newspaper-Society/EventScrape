@@ -28,10 +28,12 @@ The admin container's `serve -s` command was serving the frontend HTML for ALL r
 Now you have nginx properly routing requests:
 
 ```
-Browser → Nginx Container (port 80)
+Browser → Nginx Container (port 80 inside container)
             ├─→ /api/*  → API Container     ✅ Returns JSON
             └─→ /*      → Admin Container   ✅ Returns HTML
 ```
+
+> Host access uses the port defined by `EVENTSCRAPE_HTTP_PORT` (defaults to 80).
 
 ## What Changed
 
@@ -62,7 +64,7 @@ admin:
 
 nginx:
   ports:
-    - "80:80"  # Only nginx is exposed
+    - "${EVENTSCRAPE_HTTP_PORT:-80}:80"  # Only nginx is exposed
   volumes:
     - ./nginx-local.conf:/etc/nginx/nginx.conf:ro
   networks:
@@ -74,7 +76,7 @@ nginx:
 ### 2. New Files Created
 
 1. **`nginx-local.conf`** - HTTP config for local/development
-   - Serves everything on port 80
+   - Serves everything (container port 80, host port configurable via `EVENTSCRAPE_HTTP_PORT`)
    - Routes `/api/*` to API backend
    - Routes `/*` to admin frontend
 
@@ -185,7 +187,7 @@ Direct port access
 ```
 Browser
    ↓
-Nginx (:80 or :443)
+Nginx (container ports 80/443; host ports via `EVENTSCRAPE_HTTP_PORT`/`EVENTSCRAPE_HTTPS_PORT`)
    ├─→ /api/* → API Container → JSON responses ✅
    └─→ /*     → Admin Container → HTML responses ✅
 ```

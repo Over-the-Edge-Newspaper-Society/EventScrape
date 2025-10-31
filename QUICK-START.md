@@ -5,7 +5,7 @@ Get EventScrape running with nginx on a single unified domain in 5 minutes.
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Ports 80, 5432, and 6379 available
+- Default host ports 80 (configurable via `EVENTSCRAPE_HTTP_PORT`), 5432, and 6379 available
 
 ## Quick Start (localhost)
 
@@ -24,6 +24,9 @@ REDIS_URL=redis://redis:6379
 # API Settings
 NODE_ENV=production
 PORT=3001
+
+# Host HTTP port (change if 80 is busy)
+EVENTSCRAPE_HTTP_PORT=80
 
 # IMPORTANT: Use relative path for nginx proxying
 VITE_API_URL=/api
@@ -62,6 +65,8 @@ Once running, open your browser:
 - **Frontend:** http://localhost/
 - **API Health:** http://localhost/api/health
 - **API Sources:** http://localhost/api/sources
+
+If you changed `EVENTSCRAPE_HTTP_PORT`, replace `localhost` with `localhost:<your-port>`.
 
 You should see the EventScrape dashboard!
 
@@ -130,12 +135,14 @@ Your Browser
    ↓
 http://localhost/ (or http://eventscrape.local/)
    ↓
-Nginx Container (port 80)
+Nginx Container (port 80 inside container)
    ├─→ /api/*  → API Container (port 3001)    [Backend API]
    └─→ /*      → Admin Container (port 3000)  [Frontend UI]
          ↓
    PostgreSQL + Redis
 ```
+
+> Host traffic lands on the port defined by `EVENTSCRAPE_HTTP_PORT` (defaults to 80) before nginx proxies to the internal services.
 
 ## Common Issues
 
@@ -148,11 +155,10 @@ sudo lsof -i :80
 # Stop the conflicting service (example: Apache)
 sudo systemctl stop apache2
 
-# Or change nginx port in docker-compose.yml:
-ports:
-  - "8080:80"  # Use port 8080 instead
+# Or set a different host port in .env (then restart):
+EVENTSCRAPE_HTTP_PORT=8080
 
-# Then access via http://localhost:8080/
+# Access via http://localhost:8080/
 ```
 
 ### Nginx container keeps restarting

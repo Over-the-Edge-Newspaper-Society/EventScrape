@@ -116,8 +116,8 @@ services:
     image: nginx:alpine
     container_name: eventscrape-nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "${EVENTSCRAPE_HTTP_PORT:-80}:80"
+      - "${EVENTSCRAPE_HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro

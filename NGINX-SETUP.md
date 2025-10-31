@@ -40,7 +40,7 @@ docker-compose up -d
 - Frontend: http://localhost/
 - API: http://localhost/api/health
 
-That's it! Everything works through nginx on port 80.
+That's it! Everything works through nginx on the host port defined by `EVENTSCRAPE_HTTP_PORT` (defaults to 80).
 
 ## Setup Option 2: Use eventscrape.local (Better for Development)
 
@@ -92,8 +92,8 @@ Edit `docker-compose.yml`:
     image: nginx:alpine
     container_name: eventscrape-nginx
     ports:
-      - "80:80"
-      - "443:443"  # Add HTTPS port
+      - "${EVENTSCRAPE_HTTP_PORT:-80}:80"
+      - "${EVENTSCRAPE_HTTPS_PORT:-443}:443"  # Optional HTTPS port
     volumes:
       - ./nginx-ssl.conf:/etc/nginx/nginx.conf:ro  # Change to SSL config
       - ./ssl:/etc/nginx/ssl:ro  # Add SSL certificates
@@ -105,6 +105,8 @@ Edit `docker-compose.yml`:
       - eventscrape
     restart: unless-stopped
 ```
+
+Set `EVENTSCRAPE_HTTP_PORT` (and `EVENTSCRAPE_HTTPS_PORT` if needed) in your `.env` file when you want nginx published on different host ports.
 
 ### Step 2: Place SSL certificates
 
@@ -163,7 +165,7 @@ Browser
    ↓
    http://eventscrape.local/
    ↓
-Nginx (port 80)
+Nginx (port 80 inside container)
    ├─→ /api/*  → API Backend (api:3001)
    └─→ /*      → Frontend (admin:3000)
 ```
@@ -174,10 +176,12 @@ Browser
    ↓
    https://yourdomain.com/
    ↓
-Nginx (port 443)
+Nginx (port 443 inside container)
    ├─→ /api/*  → API Backend (api:3001)
    └─→ /*      → Frontend (admin:3000)
 ```
+
+> Host access uses the ports defined by `EVENTSCRAPE_HTTP_PORT` and `EVENTSCRAPE_HTTPS_PORT`.
 
 ## Troubleshooting
 
