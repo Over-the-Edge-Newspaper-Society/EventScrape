@@ -28,7 +28,7 @@ import {
   XCircle,
 } from 'lucide-react'
 
-export type InstagramReviewFilter = 'pending' | 'event' | 'not-event' | 'all'
+export type InstagramReviewFilter = 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'
 
 type ExtractedEventDetails = {
   title?: string

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, desc, sql } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, sources, instagramSettings, instagramAccounts, runs } from '../db/schema.js';
 import path from 'path';
@@ -26,7 +26,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
     const { page = 1, limit = 20, filter = 'pending' } = request.query as {
       page?: number;
       limit?: number;
-      filter?: 'pending' | 'event' | 'not-event' | 'all';
+      filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all';
     };
     const offset = (Number(page) - 1) * Number(limit);
 
@@ -47,6 +47,17 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
         whereCondition = and(
           eq(sources.sourceType, 'instagram'),
           eq(eventsRaw.isEventPoster, false)
+        );
+      } else if (filter === 'needs-extraction') {
+        whereCondition = and(
+          eq(sources.sourceType, 'instagram'),
+          eq(eventsRaw.isEventPoster, true),
+          sql`(
+            CASE
+              WHEN jsonb_typeof(${eventsRaw.raw} -> 'events') = 'array' THEN jsonb_array_length(${eventsRaw.raw} -> 'events')
+              ELSE 0
+            END
+          ) = 0`
         );
       } else {
         // 'all' - just Instagram posts
@@ -508,10 +519,29 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
+      // Count posts marked as events without extracted data
+      const needsExtractionResult = await db
+        .select({ count: eventsRaw.id })
+        .from(eventsRaw)
+        .innerJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .where(
+          and(
+            eq(sources.sourceType, 'instagram'),
+            eq(eventsRaw.isEventPoster, true),
+            sql`(
+              CASE
+                WHEN jsonb_typeof(${eventsRaw.raw} -> 'events') = 'array' THEN jsonb_array_length(${eventsRaw.raw} -> 'events')
+                ELSE 0
+              END
+            ) = 0`
+          )
+        );
+
       return {
         unclassified: unclassifiedResult.length,
         markedAsEvent: eventsResult.length,
         markedAsNotEvent: notEventsResult.length,
+        needsExtraction: needsExtractionResult.length,
         total: unclassifiedResult.length + eventsResult.length + notEventsResult.length,
       };
     } catch (error: any) {

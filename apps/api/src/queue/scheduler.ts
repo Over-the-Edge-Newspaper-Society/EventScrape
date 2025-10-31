@@ -13,8 +13,70 @@ const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null })
 // Queue used only to trigger run creation on a schedule
 export const scheduleQueue = new Queue('schedule-queue', { connection })
 
+const PROMOTE_INTERVAL_MS = Number(process.env.SCHEDULE_PROMOTE_INTERVAL_MS ?? 5000)
+const PROMOTE_LOOKAHEAD_MS = Number(process.env.SCHEDULE_PROMOTE_LOOKAHEAD_MS ?? 1000)
+const PROMOTE_BATCH_SIZE = Number(process.env.SCHEDULE_PROMOTE_BATCH_SIZE ?? 50)
+
+let promoteTimer: NodeJS.Timeout | null = null
+
+async function promoteDueScheduleJobs() {
+  try {
+    const delayedJobs = await scheduleQueue.getDelayed(0, PROMOTE_BATCH_SIZE - 1)
+    if (!delayedJobs.length) {
+      return
+    }
+
+    const now = Date.now()
+    for (const job of delayedJobs) {
+      const scheduledAt = (job.timestamp ?? 0) + (job.delay ?? 0)
+
+      if (!scheduledAt) {
+        continue
+      }
+
+      if (scheduledAt - PROMOTE_LOOKAHEAD_MS > now) {
+        continue
+      }
+
+      try {
+        await job.promote()
+        if (typeof console.debug === 'function') {
+          console.debug(`Promoted scheduled job ${job.id} for execution`)
+        }
+      } catch (error: any) {
+        // Ignore errors for jobs that have already been promoted
+        if (typeof error?.message === 'string' && error.message.includes('Job is not in a delayed state')) {
+          continue
+        }
+        console.error('Failed to promote scheduled job', job?.id, error)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to scan delayed schedule jobs', error)
+  }
+}
+
+function ensurePromotionLoop() {
+  if (promoteTimer) {
+    return
+  }
+
+  promoteTimer = setInterval(() => {
+    void promoteDueScheduleJobs()
+  }, PROMOTE_INTERVAL_MS)
+
+  if (typeof promoteTimer.unref === 'function') {
+    promoteTimer.unref()
+  }
+
+  // Kick off an initial scan so overdue jobs run quickly after startup
+  void promoteDueScheduleJobs()
+}
+
 // Worker that receives schedule triggers and creates runs
 export function initScheduleWorker() {
+  ensurePromotionLoop()
+
   const worker = new Worker('schedule-queue', async (job) => {
     const { scheduleId, scheduleType, sourceId, wordpressSettingsId, config } = job.data as {
       scheduleId: string
@@ -104,6 +166,11 @@ export function initScheduleWorker() {
   }, { connection })
   worker.on('failed', (job, err) => {
     console.error('Schedule worker failed:', job?.id, err)
+  })
+  worker.on('completed', (job) => {
+    if (typeof console.info === 'function') {
+      console.info(`Schedule worker completed job ${job.id}`)
+    }
   })
   return worker
 }

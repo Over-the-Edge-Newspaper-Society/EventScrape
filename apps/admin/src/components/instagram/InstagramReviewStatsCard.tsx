@@ -25,6 +25,10 @@ export function InstagramReviewStatsCard({ stats }: InstagramReviewStatsCardProp
               <p className="text-xl font-semibold text-gray-500">{stats.markedAsNotEvent}</p>
             </div>
             <div>
+              <p className="text-sm text-muted-foreground">Needs Extraction</p>
+              <p className="text-xl font-semibold text-indigo-600">{stats.needsExtraction}</p>
+            </div>
+            <div>
               <p className="text-sm text-muted-foreground">Total</p>
               <p className="text-xl font-semibold">{stats.total}</p>
             </div>

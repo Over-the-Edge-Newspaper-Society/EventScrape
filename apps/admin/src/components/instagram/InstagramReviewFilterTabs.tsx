@@ -19,7 +19,7 @@ export function InstagramReviewFilterTabs({
 
   return (
     <Tabs value={value} onValueChange={handleValueChange}>
-      <TabsList className="grid w-full grid-cols-4">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="pending">
           Pending Review {stats && `(${stats.unclassified})`}
         </TabsTrigger>
@@ -28,6 +28,9 @@ export function InstagramReviewFilterTabs({
         </TabsTrigger>
         <TabsTrigger value="not-event">
           Not Event {stats && `(${stats.markedAsNotEvent})`}
+        </TabsTrigger>
+        <TabsTrigger value="needs-extraction">
+          Needs Extraction {stats && `(${stats.needsExtraction})`}
         </TabsTrigger>
         <TabsTrigger value="all">
           All {stats && `(${stats.total})`}

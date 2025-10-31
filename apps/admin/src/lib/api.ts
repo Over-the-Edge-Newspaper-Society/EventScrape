@@ -335,7 +335,7 @@ export const instagramApifyApi = {
 
 // Instagram Review API
 export const instagramReviewApi = {
-  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'all' }) => {
+  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all' }) => {
     const searchParams = new URLSearchParams()
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -760,6 +760,7 @@ export interface InstagramReviewStats {
   unclassified: number
   markedAsEvent: number
   markedAsNotEvent: number
+  needsExtraction: number
   total: number
 }
 
