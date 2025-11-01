@@ -335,7 +335,7 @@ export const instagramApifyApi = {
 
 // Instagram Review API
 export const instagramReviewApi = {
-  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all' }) => {
+  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'; accountId?: string }) => {
     const searchParams = new URLSearchParams()
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
@@ -370,6 +370,7 @@ export const instagramReviewApi = {
       method: 'POST',
     }),
   getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
+  getAccounts: () => fetchApi<{ accounts: InstagramAccount[] }>('/instagram-review/accounts'),
 }
 
 // Types
@@ -580,6 +581,7 @@ export interface EventsQueryParams {
   page?: number
   limit?: number
   sourceId?: string
+  sourceType?: 'website' | 'instagram'
   city?: string
   startDate?: string
   endDate?: string
@@ -762,6 +764,13 @@ export interface InstagramReviewStats {
   markedAsNotEvent: number
   needsExtraction: number
   total: number
+}
+
+export interface InstagramAccount {
+  id: string
+  name: string
+  instagramUsername: string | null
+  active: boolean
 }
 
 export interface InstagramScrapeJobStatus {

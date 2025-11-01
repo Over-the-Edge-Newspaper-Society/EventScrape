@@ -34,6 +34,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string(),
   REDIS_URL: z.string(),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  API_RATE_LIMIT_MAX: z.coerce.number().positive().optional(),
+  API_RATE_LIMIT_TIME_WINDOW: z.string().optional(),
+  API_RATE_LIMIT_ALLOWLIST: z.string().optional(),
 });
 
 const env = envSchema.parse(process.env);
@@ -84,9 +87,16 @@ await fastify.register(cors, {
   credentials: true,
 });
 
+const rateLimitMax = env.API_RATE_LIMIT_MAX ?? (env.NODE_ENV === 'development' ? 1000 : 300);
+const rateLimitTimeWindow = env.API_RATE_LIMIT_TIME_WINDOW ?? '1 minute';
+const rateLimitAllowList = env.API_RATE_LIMIT_ALLOWLIST
+  ? env.API_RATE_LIMIT_ALLOWLIST.split(',').map(entry => entry.trim()).filter(Boolean)
+  : (env.NODE_ENV === 'development' ? ['127.0.0.1', '::1', 'localhost'] : undefined);
+
 await fastify.register(rateLimit, {
-  max: 100,
-  timeWindow: '1 minute',
+  max: rateLimitMax,
+  timeWindow: rateLimitTimeWindow,
+  allowList: rateLimitAllowList,
 });
 
 await fastify.register(multipart, {

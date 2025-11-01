@@ -8,20 +8,27 @@ import {
 import { InstagramReviewStatsCard } from '@/components/instagram/InstagramReviewStatsCard'
 import { instagramReviewApi } from '@/lib/api'
 import { toast } from 'sonner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 export function InstagramReview() {
   const [page, setPage] = useState(1)
   const [filter, setFilter] = useState<InstagramReviewFilter>('pending')
+  const [accountId, setAccountId] = useState<string>('all')
   const queryClient = useQueryClient()
 
   const { data: queue, isLoading } = useQuery({
-    queryKey: ['instagram-review-queue', page, filter],
-    queryFn: () => instagramReviewApi.getQueue({ page, limit: 20, filter }),
+    queryKey: ['instagram-review-queue', page, filter, accountId],
+    queryFn: () => instagramReviewApi.getQueue({ page, limit: 20, filter, accountId: accountId === 'all' ? undefined : accountId }),
   })
 
   const { data: stats } = useQuery({
     queryKey: ['instagram-review-stats'],
     queryFn: () => instagramReviewApi.getStats(),
+  })
+
+  const { data: accountsData } = useQuery({
+    queryKey: ['instagram-review-accounts'],
+    queryFn: () => instagramReviewApi.getAccounts(),
   })
 
   const classifyMutation = useMutation({
@@ -114,6 +121,11 @@ export function InstagramReview() {
     setPage(1)
   }
 
+  const handleAccountChange = (newAccountId: string) => {
+    setAccountId(newAccountId)
+    setPage(1)
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -126,6 +138,25 @@ export function InstagramReview() {
       {stats && <InstagramReviewStatsCard stats={stats} />}
 
       <InstagramReviewFilterTabs value={filter} onChange={handleFilterChange} stats={stats} />
+
+      <div className="flex items-center gap-4">
+        <label htmlFor="account-filter" className="text-sm font-medium text-foreground">
+          Filter by Account:
+        </label>
+        <Select value={accountId} onValueChange={handleAccountChange}>
+          <SelectTrigger id="account-filter" className="w-[280px]">
+            <SelectValue placeholder="All accounts" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All accounts</SelectItem>
+            {accountsData?.accounts.map((account) => (
+              <SelectItem key={account.id} value={account.id}>
+                {account.name} {account.instagramUsername && `(@${account.instagramUsername})`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="space-y-4">
         <InstagramReviewQueue

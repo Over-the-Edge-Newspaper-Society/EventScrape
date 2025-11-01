@@ -15,6 +15,9 @@ interface EventFiltersProps {
 
 export function EventFilters({ filters, sources, onFilterChange, onSearch }: EventFiltersProps) {
   const [searchQuery, setSearchQuery] = useState('')
+  const selectedSourceValue = filters.sourceType
+    ? `type:${filters.sourceType}`
+    : filters.sourceId || 'all'
 
   const handleSearch = () => {
     onFilterChange('search', searchQuery)
@@ -46,12 +49,32 @@ export function EventFilters({ filters, sources, onFilterChange, onSearch }: Eve
           </div>
 
           {/* Source Filter */}
-          <Select onValueChange={(value) => onFilterChange('sourceId', value === 'all' ? undefined : value)}>
+          <Select
+            value={selectedSourceValue}
+            onValueChange={(value) => {
+              if (value === 'all') {
+                onFilterChange('sourceId', undefined)
+                onFilterChange('sourceType', undefined)
+                return
+              }
+
+              if (value.startsWith('type:')) {
+                const type = value.split(':')[1] as 'website' | 'instagram'
+                onFilterChange('sourceType', type)
+                onFilterChange('sourceId', undefined)
+                return
+              }
+
+              onFilterChange('sourceId', value)
+              onFilterChange('sourceType', undefined)
+            }}
+          >
             <SelectTrigger>
               <SelectValue placeholder="All sources" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All sources</SelectItem>
+              <SelectItem value="type:instagram">Instagram (all accounts)</SelectItem>
               {sources?.map((source) => (
                 <SelectItem key={source.id} value={source.id}>
                   {source.name}

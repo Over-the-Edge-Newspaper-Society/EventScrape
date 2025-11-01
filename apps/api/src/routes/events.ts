@@ -8,6 +8,7 @@ const querySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   sourceId: z.string().uuid().optional(),
+  sourceType: z.enum(['website', 'instagram']).optional(),
   city: z.string().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
@@ -40,6 +41,10 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (query.sourceId) {
         conditions.push(eq(eventsRaw.sourceId, query.sourceId));
+      }
+
+      if (query.sourceType) {
+        conditions.push(eq(sources.sourceType, query.sourceType));
       }
 
       if (query.city) {
@@ -111,6 +116,8 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
             id: sources.id,
             name: sources.name,
             moduleKey: sources.moduleKey,
+            baseUrl: sources.baseUrl,
+            sourceType: sources.sourceType,
           },
         })
         .from(eventsRaw)

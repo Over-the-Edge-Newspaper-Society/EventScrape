@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, and, isNull, desc, sql } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc, sql } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, sources, instagramSettings, instagramAccounts, runs } from '../db/schema.js';
 import path from 'path';
@@ -23,35 +23,34 @@ const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_image
 export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-review/queue - Get Instagram posts with optional filter
   fastify.get('/queue', async (request, reply) => {
-    const { page = 1, limit = 20, filter = 'pending' } = request.query as {
+    const { page = 1, limit = 20, filter = 'pending', accountId } = request.query as {
       page?: number;
       limit?: number;
       filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all';
+      accountId?: string;
     };
     const offset = (Number(page) - 1) * Number(limit);
 
     try {
       // Build where condition based on filter
-      let whereCondition;
+      let whereConditions = [eq(sources.sourceType, 'instagram')];
+
+      // Add accountId filter if provided
+      if (accountId) {
+        whereConditions.push(eq(eventsRaw.instagramAccountId, accountId));
+      }
+
+      // Add filter-specific conditions
       if (filter === 'pending') {
-        whereCondition = and(
-          eq(sources.sourceType, 'instagram'),
-          isNull(eventsRaw.isEventPoster)
-        );
+        whereConditions.push(isNull(eventsRaw.isEventPoster));
       } else if (filter === 'event') {
-        whereCondition = and(
-          eq(sources.sourceType, 'instagram'),
-          eq(eventsRaw.isEventPoster, true)
-        );
+        whereConditions.push(eq(eventsRaw.isEventPoster, true));
       } else if (filter === 'not-event') {
-        whereCondition = and(
-          eq(sources.sourceType, 'instagram'),
-          eq(eventsRaw.isEventPoster, false)
-        );
+        whereConditions.push(eq(eventsRaw.isEventPoster, false));
       } else if (filter === 'needs-extraction') {
-        whereCondition = and(
-          eq(sources.sourceType, 'instagram'),
+        whereConditions.push(
           eq(eventsRaw.isEventPoster, true),
+          isNotNull(eventsRaw.localImagePath),
           sql`(
             CASE
               WHEN jsonb_typeof(${eventsRaw.raw} -> 'events') = 'array' THEN jsonb_array_length(${eventsRaw.raw} -> 'events')
@@ -59,10 +58,9 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             END
           ) = 0`
         );
-      } else {
-        // 'all' - just Instagram posts
-        whereCondition = eq(sources.sourceType, 'instagram');
       }
+
+      const whereCondition = and(...whereConditions);
 
       // Get posts
       const posts = await db
@@ -259,7 +257,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
                 },
               };
 
-        updatePayload.raw = JSON.stringify(mergedRaw);
+        updatePayload.raw = mergedRaw;
       } catch {
         // Leave raw untouched if parsing fails
       }
@@ -388,7 +386,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       await db
         .update(eventsRaw)
         .set({
-          raw: JSON.stringify(rawData),
+          raw: rawData,
         })
         .where(eq(eventsRaw.id, id));
 
@@ -445,10 +443,10 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
             organizer: event.organizer || null,
             category: event.category || null,
             price: event.price || null,
-            tags: event.tags ? JSON.stringify(event.tags) : null,
+            tags: event.tags || null,
             url: post.url || `https://instagram.com/p/${post.instagramPostId}/`,
             imageUrl: post.imageUrl,
-            raw: JSON.stringify(rawData),
+            raw: rawData,
             contentHash: `${post.instagramPostId}-extraction-${Date.now()}`,
             instagramAccountId: post.instagramAccountId,
             instagramPostId: post.instagramPostId,
@@ -528,6 +526,7 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
           and(
             eq(sources.sourceType, 'instagram'),
             eq(eventsRaw.isEventPoster, true),
+            isNotNull(eventsRaw.localImagePath),
             sql`(
               CASE
                 WHEN jsonb_typeof(${eventsRaw.raw} -> 'events') = 'array' THEN jsonb_array_length(${eventsRaw.raw} -> 'events')
@@ -548,6 +547,27 @@ export const instagramReviewRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.error('Failed to fetch review stats:', error);
       reply.status(500);
       return { error: 'Failed to fetch review stats' };
+    }
+  });
+
+  // GET /api/instagram-review/accounts - Get all Instagram accounts
+  fastify.get('/accounts', async (request, reply) => {
+    try {
+      const accounts = await db
+        .select({
+          id: instagramAccounts.id,
+          name: instagramAccounts.name,
+          instagramUsername: instagramAccounts.instagramUsername,
+          active: instagramAccounts.active,
+        })
+        .from(instagramAccounts)
+        .orderBy(instagramAccounts.name);
+
+      return { accounts };
+    } catch (error: any) {
+      fastify.log.error('Failed to fetch Instagram accounts:', error);
+      reply.status(500);
+      return { error: 'Failed to fetch Instagram accounts' };
     }
   });
 };
