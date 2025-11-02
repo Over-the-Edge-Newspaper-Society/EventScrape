@@ -6,6 +6,7 @@ import { runs, sources, schedules, wordpressSettings, exports } from '../db/sche
 import { enqueueScrapeJob } from './queue.js'
 import { eq } from 'drizzle-orm'
 import { processExport } from '../routes/exports.js'
+import { triggerInstagramScrapeSchedule } from '../services/instagram-scrape.js'
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null })
@@ -16,8 +17,12 @@ export const scheduleQueue = new Queue('schedule-queue', { connection })
 const PROMOTE_INTERVAL_MS = Number(process.env.SCHEDULE_PROMOTE_INTERVAL_MS ?? 5000)
 const PROMOTE_LOOKAHEAD_MS = Number(process.env.SCHEDULE_PROMOTE_LOOKAHEAD_MS ?? 1000)
 const PROMOTE_BATCH_SIZE = Number(process.env.SCHEDULE_PROMOTE_BATCH_SIZE ?? 50)
+const SYNC_INTERVAL_MS = Number(process.env.SCHEDULE_SYNC_INTERVAL_MS ?? 60000)
+const DEFAULT_TIMEZONE = 'America/Vancouver'
 
 let promoteTimer: NodeJS.Timeout | null = null
+let syncTimer: NodeJS.Timeout | null = null
+let syncInProgress = false
 
 async function promoteDueScheduleJobs() {
   try {
@@ -73,14 +78,36 @@ function ensurePromotionLoop() {
   void promoteDueScheduleJobs()
 }
 
+function ensureScheduleSyncLoop() {
+  if (SYNC_INTERVAL_MS <= 0) {
+    return
+  }
+
+  if (syncTimer) {
+    return
+  }
+
+  syncTimer = setInterval(() => {
+    void syncSchedulesFromDb()
+  }, SYNC_INTERVAL_MS)
+
+  if (typeof syncTimer.unref === 'function') {
+    syncTimer.unref()
+  }
+
+  // Run an initial sync in case schedules changed while the service was down
+  void syncSchedulesFromDb()
+}
+
 // Worker that receives schedule triggers and creates runs
 export function initScheduleWorker() {
   ensurePromotionLoop()
+  ensureScheduleSyncLoop()
 
   const worker = new Worker('schedule-queue', async (job) => {
     const { scheduleId, scheduleType, sourceId, wordpressSettingsId, config } = job.data as {
       scheduleId: string
-      scheduleType: 'scrape' | 'wordpress_export'
+      scheduleType: 'scrape' | 'wordpress_export' | 'instagram_scrape'
       sourceId?: string
       wordpressSettingsId?: string
       config?: any
@@ -162,6 +189,9 @@ export function initScheduleWorker() {
         console.error(`Scheduled WordPress export failed for schedule ${scheduleId}:`, error)
         throw error
       }
+    } else if (scheduleType === 'instagram_scrape') {
+      const scheduleConfig = (config && typeof config === 'object') ? { ...config } : {}
+      await triggerInstagramScrapeSchedule({ ...scheduleConfig, scheduleId })
     }
   }, { connection })
   worker.on('failed', (job, err) => {
@@ -177,7 +207,7 @@ export function initScheduleWorker() {
 
 export async function registerSchedule(schedule: {
   id: string
-  scheduleType: 'scrape' | 'wordpress_export'
+  scheduleType: 'scrape' | 'wordpress_export' | 'instagram_scrape'
   sourceId?: string
   wordpressSettingsId?: string
   cron: string
@@ -196,7 +226,7 @@ export async function registerSchedule(schedule: {
     },
     {
       jobId,
-      repeat: { pattern: schedule.cron, tz: schedule.timezone || 'America/Vancouver' },
+      repeat: { pattern: schedule.cron, tz: schedule.timezone || DEFAULT_TIMEZONE },
       removeOnComplete: { count: 100 },
       removeOnFail: { count: 100 },
     }
@@ -219,23 +249,93 @@ export async function unregisterScheduleByKey(repeatKey?: string | null) {
 }
 
 export async function syncSchedulesFromDb() {
-  const active = await db.select().from(schedules).where(eq(schedules.active, true))
-  for (const s of active) {
-    await registerSchedule({
-      id: s.id,
-      scheduleType: s.scheduleType,
-      sourceId: s.sourceId || undefined,
-      wordpressSettingsId: s.wordpressSettingsId || undefined,
-      cron: s.cron,
-      timezone: s.timezone || undefined,
-      config: s.config || undefined,
-    })
+  if (syncInProgress) {
+    return
+  }
+
+  syncInProgress = true
+  try {
+    const [allSchedules, repeatableJobs] = await Promise.all([
+      db.select().from(schedules),
+      scheduleQueue.getRepeatableJobs(0, -1),
+    ])
+
+    const schedulesById = new Map(allSchedules.map((schedule) => [schedule.id, schedule]))
+    const repeatsByJobId = new Map(repeatableJobs.map((repeat) => [repeat.id, repeat]))
+
+    for (const schedule of allSchedules) {
+      const jobId = `schedule:${schedule.id}`
+      const repeatJob = repeatsByJobId.get(jobId)
+
+      if (schedule.active) {
+        const desiredPattern = schedule.cron
+        const desiredTimezone = schedule.timezone || DEFAULT_TIMEZONE
+        const repeatTimezone = repeatJob?.tz ?? DEFAULT_TIMEZONE
+
+        const needsRegister = !repeatJob || repeatJob.pattern !== desiredPattern || repeatTimezone !== desiredTimezone
+
+        if (needsRegister) {
+          if (repeatJob) {
+            await unregisterScheduleByKey(repeatJob.key)
+            repeatsByJobId.delete(jobId)
+          }
+
+          await registerSchedule({
+            id: schedule.id,
+            scheduleType: schedule.scheduleType,
+            sourceId: schedule.sourceId || undefined,
+            wordpressSettingsId: schedule.wordpressSettingsId || undefined,
+            cron: schedule.cron,
+            timezone: schedule.timezone || undefined,
+            config: schedule.config || undefined,
+          })
+        } else {
+          if (!schedule.repeatKey || schedule.repeatKey !== repeatJob.key) {
+            await db
+              .update(schedules)
+              .set({ repeatKey: repeatJob.key, updatedAt: new Date() })
+              .where(eq(schedules.id, schedule.id))
+          }
+          repeatsByJobId.delete(jobId)
+        }
+      } else {
+        if (repeatJob) {
+          await unregisterScheduleByKey(repeatJob.key)
+          repeatsByJobId.delete(jobId)
+        }
+
+        if (schedule.repeatKey) {
+          await db
+            .update(schedules)
+            .set({ repeatKey: null, updatedAt: new Date() })
+            .where(eq(schedules.id, schedule.id))
+        }
+      }
+    }
+
+    for (const repeatJob of repeatsByJobId.values()) {
+      await unregisterScheduleByKey(repeatJob.key)
+      const scheduleId = repeatJob.id?.startsWith('schedule:') ? repeatJob.id.slice('schedule:'.length) : repeatJob.id
+      if (scheduleId && schedulesById.has(scheduleId)) {
+        const schedule = schedulesById.get(scheduleId)!
+        if (schedule.repeatKey) {
+          await db
+            .update(schedules)
+            .set({ repeatKey: null, updatedAt: new Date() })
+            .where(eq(schedules.id, schedule.id))
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to sync schedules from DB', error)
+  } finally {
+    syncInProgress = false
   }
 }
 
 export async function triggerScheduleNow(data: {
   scheduleId: string
-  scheduleType: 'scrape' | 'wordpress_export'
+  scheduleType: 'scrape' | 'wordpress_export' | 'instagram_scrape'
   sourceId?: string
   wordpressSettingsId?: string
   config?: any

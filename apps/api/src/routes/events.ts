@@ -128,10 +128,16 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         .offset(offset);
 
       // Get total count for pagination
-      const [{ count }] = await db
+      // Need to join sources if filtering by sourceType
+      let countQuery = db
         .select({ count: sql<number>`count(*)` })
-        .from(eventsRaw)
-        .where(whereClause);
+        .from(eventsRaw);
+
+      if (query.sourceType) {
+        countQuery = countQuery.leftJoin(sources, eq(eventsRaw.sourceId, sources.id)) as any;
+      }
+
+      const [{ count }] = await countQuery.where(whereClause);
 
       const totalPages = Math.ceil(count / query.limit);
 

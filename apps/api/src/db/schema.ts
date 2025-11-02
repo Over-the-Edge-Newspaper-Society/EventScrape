@@ -31,6 +31,7 @@ export const matchStatusEnum = pgEnum('match_status', [
 export const scheduleTypeEnum = pgEnum('schedule_type', [
   'scrape',
   'wordpress_export',
+  'instagram_scrape',
 ]);
 
 export const canonicalStatusEnum = pgEnum('canonical_status', [

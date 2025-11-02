@@ -28,6 +28,19 @@ const createSchema = z.discriminatedUnion('scheduleType', [
       status: z.enum(['publish', 'draft', 'pending']).optional().default('draft'),
     }).optional(),
   }),
+  z.object({
+    scheduleType: z.literal('instagram_scrape'),
+    cron: z.string().min(5),
+    timezone: z.string().optional().default('America/Vancouver'),
+    active: z.boolean().optional().default(true),
+    config: z.object({
+      scope: z.enum(['all_active', 'all_inactive', 'custom']).optional(),
+      accountIds: z.array(z.string().uuid()).optional(),
+      postLimit: z.number().min(1).max(100).optional(),
+      batchSize: z.number().min(1).max(25).optional(),
+      accountLimit: z.number().min(1).optional(),
+    }).optional(),
+  }),
 ])
 
 const updateSchema = z.object({
@@ -66,9 +79,19 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (data.scheduleType === 'scrape') {
         values.sourceId = data.sourceId
-      } else {
+      } else if (data.scheduleType === 'wordpress_export') {
         values.wordpressSettingsId = data.wordpressSettingsId
         values.config = data.config
+      } else if (data.scheduleType === 'instagram_scrape') {
+        const config = {
+          ...(data.config || {}),
+        }
+        const scope = config.scope ?? 'all_active'
+        if (scope === 'custom' && (!config.accountIds || config.accountIds.length === 0)) {
+          reply.status(400)
+          return { error: 'Custom Instagram schedules require at least one account' }
+        }
+        values.config = { ...config, scope }
       }
 
       const [row] = await db.insert(schedules).values(values).returning()
@@ -219,4 +242,3 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 }
-

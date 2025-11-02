@@ -9,6 +9,8 @@ import { InstagramReviewStatsCard } from '@/components/instagram/InstagramReview
 import { instagramReviewApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Loader2, Sparkles } from 'lucide-react'
 
 export function InstagramReview() {
   const [page, setPage] = useState(1)
@@ -74,6 +76,33 @@ export function InstagramReview() {
     },
   })
 
+  const bulkExtractMutation = useMutation({
+    mutationFn: () =>
+      instagramReviewApi.extractMissing({
+        accountId: accountId === 'all' ? undefined : accountId,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
+
+      const details: string[] = []
+      details.push(`${data.successful} succeeded`)
+      if (data.failed) {
+        details.push(`${data.failed} failed`)
+      }
+      details.push(`${data.remaining} remaining`)
+
+      toast.success(data.message, {
+        description: details.join(' • '),
+      })
+    },
+    onError: (error: any) => {
+      toast.error('Failed to extract event data', {
+        description: error?.message || 'Unknown error',
+      })
+    },
+  })
+
   const aiClassifyMutation = useMutation({
     mutationFn: (id: string) => instagramReviewApi.aiClassifyPost(id),
     onSuccess: (data) => {
@@ -126,6 +155,9 @@ export function InstagramReview() {
     setPage(1)
   }
 
+  const disableBulkExtractButton =
+    bulkExtractMutation.isPending || (!!stats && stats.needsExtraction === 0 && accountId === 'all')
+
   return (
     <div className="space-y-6">
       <div>
@@ -136,6 +168,26 @@ export function InstagramReview() {
       </div>
 
       {stats && <InstagramReviewStatsCard stats={stats} />}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          onClick={() => bulkExtractMutation.mutate()}
+          disabled={disableBulkExtractButton}
+          className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+        >
+          {bulkExtractMutation.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="mr-2 h-4 w-4" />
+          )}
+          Extract Event Data with AI
+        </Button>
+        <p className="text-sm text-muted-foreground">
+          {accountId === 'all'
+            ? `Remaining posts needing extraction (all accounts): ${stats ? stats.needsExtraction : '—'}`
+            : 'Runs extraction for posts in this account still missing data.'}
+        </p>
+      </div>
 
       <InstagramReviewFilterTabs value={filter} onChange={handleFilterChange} stats={stats} />
 

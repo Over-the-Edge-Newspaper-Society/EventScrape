@@ -1,7 +1,8 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, queryClient } from '../db/connection.js';
 import { instagramAccounts, runs } from '../db/schema.js';
+import type { InstagramAccount } from '../db/schema.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   enqueueInstagramScrapeJob,
@@ -27,41 +28,87 @@ export interface TriggerInstagramScrapeOptions {
   batchSize?: number;
 }
 
-export async function triggerAllActiveInstagramScrapes(options: TriggerInstagramScrapeOptions = {}) {
-  const normalizedPostLimit = Math.min(Math.max(options.postLimit ?? 10, 1), 100);
-  const normalizedBatchSize = options.batchSize ? Math.min(Math.max(options.batchSize, 1), 25) : undefined;
-  const accountLimit = options.accountLimit && options.accountLimit > 0 ? options.accountLimit : undefined;
+type InstagramScrapeScope = 'all_active' | 'all_inactive' | 'custom';
 
-  const accountsQuery = await db
-    .select()
-    .from(instagramAccounts)
-    .where(eq(instagramAccounts.active, true));
+interface NormalizedScrapeOptions {
+  postLimit: number;
+  batchSize?: number;
+  accountLimit?: number;
+}
 
-  if (accountsQuery.length === 0) {
+interface InstagramBatchContext {
+  scope?: InstagramScrapeScope;
+  scheduleId?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface InstagramScheduleTriggerOptions extends TriggerInstagramScrapeOptions {
+  scope?: InstagramScrapeScope;
+  accountIds?: string[];
+  scheduleId?: string;
+}
+
+function normalizeScrapeOptions(options: TriggerInstagramScrapeOptions = {}): NormalizedScrapeOptions {
+  const postLimit = Math.min(Math.max(options.postLimit ?? 10, 1), 100);
+  const batchSize = options.batchSize ? Math.min(Math.max(options.batchSize, 1), 25) : undefined;
+  const accountLimit =
+    options.accountLimit && options.accountLimit > 0 ? Math.max(1, Math.floor(options.accountLimit)) : undefined;
+
+  return { postLimit, batchSize, accountLimit };
+}
+
+async function triggerInstagramScrapesForAccounts(
+  accounts: InstagramAccount[],
+  options: TriggerInstagramScrapeOptions = {},
+  context: InstagramBatchContext = {},
+) {
+  if (!accounts.length) {
     throw new NoActiveInstagramAccountsError();
   }
 
-  const accounts = accountLimit ? accountsQuery.slice(0, accountLimit) : accountsQuery;
+  const normalized = normalizeScrapeOptions(options);
+  const effectiveAccountLimit = normalized.accountLimit
+    ? Math.min(normalized.accountLimit, accounts.length)
+    : accounts.length;
+  const accountsToScrape = accounts.slice(0, effectiveAccountLimit);
+
+  if (!accountsToScrape.length) {
+    throw new NoActiveInstagramAccountsError();
+  }
+
   const parentRunId = uuidv4();
   const baseOptions = {
-    postLimit: normalizedPostLimit,
-    batchSize: normalizedBatchSize,
-    accountLimit: accountLimit ?? accounts.length,
+    postLimit: normalized.postLimit,
+    batchSize: normalized.batchSize,
+    accountLimit: effectiveAccountLimit,
   };
+
+  const metadata: Record<string, unknown> = {
+    type: 'instagram_batch',
+    accountsTotal: accountsToScrape.length,
+    options: baseOptions,
+    accountIds: accountsToScrape.map((a) => a.id),
+  };
+
+  if (context.scope) {
+    metadata.scope = context.scope;
+  }
+  if (context.scheduleId) {
+    metadata.scheduleId = context.scheduleId;
+  }
+  if (context.config) {
+    metadata.config = context.config;
+  }
 
   await db.insert(runs).values({
     id: parentRunId,
     sourceId: INSTAGRAM_SOURCE_ID,
     status: 'queued',
-    metadata: {
-      type: 'instagram_batch',
-      accountsTotal: accounts.length,
-      options: baseOptions,
-    },
+    metadata,
   });
 
   const jobs = [];
-  for (const account of accounts) {
+  for (const account of accountsToScrape) {
     const childRunId = uuidv4();
     const queuePosition = jobs.length + 1;
 
@@ -79,8 +126,8 @@ export async function triggerAllActiveInstagramScrapes(options: TriggerInstagram
 
     const job = await enqueueInstagramScrapeJob({
       accountId: account.id,
-      postLimit: normalizedPostLimit,
-      batchSize: normalizedBatchSize,
+      postLimit: normalized.postLimit,
+      batchSize: normalized.batchSize,
       runId: childRunId,
       parentRunId,
     });
@@ -104,12 +151,72 @@ export async function triggerAllActiveInstagramScrapes(options: TriggerInstagram
   await updateBatchRunSummary(parentRunId);
 
   return {
-    accountsQueued: accounts.length,
-    postLimit: normalizedPostLimit,
-    batchSize: normalizedBatchSize,
+    accountsQueued: accountsToScrape.length,
+    postLimit: normalized.postLimit,
+    batchSize: normalized.batchSize,
     parentRunId,
     jobs,
+    scope: context.scope,
   };
+}
+
+export async function triggerAllActiveInstagramScrapes(options: TriggerInstagramScrapeOptions = {}) {
+  const accounts = await db
+    .select()
+    .from(instagramAccounts)
+    .where(eq(instagramAccounts.active, true));
+
+  if (accounts.length === 0) {
+    throw new NoActiveInstagramAccountsError();
+  }
+
+  return triggerInstagramScrapesForAccounts(accounts, options, { scope: 'all_active' });
+}
+
+export async function triggerInstagramScrapeSchedule(
+  config: InstagramScheduleTriggerOptions = {},
+) {
+  const scope: InstagramScrapeScope = config.scope ?? 'all_active';
+  let accounts: InstagramAccount[] = [];
+
+  if (scope === 'custom') {
+    const uniqueAccountIds = Array.from(new Set(config.accountIds ?? [])).filter(Boolean);
+    if (uniqueAccountIds.length === 0) {
+      throw new Error('No Instagram accounts selected for custom schedule');
+    }
+
+    const rows = await db
+      .select()
+      .from(instagramAccounts)
+      .where(inArray(instagramAccounts.id, uniqueAccountIds));
+
+    const accountMap = new Map(rows.map((row) => [row.id, row]));
+    accounts = uniqueAccountIds
+      .map((id) => accountMap.get(id))
+      .filter((account): account is InstagramAccount => !!account);
+
+    if (accounts.length === 0) {
+      throw new Error('Selected Instagram accounts were not found');
+    }
+  } else {
+    const isActive = scope === 'all_active';
+    accounts = await db
+      .select()
+      .from(instagramAccounts)
+      .where(eq(instagramAccounts.active, isActive));
+
+    if (accounts.length === 0) {
+      throw new NoActiveInstagramAccountsError(
+        isActive ? 'No active Instagram accounts found' : 'No inactive Instagram accounts found',
+      );
+    }
+  }
+
+  return triggerInstagramScrapesForAccounts(accounts, config, {
+    scope,
+    scheduleId: config.scheduleId,
+    config: config as Record<string, unknown>,
+  });
 }
 
 const instagramJobStatusSchema = z.object({

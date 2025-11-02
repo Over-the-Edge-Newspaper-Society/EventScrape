@@ -260,6 +260,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0020 (Instagram schedule type)
+    try {
+      const sql20 = await readFile(migrationPath('0020_instagram_schedule_type.sql'), 'utf-8');
+      await migrationClient.unsafe(sql20);
+      console.log('✅ Applied migration 0020 (Instagram schedule type)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0020 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0020 not applied');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok

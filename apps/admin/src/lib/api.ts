@@ -197,7 +197,7 @@ export const queueApi = {
 // Schedules API
 export interface Schedule {
   id: string
-  scheduleType: 'scrape' | 'wordpress_export'
+  scheduleType: 'scrape' | 'wordpress_export' | 'instagram_scrape'
   sourceId: string | null
   wordpressSettingsId: string | null
   cron: string
@@ -240,9 +240,23 @@ export type CreateWordPressSchedule = {
   }
 }
 
+export type CreateInstagramSchedule = {
+  scheduleType: 'instagram_scrape'
+  cron: string
+  timezone?: string
+  active?: boolean
+  config?: {
+    scope?: 'all_active' | 'all_inactive' | 'custom'
+    accountIds?: string[]
+    postLimit?: number
+    batchSize?: number
+    accountLimit?: number
+  }
+}
+
 export const schedulesApi = {
   getAll: () => fetchApi<{ schedules: ScheduleWithSource[] }>(`/schedules`),
-  create: (data: CreateScrapeSchedule | CreateWordPressSchedule) =>
+  create: (data: CreateScrapeSchedule | CreateWordPressSchedule | CreateInstagramSchedule) =>
     fetchApi<{ schedule: Schedule }>(`/schedules`, { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean; config: any }>) =>
     fetchApi<{ schedule: Schedule }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -371,6 +385,11 @@ export const instagramReviewApi = {
     }),
   getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
   getAccounts: () => fetchApi<{ accounts: InstagramAccount[] }>('/instagram-review/accounts'),
+  extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }) =>
+    fetchApi<InstagramReviewBulkExtractResponse>('/instagram-review/extract-missing', {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
 }
 
 // Types
@@ -764,6 +783,23 @@ export interface InstagramReviewStats {
   markedAsNotEvent: number
   needsExtraction: number
   total: number
+}
+
+export interface InstagramReviewBulkExtractResult {
+  id: string
+  status: 'success' | 'error'
+  message?: string
+  eventsCreated?: number
+}
+
+export interface InstagramReviewBulkExtractResponse {
+  success: boolean
+  message: string
+  processed: number
+  successful: number
+  failed: number
+  remaining: number
+  results: InstagramReviewBulkExtractResult[]
 }
 
 export interface InstagramAccount {
