@@ -1,6 +1,6 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { InstagramReviewStats } from '@/lib/api'
-import type { InstagramReviewFilter } from './InstagramReviewQueue'
+import type { InstagramReviewFilter } from './types'
 
 type InstagramReviewFilterTabsProps = {
   value: InstagramReviewFilter

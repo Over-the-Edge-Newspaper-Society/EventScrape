@@ -15,3 +15,5 @@ export interface InstagramAccountPreview {
   username: string
   name: string
 }
+
+export type InstagramReviewFilter = 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'

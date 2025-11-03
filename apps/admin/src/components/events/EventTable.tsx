@@ -138,7 +138,10 @@ export function EventTable({
   }
 
   // Helper to get display organizer - use Gemini extraction if available
-  const getDisplayOrganizer = (event: EventWithSource['event']) => {
+  const getDisplayOrganizer = (event: EventWithSource['event'], source: EventWithSource['source']) => {
+    if (isInstagramEvent(source)) {
+      return source.name || event.organizer
+    }
     const geminiEvent = event.raw?.events?.[0]
     if (geminiEvent?.organizer) {
       return geminiEvent.organizer
@@ -156,8 +159,9 @@ export function EventTable({
   }
 
   const getMissingFields = (event: EventWithSource) => {
-    const missing = []
+    const missing: string[] = []
     const geminiEvent = event.event.raw?.events?.[0]
+    const instagramSource = isInstagramEvent(event.source)
 
     // Check description - from database or Gemini extraction
     if (!event.event.descriptionHtml && !geminiEvent?.description) {
@@ -175,7 +179,11 @@ export function EventTable({
     }
 
     // Check organizer - from database or Gemini extraction
-    if (!event.event.organizer && !geminiEvent?.organizer) {
+    if (instagramSource) {
+      if (!event.source.name) {
+        missing.push('Organizer')
+      }
+    } else if (!event.event.organizer && !geminiEvent?.organizer) {
       missing.push('Organizer')
     }
 
@@ -316,9 +324,9 @@ export function EventTable({
                           {getDisplayCategory(event)}
                         </Badge>
                       )}
-                      {getDisplayOrganizer(event) && (
+                      {getDisplayOrganizer(event, source) && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          by {getDisplayOrganizer(event)}
+                          by {getDisplayOrganizer(event, source)}
                         </p>
                       )}
                     </div>
@@ -464,9 +472,9 @@ export function EventTable({
                       {getDisplayCategory(event)}
                     </Badge>
                   )}
-                  {getDisplayOrganizer(event) && (
+                  {getDisplayOrganizer(event, source) && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      by {getDisplayOrganizer(event)}
+                      by {getDisplayOrganizer(event, source)}
                     </p>
                   )}
                 </div>

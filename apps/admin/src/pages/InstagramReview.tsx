@@ -1,16 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { InstagramReviewFilterTabs } from '@/components/instagram/InstagramReviewFilterTabs'
-import {
-  InstagramReviewQueue,
-  type InstagramReviewFilter,
-} from '@/components/instagram/InstagramReviewQueue'
+import { InstagramReviewQueue } from '@/components/instagram/InstagramReviewQueue'
+import type { InstagramReviewFilter } from '@/components/instagram/types'
 import { InstagramReviewStatsCard } from '@/components/instagram/InstagramReviewStatsCard'
 import { instagramReviewApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Loader2, Sparkles } from 'lucide-react'
+import { Bot, Loader2, Sparkles } from 'lucide-react'
 
 export function InstagramReview() {
   const [page, setPage] = useState(1)
@@ -103,6 +101,33 @@ export function InstagramReview() {
     },
   })
 
+  const bulkAiClassifyMutation = useMutation({
+    mutationFn: () =>
+      instagramReviewApi.aiClassifyPending({
+        accountId: accountId === 'all' ? undefined : accountId,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
+
+      const details: string[] = []
+      details.push(`${data.successful} succeeded`)
+      if (data.failed) {
+        details.push(`${data.failed} failed`)
+      }
+      details.push(`${data.remaining} remaining`)
+
+      toast.success(data.message, {
+        description: details.join(' • '),
+      })
+    },
+    onError: (error: any) => {
+      toast.error('Failed to classify posts with AI', {
+        description: error?.message || 'Unknown error',
+      })
+    },
+  })
+
   const aiClassifyMutation = useMutation({
     mutationFn: (id: string) => instagramReviewApi.aiClassifyPost(id),
     onSuccess: (data) => {
@@ -158,6 +183,9 @@ export function InstagramReview() {
   const disableBulkExtractButton =
     bulkExtractMutation.isPending || (!!stats && stats.needsExtraction === 0 && accountId === 'all')
 
+  const disableBulkAiClassifyButton =
+    bulkAiClassifyMutation.isPending || (!!stats && stats.unclassified === 0 && accountId === 'all')
+
   return (
     <div className="space-y-6">
       <div>
@@ -169,25 +197,50 @@ export function InstagramReview() {
 
       {stats && <InstagramReviewStatsCard stats={stats} />}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          onClick={() => bulkExtractMutation.mutate()}
-          disabled={disableBulkExtractButton}
-          className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-        >
-          {bulkExtractMutation.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="mr-2 h-4 w-4" />
-          )}
-          Extract Event Data with AI
-        </Button>
-        <p className="text-sm text-muted-foreground">
-          {accountId === 'all'
-            ? `Remaining posts needing extraction (all accounts): ${stats ? stats.needsExtraction : '—'}`
-            : 'Runs extraction for posts in this account still missing data.'}
-        </p>
-      </div>
+      {filter === 'pending' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={() => bulkAiClassifyMutation.mutate()}
+            disabled={disableBulkAiClassifyButton}
+            variant="secondary"
+            className="bg-gradient-to-r from-amber-500 to-pink-500 text-white hover:from-amber-600 hover:to-pink-600"
+          >
+            {bulkAiClassifyMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Bot className="mr-2 h-4 w-4" />
+            )}
+            Let AI Decide Pending Posts
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            {accountId === 'all'
+              ? `Pending posts awaiting AI review (all accounts): ${stats ? stats.unclassified : '—'}`
+              : 'Runs AI classification for posts in this account still pending review.'}
+          </p>
+        </div>
+      )}
+
+      {filter === 'needs-extraction' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={() => bulkExtractMutation.mutate()}
+            disabled={disableBulkExtractButton}
+            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+          >
+            {bulkExtractMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            Extract Event Data with AI
+          </Button>
+          <p className="text-sm text-muted-foreground">
+            {accountId === 'all'
+              ? `Remaining posts needing extraction (all accounts): ${stats ? stats.needsExtraction : '—'}`
+              : 'Runs extraction for posts in this account still missing data.'}
+          </p>
+        </div>
+      )}
 
       <InstagramReviewFilterTabs value={filter} onChange={handleFilterChange} stats={stats} />
 

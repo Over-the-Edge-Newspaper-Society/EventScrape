@@ -383,6 +383,11 @@ export const instagramReviewApi = {
     }>(`/instagram-review/${id}/ai-classify`, {
       method: 'POST',
     }),
+  aiClassifyPending: (options?: { accountId?: string; limit?: number }) =>
+    fetchApi<InstagramReviewBulkAiClassifyResponse>('/instagram-review/ai-classify/bulk', {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
+    }),
   getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
   getAccounts: () => fetchApi<{ accounts: InstagramAccount[] }>('/instagram-review/accounts'),
   extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }) =>
@@ -800,6 +805,24 @@ export interface InstagramReviewBulkExtractResponse {
   failed: number
   remaining: number
   results: InstagramReviewBulkExtractResult[]
+}
+
+export interface InstagramReviewBulkAiClassifyResult {
+  id: string
+  status: 'success' | 'error'
+  isEventPoster?: boolean
+  confidence?: number | null
+  message?: string
+}
+
+export interface InstagramReviewBulkAiClassifyResponse {
+  success: boolean
+  message: string
+  processed: number
+  successful: number
+  failed: number
+  remaining: number
+  results: InstagramReviewBulkAiClassifyResult[]
 }
 
 export interface InstagramAccount {

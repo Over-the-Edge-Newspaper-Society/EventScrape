@@ -12,6 +12,7 @@ interface EventDetailDialogProps {
 export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
   const eventData = event.event
   const sourceData = event.source
+  const isInstagramSource = sourceData.sourceType === 'instagram' || sourceData.moduleKey?.includes('instagram')
 
   // Helper function to extract series dates from raw data
   const getSeriesDates = (rawData: any) => {
@@ -94,7 +95,7 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
     { key: 'city', label: 'City', value: geminiEvent.venue?.city },
     { key: 'region', label: 'Region', value: geminiEvent.venue?.region },
     { key: 'country', label: 'Country', value: geminiEvent.venue?.country },
-    { key: 'organizer', label: 'Organizer', value: geminiEvent.organizer },
+    { key: 'organizer', label: 'Organizer', value: isInstagramSource ? sourceData.name : geminiEvent.organizer },
     { key: 'category', label: 'Category', value: geminiEvent.category },
     { key: 'price', label: 'Price', value: geminiEvent.price },
     { key: 'tags', label: 'Tags', value: geminiEvent.tags },
@@ -121,7 +122,7 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
     { key: 'country', label: 'Country', value: eventData.country },
     { key: 'lat', label: 'Latitude', value: eventData.lat },
     { key: 'lon', label: 'Longitude', value: eventData.lon },
-    { key: 'organizer', label: 'Organizer', value: eventData.organizer },
+    { key: 'organizer', label: 'Organizer', value: isInstagramSource ? sourceData.name : eventData.organizer },
     { key: 'category', label: 'Category', value: eventData.category },
     { key: 'price', label: 'Price', value: eventData.price },
     { key: 'tags', label: 'Tags', value: eventData.tags },
