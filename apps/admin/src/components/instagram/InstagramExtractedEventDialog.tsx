@@ -1,3 +1,4 @@
+import { StructuredFieldList, type StructuredField } from '@/components/events/StructuredFieldList'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -56,16 +57,7 @@ export function InstagramExtractedEventDialog({
                   <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Event {index + 1}
                   </div>
-                  <div className="space-y-3">
-                    {fields.map((field) => (
-                      <div key={`${eventId}-${field.key}`} className="grid grid-cols-4 gap-4 border-b border-muted-foreground/10 pb-2 last:border-b-0 last:pb-0">
-                        <div className="font-medium text-foreground">{field.label}:</div>
-                        <div className="col-span-3 break-words text-sm">
-                          {renderFieldValue(field)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <StructuredFieldList fields={fields} />
                   {extracted.url && (
                     <div className="flex items-center gap-2 text-xs">
                       <a
@@ -99,22 +91,15 @@ export function InstagramExtractedEventDialog({
   )
 }
 
-type FieldType = 'text' | 'link' | 'list' | 'multiline'
-
-type FieldConfig = {
-  key: string
-  label: string
-  value: string | string[] | null | undefined
-  type?: FieldType
-}
-
-const buildFieldList = (event: ExtractedEventDetails): FieldConfig[] => {
+const buildFieldList = (event: ExtractedEventDetails): StructuredField[] => {
   const seriesEntries =
     event.seriesDates?.map((range) => {
       const start = range?.start ?? 'Not provided'
       const end = range?.end
       return end ? `${start} → ${end}` : start
     }).filter(Boolean) ?? []
+
+  const tagList = event.tags?.length ? event.tags.map((tag) => `#${tag}`) : undefined
 
   return [
     { key: 'title', label: 'Title', value: event.title },
@@ -135,51 +120,11 @@ const buildFieldList = (event: ExtractedEventDetails): FieldConfig[] => {
     { key: 'organizer', label: 'Organizer', value: event.organizer },
     { key: 'category', label: 'Category', value: event.category },
     { key: 'price', label: 'Price', value: event.price },
-    { key: 'tags', label: 'Tags', value: event.tags },
-    { key: 'url', label: 'Linked URL', value: event.url, type: 'link' },
+    { key: 'tags', label: 'Tags', value: tagList, type: 'list' },
     { key: 'registrationUrl', label: 'Registration URL', value: event.registrationUrl, type: 'link' },
     { key: 'contactEmail', label: 'Contact Email', value: event.contactInfo?.email },
     { key: 'contactPhone', label: 'Contact Phone', value: event.contactInfo?.phone },
     { key: 'contactWebsite', label: 'Website', value: event.contactInfo?.website, type: 'link' },
     { key: 'additionalInfo', label: 'Additional Info', value: event.additionalInfo, type: 'multiline' },
   ]
-}
-
-const renderFieldValue = (field: FieldConfig) => {
-  const { value, type } = field
-
-  if (value === undefined || value === null || (Array.isArray(value) && value.length === 0) || value === '') {
-    return <span className="italic text-muted-foreground">Not provided</span>
-  }
-
-  if (type === 'link' && typeof value === 'string') {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-        {value}
-        <ExternalLink className="ml-1 inline h-3 w-3" />
-      </a>
-    )
-  }
-
-  if (type === 'list' && Array.isArray(value)) {
-    return (
-      <ul className="space-y-1">
-        {value.map((entry, index) => (
-          <li key={`${field.key}-${index}`} className="font-mono text-xs text-muted-foreground">
-            {entry}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-
-  if (type === 'multiline' && typeof value === 'string') {
-    return <p className="whitespace-pre-wrap">{value}</p>
-  }
-
-  if (Array.isArray(value)) {
-    return value.join(', ')
-  }
-
-  return value
 }

@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { eventsRaw, eventsCanonical, sources, matches } from '../db/schema.js';
+import { eventsRaw, eventsCanonical, sources, matches, instagramAccounts } from '../db/schema.js';
 
 const querySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -92,8 +92,8 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           break;
         case 'source':
           orderByClause = query.sortOrder === 'asc'
-            ? sql`${sources.name} ASC`
-            : sql`${sources.name} DESC`;
+            ? sql`COALESCE(${instagramAccounts.name}, ${sources.name}) ASC`
+            : sql`COALESCE(${instagramAccounts.name}, ${sources.name}) DESC`;
           break;
         case 'scrapedAt':
           orderByClause = query.sortOrder === 'asc'
@@ -119,9 +119,15 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
             baseUrl: sources.baseUrl,
             sourceType: sources.sourceType,
           },
+          instagramAccount: {
+            id: instagramAccounts.id,
+            name: instagramAccounts.name,
+            instagramUsername: instagramAccounts.instagramUsername,
+          },
         })
         .from(eventsRaw)
         .leftJoin(sources, eq(eventsRaw.sourceId, sources.id))
+        .leftJoin(instagramAccounts, eq(eventsRaw.instagramAccountId, instagramAccounts.id))
         .where(whereClause)
         .orderBy(orderByClause)
         .limit(query.limit)
@@ -141,8 +147,16 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const totalPages = Math.ceil(count / query.limit);
 
+      const normalizedEvents = events.map(({ event, source, instagramAccount }) => ({
+        event,
+        source: {
+          ...source,
+          name: instagramAccount?.name ?? source.name,
+        },
+      }));
+
       return {
-        events,
+        events: normalizedEvents,
         pagination: {
           page: query.page,
           limit: query.limit,
@@ -178,10 +192,17 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           name: sources.name,
           moduleKey: sources.moduleKey,
           baseUrl: sources.baseUrl,
+          sourceType: sources.sourceType,
+        },
+        instagramAccount: {
+          id: instagramAccounts.id,
+          name: instagramAccounts.name,
+          instagramUsername: instagramAccounts.instagramUsername,
         },
       })
       .from(eventsRaw)
       .leftJoin(sources, eq(eventsRaw.sourceId, sources.id))
+      .leftJoin(instagramAccounts, eq(eventsRaw.instagramAccountId, instagramAccounts.id))
       .where(eq(eventsRaw.id, id));
     
     if (result.length === 0) {
@@ -189,7 +210,15 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       return { error: 'Event not found' };
     }
 
-    return { event: result[0] };
+    const normalizedEvent = {
+      event: result[0].event,
+      source: {
+        ...result[0].source,
+        name: result[0].instagramAccount?.name ?? result[0].source.name,
+      },
+    };
+
+    return { event: normalizedEvent };
   });
 
   // Get canonical events

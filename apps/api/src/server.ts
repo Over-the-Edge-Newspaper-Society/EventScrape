@@ -25,6 +25,7 @@ import { instagramBackupRoutes } from './routes/instagram-backup.js';
 import { instagramReviewRoutes } from './routes/instagram-review.js';
 import { instagramClassifyRoutes } from './routes/instagram-classify.js';
 import { instagramApifyRoutes } from './routes/instagram-apify.js';
+import { backupBundleRoutes } from './routes/backups.js';
 import { initScheduleWorker, syncSchedulesFromDb } from './queue/scheduler.js';
 import { runMigrations } from './db/migrate.js';
 
@@ -154,6 +155,7 @@ await fastify.register(posterImportRoutes, { prefix: '/api/poster-import' });
 await fastify.register(schedulesRoutes, { prefix: '/api/schedules' });
 await fastify.register(wordpressRoutes, { prefix: '/api/wordpress' });
 await fastify.register(databaseRoutes, { prefix: '/api/database' });
+await fastify.register(backupBundleRoutes, { prefix: '/api/backups' });
 await fastify.register(instagramSourcesRoutes, { prefix: '/api/instagram-sources' });
 await fastify.register(instagramSettingsRoutes, { prefix: '/api/instagram-settings' });
 await fastify.register(instagramBackupRoutes, { prefix: '/api/instagram-backup' });

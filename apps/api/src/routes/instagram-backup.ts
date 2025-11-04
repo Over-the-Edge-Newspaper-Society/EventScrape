@@ -9,6 +9,13 @@ import { createWriteStream, createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import extract from 'extract-zip';
 import Database from 'better-sqlite3';
+import {
+  ensureDir,
+  fetchInstagramData,
+  clearInstagramData,
+  restoreInstagramData,
+  restoreInstagramImagesFromDirectory,
+} from '../services/backup-service.js';
 
 const BACKUP_DIR = process.env.BACKUP_DIR || '/data/backups';
 const IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
@@ -58,7 +65,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/instagram-backup/create - Create backup zip
   fastify.post('/create', async (request, reply) => {
     try {
-      await fs.mkdir(BACKUP_DIR, { recursive: true });
+      await ensureDir(BACKUP_DIR);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupFilename = `instagram-backup-${timestamp}.zip`;
@@ -71,20 +78,13 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       archive.pipe(output);
 
       // Add database export (JSON format)
-      const sourcesData = await db.select().from(sources).where(eq(sources.sourceType, 'instagram'));
-      const accountsData = await db.select().from(instagramAccounts);
-      const sessionsData = await db.select().from(instagramSessions);
-      const eventsData = await db
-        .select()
-        .from(eventsRaw)
-        .where(eq(eventsRaw.instagramPostId, eventsRaw.instagramPostId)); // Filter Instagram events
+      const instagramData = await fetchInstagramData();
+      archive.append(JSON.stringify(instagramData.sources, null, 2), { name: 'sources.json' });
+      archive.append(JSON.stringify(instagramData.accounts, null, 2), { name: 'accounts.json' });
+      archive.append(JSON.stringify(instagramData.sessions, null, 2), { name: 'sessions.json' });
+      archive.append(JSON.stringify(instagramData.events, null, 2), { name: 'events.json' });
 
-      archive.append(JSON.stringify(sourcesData, null, 2), { name: 'sources.json' });
-      archive.append(JSON.stringify(accountsData, null, 2), { name: 'accounts.json' });
-      archive.append(JSON.stringify(sessionsData, null, 2), { name: 'sessions.json' });
-      archive.append(JSON.stringify(eventsData, null, 2), { name: 'events.json' });
-
-      // Add Instagram images directory
+      // Add Instagram images directory (optional)
       try {
         await fs.access(IMAGES_DIR);
         archive.directory(IMAGES_DIR, 'images');
@@ -144,7 +144,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-backup/list - List available backups
   fastify.get('/list', async (request, reply) => {
     try {
-      await fs.mkdir(BACKUP_DIR, { recursive: true });
+      await ensureDir(BACKUP_DIR);
 
       const files = await fs.readdir(BACKUP_DIR);
       const backups = await Promise.all(
@@ -257,107 +257,25 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       const sessionsData = JSON.parse(sessionsJson);
       const eventsData = JSON.parse(eventsJson);
 
-      // Clear all existing Instagram data before restoring
-      // This ensures a clean restore and prevents orphaned records
       fastify.log.info('Clearing existing Instagram data before restore...');
-
-      // Delete events first (they reference other tables)
-      await db.delete(eventsRaw).where(eq(eventsRaw.instagramPostId, eventsRaw.instagramPostId));
-
-      // Delete runs for Instagram sources
-      const instagramSourceIds = await db
-        .select({ id: sources.id })
-        .from(sources)
-        .where(eq(sources.sourceType, 'instagram'));
-
-      if (instagramSourceIds.length > 0) {
-        for (const { id } of instagramSourceIds) {
-          await db.delete(runs).where(eq(runs.sourceId, id));
-        }
-      }
-
-      // Delete sources
-      await db.delete(sources).where(eq(sources.sourceType, 'instagram'));
-
-      // Delete sessions and accounts
-      await db.delete(instagramSessions);
-      await db.delete(instagramAccounts);
+      await clearInstagramData();
+      const restoreStats = await restoreInstagramData({
+        sources: sourcesData,
+        accounts: accountsData,
+        sessions: sessionsData,
+        events: eventsData,
+      });
 
       const results = {
-        sourcesCreated: 0,
-        accountsCreated: 0,
-        sessionsCreated: 0,
-        eventsCreated: 0,
+        ...restoreStats,
         imagesRestored: 0,
       };
-
-      // Restore sources
-      for (const source of sourcesData) {
-        try {
-          const { id, ...sourceWithoutId } = source;
-          await db.insert(sources).values(sourceWithoutId);
-          results.sourcesCreated++;
-        } catch (error: any) {
-          fastify.log.warn(`Failed to restore source ${source.name}:`, error.message);
-        }
-      }
-
-      // Restore Instagram accounts
-      for (const account of accountsData) {
-        try {
-          const { id, ...accountWithoutId } = account;
-          await db.insert(instagramAccounts).values(accountWithoutId);
-          results.accountsCreated++;
-        } catch (error: any) {
-          fastify.log.warn(`Failed to restore Instagram account ${account.instagramUsername}:`, error.message);
-        }
-      }
-
-      // Restore sessions
-      for (const session of sessionsData) {
-        try {
-          const { id, ...sessionWithoutId } = session;
-          await db.insert(instagramSessions).values(sessionWithoutId);
-          results.sessionsCreated++;
-        } catch (error: any) {
-          fastify.log.warn(`Failed to restore session ${session.username}:`, error.message);
-        }
-      }
-
-      // Restore events
-      for (const event of eventsData) {
-        try {
-          const { id, ...eventWithoutId } = event;
-          await db.insert(eventsRaw).values(eventWithoutId);
-          results.eventsCreated++;
-        } catch (error: any) {
-          fastify.log.warn(`Failed to restore event ${event.instagramPostId || event.id}:`, error.message);
-        }
-      }
 
       // Restore images
       const imagesSourceDir = path.join(extractDir, 'images');
       try {
-        await fs.access(imagesSourceDir);
-        await fs.mkdir(IMAGES_DIR, { recursive: true });
-
-        const imageFiles = await fs.readdir(imagesSourceDir);
-        for (const file of imageFiles) {
-          try {
-            const sourcePath = path.join(imagesSourceDir, file);
-            const destPath = path.join(IMAGES_DIR, file);
-
-            // Check if file already exists
-            try {
-              await fs.access(destPath);
-            } catch {
-              await fs.copyFile(sourcePath, destPath);
-              results.imagesRestored++;
-            }
-          } catch (error: any) {
-            fastify.log.warn(`Failed to restore image ${file}:`, error.message);
-          }
-        }
+        const restoredImages = await restoreInstagramImagesFromDirectory(imagesSourceDir, IMAGES_DIR);
+        results.imagesRestored = restoredImages;
       } catch {
         fastify.log.warn('No images directory found in backup');
       }

@@ -1,42 +1,20 @@
 import { FastifyPluginAsync } from 'fastify';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { writeFile, readFile, mkdir, unlink } from 'fs/promises';
+import { writeFile, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { z } from 'zod';
-
-const execAsync = promisify(exec);
-
-// Parse DATABASE_URL to extract connection details
-function parseDatabaseUrl(url: string) {
-  const regex = /postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/;
-  const match = url.match(regex);
-
-  if (!match) {
-    throw new Error('Invalid DATABASE_URL format');
-  }
-
-  return {
-    user: match[1],
-    password: match[2],
-    host: match[3],
-    port: match[4],
-    database: match[5],
-  };
-}
+import {
+  createDatabaseBackup,
+  dropAndRecreatePublicSchema,
+  ensureDir,
+  parseDatabaseUrl,
+  restoreDatabaseFromSql,
+} from '../services/backup-service.js';
 
 export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
   const backupDir = process.env.BACKUP_DIR || '/data/backups';
 
   // Ensure backup directory exists
-  if (!existsSync(backupDir)) {
-    try {
-      await mkdir(backupDir, { recursive: true });
-    } catch (error: any) {
-      fastify.log.error('Failed to create backup directory:', error);
-    }
-  }
+  await ensureDir(backupDir);
 
   // Export database
   fastify.post('/export', async (request, reply) => {
@@ -50,12 +28,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       const dbConfig = parseDatabaseUrl(databaseUrl);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `backup-${timestamp}.sql`;
-      const filepath = join(backupDir, filename);
-
-      // Run pg_dump to create backup
-      const command = `PGPASSWORD="${dbConfig.password}" pg_dump -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -F p -f "${filepath}"`;
-
-      await execAsync(command);
+      const { filepath } = await createDatabaseBackup(backupDir, dbConfig, filename);
 
       fastify.log.info(`Database backup created: ${filename}`);
 
@@ -137,16 +110,11 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.info(`Restoring database from uploaded file: ${data.filename}`);
 
       // First, drop all tables and recreate the schema
-      // This ensures a clean restore without conflicts
-      const dropCommand = `PGPASSWORD="${dbConfig.password}" psql -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO ${dbConfig.user}; GRANT ALL ON SCHEMA public TO public;"`;
-
-      await execAsync(dropCommand);
+      await dropAndRecreatePublicSchema(dbConfig);
       fastify.log.info('Dropped existing schema');
 
       // Now restore from backup
-      const restoreCommand = `PGPASSWORD="${dbConfig.password}" psql -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -f "${tempFilepath}"`;
-
-      const result = await execAsync(restoreCommand);
+      await restoreDatabaseFromSql(tempFilepath, dbConfig);
 
       // Clean up temporary file
       await unlink(tempFilepath);
@@ -166,7 +134,7 @@ export const databaseRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         message: 'Database restored successfully. Server restarting to refresh connections...',
         timestamp: new Date().toISOString(),
-        output: result.stdout || 'Restore completed',
+        output: 'Restore completed',
         restarting: true,
       };
     } catch (error: any) {

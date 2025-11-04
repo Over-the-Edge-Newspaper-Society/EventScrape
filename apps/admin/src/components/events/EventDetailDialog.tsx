@@ -1,3 +1,4 @@
+import { StructuredFieldList, type StructuredField } from './StructuredFieldList'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -79,12 +80,12 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
   }
 
   // Build structured fields based on whether we have Gemini extraction data
-  const structuredFields = geminiEvent ? [
+  const structuredFields: StructuredField[] = geminiEvent ? [
     // Display Gemini extraction data
     { key: 'id', label: 'Event ID', value: eventData.id },
     { key: 'sourceEventId', label: 'Instagram Post ID', value: eventData.sourceEventId },
     { key: 'title', label: 'Title', value: geminiEvent.title },
-    { key: 'description', label: 'Description', value: geminiEvent.description },
+    { key: 'description', label: 'Description', value: geminiEvent.description, type: 'multiline' },
     { key: 'startDate', label: 'Start Date', value: geminiEvent.startDate },
     { key: 'startTime', label: 'Start Time', value: geminiEvent.startTime },
     { key: 'endDate', label: 'End Date', value: geminiEvent.endDate },
@@ -98,22 +99,30 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
     { key: 'organizer', label: 'Organizer', value: isInstagramSource ? sourceData.name : geminiEvent.organizer },
     { key: 'category', label: 'Category', value: geminiEvent.category },
     { key: 'price', label: 'Price', value: geminiEvent.price },
-    { key: 'tags', label: 'Tags', value: geminiEvent.tags },
+    { key: 'tags', label: 'Tags', value: formatFieldValue(geminiEvent.tags, 'tags') },
     { key: 'contactEmail', label: 'Contact Email', value: geminiEvent.contactInfo?.email },
     { key: 'contactPhone', label: 'Contact Phone', value: geminiEvent.contactInfo?.phone },
-    { key: 'website', label: 'Website', value: geminiEvent.contactInfo?.website },
-    { key: 'registrationUrl', label: 'Registration URL', value: geminiEvent.registrationUrl },
-    { key: 'additionalInfo', label: 'Additional Info', value: geminiEvent.additionalInfo },
-    { key: 'extractionConfidence', label: 'Extraction Confidence', value: eventData.raw?.extractionConfidence?.overall },
-    { key: 'extractionNotes', label: 'Extraction Notes', value: eventData.raw?.extractionConfidence?.notes },
+    { key: 'website', label: 'Website', value: geminiEvent.contactInfo?.website, type: 'link' },
+    { key: 'registrationUrl', label: 'Registration URL', value: geminiEvent.registrationUrl, type: 'link' },
+    { key: 'additionalInfo', label: 'Additional Info', value: geminiEvent.additionalInfo, type: 'multiline' },
+    {
+      key: 'extractionConfidence',
+      label: 'Extraction Confidence',
+      value: formatFieldValue(eventData.raw?.extractionConfidence?.overall, 'extractionConfidence'),
+    },
+    {
+      key: 'extractionNotes',
+      label: 'Extraction Notes',
+      value: formatFieldValue(eventData.raw?.extractionConfidence?.notes, 'extractionNotes'),
+    },
   ] : [
     // Display regular database fields
     { key: 'id', label: 'Event ID', value: eventData.id },
     { key: 'sourceEventId', label: 'Source Event ID', value: eventData.sourceEventId },
     { key: 'title', label: 'Title', value: eventData.title },
-    { key: 'descriptionHtml', label: 'Description', value: eventData.descriptionHtml },
-    { key: 'startDatetime', label: 'Start Date/Time', value: eventData.startDatetime },
-    { key: 'endDatetime', label: 'End Date/Time', value: eventData.endDatetime },
+    { key: 'descriptionHtml', label: 'Description', value: formatFieldValue(eventData.descriptionHtml, 'descriptionHtml') },
+    { key: 'startDatetime', label: 'Start Date/Time', value: formatFieldValue(eventData.startDatetime, 'startDatetime') },
+    { key: 'endDatetime', label: 'End Date/Time', value: formatFieldValue(eventData.endDatetime, 'endDatetime') },
     { key: 'timezone', label: 'Timezone', value: eventData.timezone },
     { key: 'venueName', label: 'Venue Name', value: eventData.venueName },
     { key: 'venueAddress', label: 'Venue Address', value: eventData.venueAddress },
@@ -125,11 +134,11 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
     { key: 'organizer', label: 'Organizer', value: isInstagramSource ? sourceData.name : eventData.organizer },
     { key: 'category', label: 'Category', value: eventData.category },
     { key: 'price', label: 'Price', value: eventData.price },
-    { key: 'tags', label: 'Tags', value: eventData.tags },
-    { key: 'url', label: 'URL', value: eventData.url },
-    { key: 'imageUrl', label: 'Image URL', value: eventData.imageUrl },
-    { key: 'scrapedAt', label: 'Scraped At', value: eventData.scrapedAt },
-    { key: 'lastSeenAt', label: 'Last Seen At', value: (eventData as any).lastSeenAt },
+    { key: 'tags', label: 'Tags', value: formatFieldValue(eventData.tags, 'tags') },
+    { key: 'url', label: 'URL', value: eventData.url, type: 'link' },
+    { key: 'imageUrl', label: 'Image URL', value: eventData.imageUrl, type: 'link' },
+    { key: 'scrapedAt', label: 'Scraped At', value: formatFieldValue(eventData.scrapedAt, 'scrapedAt') },
+    { key: 'lastSeenAt', label: 'Last Seen At', value: formatFieldValue((eventData as any).lastSeenAt, 'scrapedAt') },
     { key: 'contentHash', label: 'Content Hash', value: eventData.contentHash },
   ]
 
@@ -171,32 +180,7 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
 
           <TabsContent value="structured" className="overflow-hidden">
             <div className="h-[60vh] overflow-y-auto">
-              <div className="space-y-4 pr-4">
-                {structuredFields.map(({ key, label, value }) => (
-                  <div key={key} className="grid grid-cols-4 gap-4 py-2 border-b border-gray-100">
-                    <div className="font-medium text-foreground">{label}:</div>
-                    <div className="col-span-3 break-words">
-                      {(key === 'url' || key === 'imageUrl' || key === 'registrationUrl' || key === 'website') ? (
-                        value ? (
-                          <a
-                            href={String(value)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline flex items-center gap-1"
-                          >
-                            {String(value)}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          <span className="text-muted-foreground italic">Not provided</span>
-                        )
-                      ) : (
-                        formatFieldValue(value, key)
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <StructuredFieldList fields={structuredFields} className="pr-4" />
             </div>
           </TabsContent>
 

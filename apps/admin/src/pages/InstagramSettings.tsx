@@ -8,7 +8,6 @@ import { GlobalScraperSection } from '@/components/instagram-settings/GlobalScra
 import { ScrapingConfigSection } from '@/components/instagram-settings/ScrapingConfigSection'
 import { GeminiSettingsSection } from '@/components/instagram-settings/GeminiSettingsSection'
 import { BulkImportSection } from '@/components/instagram-settings/BulkImportSection'
-import { BackupTransferSection } from '@/components/instagram-settings/BackupTransferSection'
 
 export interface InstagramSettings {
   id: string
@@ -24,12 +23,6 @@ export interface InstagramSettings {
   allowPerAccountOverride: boolean
   createdAt: string
   updatedAt: string
-}
-
-interface BackupFile {
-  filename: string
-  size: number
-  createdAt: string
 }
 
 export function InstagramSettings() {
@@ -51,8 +44,6 @@ export function InstagramSettings() {
 
   // File upload states
   const [csvFile, setCsvFile] = useState<File | null>(null)
-  const [backupFile, setBackupFile] = useState<File | null>(null)
-  const [sqliteFile, setSqliteFile] = useState<File | null>(null)
 
   // Fetch settings
   const { data: settings, isLoading } = useQuery({
@@ -77,16 +68,6 @@ export function InstagramSettings() {
       setAllowPerAccountOverride(settings.allowPerAccountOverride ?? true)
     }
   }, [settings])
-
-  // Fetch backups list
-  const { data: backups } = useQuery({
-    queryKey: ['backups'],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-backup/list`)
-      const data = await res.json()
-      return data.backups as BackupFile[]
-    },
-  })
 
   // Update settings mutation
   const updateSettings = useMutation({
@@ -158,85 +139,6 @@ export function InstagramSettings() {
     },
   })
 
-  // Backup mutations
-  const createBackup = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-backup/create`, {
-        method: 'POST',
-      })
-      return res.json()
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.success(`Backup created: ${data.filename}`)
-      // Automatically download the created backup
-      handleDownloadBackup(data.filename)
-    },
-    onError: () => {
-      toast.error('Failed to create backup')
-    },
-  })
-
-  const restoreBackup = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch(`${API_BASE_URL}/instagram-backup/restore`, {
-        method: 'POST',
-        body: formData,
-      })
-      return res.json()
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
-      queryClient.invalidateQueries({ queryKey: ['backups'] })
-      const updated = (data.accountsUpdated || 0) + (data.sourcesUpdated || 0) + (data.eventsUpdated || 0)
-      toast.success(`Restored ${data.accountsCreated || 0} accounts, ${data.eventsCreated} events${updated > 0 ? ` (${updated} updated)` : ''}`)
-      setBackupFile(null)
-    },
-    onError: () => {
-      toast.error('Failed to restore backup')
-    },
-  })
-
-  const importSqlite = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch(`${API_BASE_URL}/instagram-backup/import-sqlite`, {
-        method: 'POST',
-        body: formData,
-      })
-      return res.json()
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
-      toast.success(`Imported ${data.clubsImported} clubs from SQLite`)
-      setSqliteFile(null)
-    },
-    onError: () => {
-      toast.error('Failed to import SQLite database')
-    },
-  })
-
-  const deleteBackup = useMutation({
-    mutationFn: async (filename: string) => {
-      const res = await fetch(`${API_BASE_URL}/instagram-backup/delete/${filename}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) throw new Error('Failed to delete backup')
-      return res.json()
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.success('Backup deleted successfully')
-    },
-    onError: () => {
-      toast.error('Failed to delete backup')
-    },
-  })
 
   const classifyBacklog = useMutation({
     mutationFn: async () => {
@@ -318,32 +220,6 @@ export function InstagramSettings() {
     importCsv.mutate(csvFile)
   }
 
-  const handleRestoreBackup = () => {
-    if (!backupFile) {
-      toast.error('Please select a backup file')
-      return
-    }
-    restoreBackup.mutate(backupFile)
-  }
-
-  const handleImportSqlite = () => {
-    if (!sqliteFile) {
-      toast.error('Please select a SQLite database file')
-      return
-    }
-    importSqlite.mutate(sqliteFile)
-  }
-
-  const handleDownloadBackup = (filename: string) => {
-    window.open(`${API_BASE_URL}/instagram-backup/download/${filename}`, '_blank')
-  }
-
-  const handleDeleteBackup = (filename: string) => {
-    if (confirm(`Are you sure you want to delete ${filename}?`)) {
-      deleteBackup.mutate(filename)
-    }
-  }
-
   if (isLoading) {
     return <div className="p-6">Loading settings...</div>
   }
@@ -353,7 +229,7 @@ export function InstagramSettings() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Instagram Settings</h1>
         <p className="text-muted-foreground">
-          Configure API keys, scraping settings, and manage backups
+          Configure API keys, scraping settings, and Instagram automation
         </p>
       </div>
 
@@ -415,23 +291,6 @@ export function InstagramSettings() {
         setCsvFile={setCsvFile}
         handleCsvUpload={handleCsvUpload}
         importCsvPending={importCsv.isPending}
-      />
-
-      <BackupTransferSection
-        backups={backups}
-        backupFile={backupFile}
-        setBackupFile={setBackupFile}
-        sqliteFile={sqliteFile}
-        setSqliteFile={setSqliteFile}
-        createBackupPending={createBackup.isPending}
-        createBackup={() => createBackup.mutate()}
-        handleRestoreBackup={handleRestoreBackup}
-        restoreBackupPending={restoreBackup.isPending}
-        handleImportSqlite={handleImportSqlite}
-        importSqlitePending={importSqlite.isPending}
-        handleDownloadBackup={handleDownloadBackup}
-        handleDeleteBackup={handleDeleteBackup}
-        deleteBackupPending={deleteBackup.isPending}
       />
     </div>
   )
