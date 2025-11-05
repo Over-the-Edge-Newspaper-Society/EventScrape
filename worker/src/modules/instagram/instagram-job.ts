@@ -366,7 +366,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
               classification_confidence = COALESCE(EXCLUDED.classification_confidence, events_raw.classification_confidence),
               is_event_poster = COALESCE(EXCLUDED.is_event_poster, events_raw.is_event_poster),
               raw = EXCLUDED.raw,
-              last_updated_by_run_id = ${runId},
+              last_updated_by_run_id = EXCLUDED.last_updated_by_run_id,
               scraped_at = NOW(),
               last_seen_at = NOW()
           `;
@@ -519,11 +519,13 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
     job.log(`Instagram scrape failed: ${error.message}`);
 
+    const errorMessage = error.message || String(error) || 'Unknown error';
+
     await db`
       UPDATE runs
       SET status = 'error',
           finished_at = NOW(),
-          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('error', ${error.message})
+          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('error', ${errorMessage})
       WHERE id = ${runId}
     `;
 

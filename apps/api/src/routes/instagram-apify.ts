@@ -270,6 +270,15 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         // Create event_raw record (without extraction for now)
         const timestamp = new Date(postData.timestamp);
 
+        // Include import metadata for traceability
+        const rawData = {
+          ...postData,
+          _meta: {
+            importMethod: 'manual_snapshot',
+            importedAt: new Date().toISOString(),
+          },
+        };
+
         await db.insert(eventsRaw).values({
           sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
           runId: runRecord.id,
@@ -281,7 +290,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
           imageUrl: postData.imageUrl,
           localImagePath: localImagePath,
-          raw: JSON.stringify(postData),
+          raw: JSON.stringify(rawData),
           contentHash: postData.id,
           instagramAccountId: account.id,
           instagramPostId: postData.id,
@@ -503,12 +512,22 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
 
           // Download image if available
           let localImagePath: string | null = null;
-          if (postData.imageUrl) {
-            localImagePath = await downloadInstagramImage(postData.imageUrl, postData.id);
+          const imageUrl = (postData as any).imageUrl || (postData as any).displayUrl;
+          if (imageUrl) {
+            localImagePath = await downloadInstagramImage(imageUrl, postData.id);
           }
 
           // Create event_raw record
           const timestamp = new Date(postData.timestamp);
+
+          // Include apifyRunId in raw data for traceability
+          const rawData = {
+            ...postData,
+            _meta: {
+              apifyRunId: runId,
+              importedAt: new Date().toISOString(),
+            },
+          };
 
           await db.insert(eventsRaw).values({
             sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
@@ -521,7 +540,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
             url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
             imageUrl: postData.imageUrl,
             localImagePath: localImagePath,
-            raw: JSON.stringify(postData),
+            raw: JSON.stringify(rawData),
             contentHash: postData.id,
             instagramAccountId: account.id,
             instagramPostId: postData.id,

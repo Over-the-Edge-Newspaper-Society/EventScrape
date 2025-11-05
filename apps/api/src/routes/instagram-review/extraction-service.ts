@@ -98,16 +98,23 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     let instagramTimestamp: Date | undefined;
 
     if (existingRaw && typeof existingRaw === 'object') {
-      const rawTimestamp = (existingRaw as { instagram?: { timestamp?: string } }).instagram?.timestamp;
+      // Try multiple possible locations for the timestamp:
+      // 1. raw.instagram.timestamp (manually extracted posts with full structure)
+      // 2. raw.timestamp (Apify imported posts, auto-scraped base posts)
+      const rawAsAny = existingRaw as any;
+      const rawTimestamp = rawAsAny.instagram?.timestamp || rawAsAny.timestamp;
+
       if (rawTimestamp) {
         const parsedTimestamp = new Date(rawTimestamp);
         if (!Number.isNaN(parsedTimestamp.getTime())) {
           instagramTimestamp = parsedTimestamp;
+          log.info(`Found Instagram post timestamp: ${parsedTimestamp.toISOString()}`);
         }
       }
     }
 
     if (!instagramTimestamp && post.scrapedAt) {
+      log.warn(`No Instagram post timestamp found in raw data for post ${post.instagramPostId}, falling back to scrape date. This may cause incorrect year inference for events.`);
       instagramTimestamp = new Date(post.scrapedAt);
     }
 

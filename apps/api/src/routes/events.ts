@@ -151,7 +151,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
         event,
         source: {
           ...source,
-          name: instagramAccount?.name ?? source.name,
+          name: instagramAccount?.name ?? source?.name ?? 'Unknown',
         },
       }));
 
@@ -214,7 +214,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       event: result[0].event,
       source: {
         ...result[0].source,
-        name: result[0].instagramAccount?.name ?? result[0].source.name,
+        name: result[0].instagramAccount?.name ?? result[0].source?.name ?? 'Unknown',
       },
     };
 

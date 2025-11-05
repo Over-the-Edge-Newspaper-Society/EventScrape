@@ -57,6 +57,11 @@ Return ONLY a valid JSON object (no markdown, no explanation) in this exact stru
 
 ## Field Guidelines
 
+### Instagram Context
+- Additional context will include details like the Instagram post publication timestamp, caption, and media info. Treat the provided timestamp as the actual post date (not when it was scraped) and use it as the reference year when the poster only shows month/day.
+- Never jump to a different year unless the poster explicitly states it; default to the post year or the next chronological occurrence if the date would otherwise be in the past relative to the post date.
+- Use the caption context to confirm spelling, organizer names, ticket info, and any URLs that might be hard to read on the image.
+
 ### Dates and Times
 - Extract dates in YYYY-MM-DD format
 - Use 24-hour time format (HH:MM)

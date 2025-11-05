@@ -541,9 +541,22 @@ export class EnhancedApifyClient {
 
     for (const item of items) {
       const username = this.extractUsernameFromItem(item);
-      const post = this.convertItemToPost(item, username);
-      if (post) {
-        posts.push(post);
+
+      // Check if item has latestPosts array (profile scraper format)
+      if (item.latestPosts && Array.isArray(item.latestPosts)) {
+        for (const postItem of item.latestPosts) {
+          const post = this.convertItemToPost(postItem, username || item.username);
+          if (post) {
+            posts.push(post);
+          }
+          if (limit && posts.length >= limit) break;
+        }
+      } else {
+        // Direct post format
+        const post = this.convertItemToPost(item, username);
+        if (post) {
+          posts.push(post);
+        }
       }
 
       if (limit && posts.length >= limit) break;

@@ -273,6 +273,47 @@ export async function runMigrations() {
       }
     }
 
+    // Ensure instagram_scrape schedule type and constraint exist even if older DB missed migration 0020
+    try {
+      const result = await migrationClient`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_enum e
+          JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'schedule_type'
+            AND e.enumlabel = 'instagram_scrape'
+        ) as exists
+      `;
+      const instagramScheduleExists = result[0]?.exists as boolean;
+
+      if (!instagramScheduleExists) {
+        await migrationClient.unsafe(`ALTER TYPE schedule_type ADD VALUE 'instagram_scrape';`);
+        console.log('✅ Added instagram_scrape schedule type');
+      } else {
+        console.log('ℹ️ instagram_scrape schedule type already present');
+      }
+
+      await migrationClient.unsafe(`
+        ALTER TABLE IF EXISTS schedules DROP CONSTRAINT IF EXISTS schedules_config_check;
+      `);
+      await migrationClient.unsafe(`
+        ALTER TABLE IF EXISTS schedules
+          ADD CONSTRAINT schedules_config_check
+          CHECK (
+            (schedule_type = 'scrape' AND source_id IS NOT NULL AND wordpress_settings_id IS NULL)
+            OR (schedule_type = 'wordpress_export' AND wordpress_settings_id IS NOT NULL)
+            OR (schedule_type = 'instagram_scrape' AND source_id IS NULL AND wordpress_settings_id IS NULL)
+          );
+      `);
+      console.log('✅ Ensured schedules_config_check allows instagram_scrape');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Instagram schedule type check failed:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Instagram schedule type check failed');
+      }
+    }
+
     console.log('✅ Migrations completed successfully');
   } catch (error: any) {
     // If migration fails due to objects already existing, that's ok
