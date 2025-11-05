@@ -46,7 +46,7 @@ export function ScrapingConfigSection({
               onChange={(e) => setApifyActorId(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Default: apify/instagram-profile-scraper
+              Default: apify/instagram-post-scraper
             </p>
           </div>
 

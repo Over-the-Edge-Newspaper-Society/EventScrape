@@ -439,7 +439,7 @@ export const instagramSettings = pgTable('instagram_settings', {
   // AI extraction settings
   geminiPrompt: text('gemini_prompt'),
   // Scraping configuration
-  apifyActorId: text('apify_actor_id').default('apify/instagram-profile-scraper'),
+  apifyActorId: text('apify_actor_id').default('apify/instagram-post-scraper'),
   apifyResultsLimit: integer('apify_results_limit').default(10),
   fetchDelayMinutes: integer('fetch_delay_minutes').default(5),
   // Global scraper type setting

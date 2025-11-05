@@ -152,15 +152,17 @@ export function InstagramSources() {
   const triggerMutation = useMutation({
     mutationFn: (id: string) => instagramApi.trigger(id),
     onSuccess: (data) => {
-      toast.success(`Scrape job queued for @${data.username}`)
-      // Start tracking this single job in the progress card
-      if (data.jobId) {
-        startScrapeProgressTracking([{
-          jobId: data.jobId,
-          accountId: data.sourceId,
-          username: data.username,
-        }])
-      }
+      const statsSummary = data.stats
+        ? [
+            data.stats.created ? `${data.stats.created} new` : null,
+            data.stats.updated ? `${data.stats.updated} updated` : null,
+            data.stats.skippedExisting ? `${data.stats.skippedExisting} skipped` : null,
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : ''
+      const suffix = statsSummary ? ` (${statsSummary})` : ''
+      toast.success(`${data.message || 'Scrape completed'} for @${data.username}${suffix}`)
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
     },
     onError: (error) => {

@@ -1,16 +1,17 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { instagramAccounts, instagramSessions } from '../db/schema.js';
-import { v4 as uuidv4 } from 'uuid';
-import { enqueueInstagramScrapeJob } from '../queue/queue.js';
+import { instagramAccounts, instagramSessions, instagramSettings, eventsRaw } from '../db/schema.js';
 import {
   triggerAllActiveInstagramScrapes,
   NoActiveInstagramAccountsError,
   getInstagramScrapeJobStatuses,
   cancelInstagramScrapeJobs,
 } from '../services/instagram-scrape.js';
+import { createEnhancedApifyClient } from '../services/instagram-apify-client.js';
+import { importInstagramPostsFromApify } from '../services/instagram-apify-import.js';
+import { SETTINGS_ID } from './instagram-review/constants.js';
 
 const createSourceSchema = z.object({
   name: z.string().min(1),
@@ -37,6 +38,10 @@ const uploadSessionSchema = z.object({
     cookies: z.string(),
     state: z.any().optional(),
   }),
+});
+
+const triggerSingleScrapeSchema = z.object({
+  postLimit: z.number().int().min(1).max(100).optional().default(10),
 });
 
 export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -192,9 +197,10 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for an account
+  // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for an account via Apify
   fastify.post('/:id/trigger', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { postLimit } = triggerSingleScrapeSchema.parse(request.body ?? {});
 
     try {
       const [account] = await db
@@ -207,17 +213,61 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Instagram account not found' };
       }
 
-      // Queue Instagram scrape job via BullMQ
-      const job = await enqueueInstagramScrapeJob({
-        accountId: account.id,
-        postLimit: 10
+      if (!account.active) {
+        reply.status(400);
+        return { error: 'Instagram account is inactive' };
+      }
+
+      const [settings] = await db
+        .select()
+        .from(instagramSettings)
+        .where(eq(instagramSettings.id, SETTINGS_ID));
+
+      if (!settings?.apifyApiToken) {
+        reply.status(400);
+        return { error: 'Apify API token not configured' };
+      }
+
+      const client = await createEnhancedApifyClient(
+        settings.apifyApiToken,
+        settings.apifyActorId || undefined
+      );
+
+      const knownPosts = await db
+        .select({ instagramPostId: eventsRaw.instagramPostId })
+        .from(eventsRaw)
+        .where(eq(eventsRaw.instagramAccountId, account.id));
+
+      const knownIdsMap = new Map<string, Set<string>>();
+      knownIdsMap.set(
+        account.instagramUsername,
+        new Set(knownPosts.map((post) => post.instagramPostId).filter((id): id is string => Boolean(id)))
+      );
+
+      const postsByUser = await client.fetchPostsBatch(
+        [account.instagramUsername],
+        postLimit,
+        knownIdsMap,
+        1
+      );
+
+      const posts = postsByUser.get(account.instagramUsername) ?? [];
+
+      const importResult = await importInstagramPostsFromApify(posts, {
+        metadata: {
+          triggerType: 'manual_single_account',
+          instagramAccountId: account.id,
+          requestedPostLimit: postLimit,
+        },
+        sourceLabel: `@${account.instagramUsername}`,
       });
 
       return {
-        message: 'Instagram scrape job queued',
+        message: importResult.message,
         accountId: account.id,
         username: account.instagramUsername,
-        jobId: job.id,
+        stats: importResult.stats,
+        runId: importResult.runId,
       };
     } catch (error: any) {
       fastify.log.error(`Failed to trigger scrape for Instagram account ${id}:`, error);

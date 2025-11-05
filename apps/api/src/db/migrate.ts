@@ -273,6 +273,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0021 (Instagram post scraper default)
+    try {
+      const sql21 = await readFile(migrationPath('0021_instagram_post_scraper_default.sql'), 'utf-8');
+      await migrationClient.unsafe(sql21);
+      console.log('✅ Applied migration 0021 (Instagram post scraper default)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0021 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0021 not applied');
+      }
+    }
+
     // Ensure instagram_scrape schedule type and constraint exist even if older DB missed migration 0020
     try {
       const result = await migrationClient`

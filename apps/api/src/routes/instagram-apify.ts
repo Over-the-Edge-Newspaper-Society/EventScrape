@@ -6,119 +6,14 @@
  * - Batch operations
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { pipeline } from 'node:stream/promises';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
-import { v4 } from 'uuid';
-import axios from 'axios';
 import { db } from '../db/connection.js';
-import { instagramSettings, instagramAccounts, eventsRaw, runs } from '../db/schema.js';
-
-const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
-const INSTAGRAM_IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Ensure images directory exists
-if (!fs.existsSync(INSTAGRAM_IMAGES_DIR)) {
-  fs.mkdirSync(INSTAGRAM_IMAGES_DIR, { recursive: true });
-}
-
-/**
- * Check if URL is a direct Instagram CDN URL (which expire quickly)
- */
-function isInstagramCDN(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname;
-    return hostname.includes('cdninstagram.com');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Download an Instagram image and save it locally
- * @returns The local filename (not full path) or null if download fails
- */
-async function downloadInstagramImage(imageUrl: string, postId: string): Promise<string | null> {
-  // Skip direct Instagram CDN URLs - they expire and return 403
-  // Only download Apify proxy URLs (images.apifyusercontent.com) which are stable
-  if (isInstagramCDN(imageUrl)) {
-    console.log(`Skipping expired Instagram CDN URL for post ${postId}`);
-    return null;
-  }
-
-  try {
-    const response = await axios.get(imageUrl, {
-      responseType: 'stream',
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://www.instagram.com/',
-        'Sec-Fetch-Dest': 'image',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-      },
-    });
-
-    // Extract extension from URL or use jpg as default
-    const urlPath = new URL(imageUrl).pathname;
-    const ext = path.extname(urlPath) || '.jpg';
-    const filename = `${postId}${ext}`;
-    const filepath = path.join(INSTAGRAM_IMAGES_DIR, filename);
-
-    // Save the image
-    await pipeline(response.data, fs.createWriteStream(filepath));
-
-    return filename; // Return just the filename, not the full path
-  } catch (error: any) {
-    console.error(`Failed to download image for post ${postId}:`, error.message);
-    return null;
-  }
-}
-
-type EnhancedApifyClientModule = typeof import('../../../../worker/src/modules/instagram/enhanced-apify-client.js');
-let enhancedClientModulePromise: Promise<EnhancedApifyClientModule> | null = null;
-
-const loadEnhancedApifyClientModule = async (): Promise<EnhancedApifyClientModule> => {
-  if (!enhancedClientModulePromise) {
-    enhancedClientModulePromise = resolveEnhancedApifyClientModule();
-  }
-  return enhancedClientModulePromise;
-};
-
-const resolveEnhancedApifyClientModule = async (): Promise<EnhancedApifyClientModule> => {
-  // Resolve the enhanced Apify client from any available build artifact.
-  const candidatePaths = [
-    path.resolve(__dirname, '../worker/src/modules/instagram/enhanced-apify-client.js'),
-    path.resolve(__dirname, '../worker/dist/modules/instagram/enhanced-apify-client.js'),
-    path.resolve(__dirname, '../../../../worker/dist/modules/instagram/enhanced-apify-client.js'),
-    path.resolve(__dirname, '../../../../worker/src/modules/instagram/enhanced-apify-client.js'),
-    path.resolve(process.cwd(), 'worker/dist/modules/instagram/enhanced-apify-client.js'),
-    path.resolve(process.cwd(), 'worker/src/modules/instagram/enhanced-apify-client.js'),
-  ];
-
-  for (const candidate of candidatePaths) {
-    if (fs.existsSync(candidate)) {
-      return import(pathToFileURL(candidate).href) as Promise<EnhancedApifyClientModule>;
-    }
-  }
-
-  throw new Error(
-    'Enhanced Apify client module not found. Build the worker package or ensure worker modules are copied into the API dist.'
-  );
-};
+import { instagramSettings, instagramAccounts, eventsRaw } from '../db/schema.js';
+import { createEnhancedApifyClient } from '../services/instagram-apify-client.js';
+import { importInstagramPostsFromApify } from '../services/instagram-apify-import.js';
+import { SETTINGS_ID } from './instagram-review/constants.js';
 
 // Validation schemas
 const testFetchSchema = z.object({
@@ -168,9 +63,6 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Apify API token not configured' };
       }
 
-      // Dynamic import to avoid loading in non-worker context
-      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
-
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,
         settings.apifyActorId || undefined
@@ -217,8 +109,6 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           return { error: 'Apify API token not configured' };
         }
 
-        const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
-
         const client = await createEnhancedApifyClient(
           settings.apifyApiToken,
           settings.apifyActorId || undefined
@@ -242,114 +132,35 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * POST /api/instagram-apify/import-snapshot
    * Import posts from an Apify run snapshot
-   */
+  */
   fastify.post('/import-snapshot', async (request, reply) => {
     try {
       const { posts } = importSnapshotSchema.parse(request.body);
-
-      // Get settings for Gemini extraction
-      const [settings] = await db
-        .select()
-        .from(instagramSettings)
-        .where(eq(instagramSettings.id, SETTINGS_ID));
-
-      // Create a run record for this import
-      const [runRecord] = await db.insert(runs).values({
-        sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-        status: 'running',
-      }).returning();
-
-      const stats = {
-        attempted: posts.length,
-        created: 0,
-        skippedExisting: 0,
-        missingAccounts: 0,
-      };
-
-      // Process each post
-      for (const postData of posts) {
-        // Find account by username
-        const [account] = await db
-          .select()
-          .from(instagramAccounts)
-          .where(eq(instagramAccounts.instagramUsername, postData.username));
-
-        if (!account) {
-          stats.missingAccounts++;
-          continue;
-        }
-
-        // Check if post already exists
-        const [existing] = await db
-          .select()
-          .from(eventsRaw)
-          .where(eq(eventsRaw.instagramPostId, postData.id));
-
-        if (existing) {
-          stats.skippedExisting++;
-          continue;
-        }
-
-        // Download image if available
-        let localImagePath: string | null = null;
-        if (postData.imageUrl) {
-          localImagePath = await downloadInstagramImage(postData.imageUrl, postData.id);
-        }
-
-        // Create event_raw record (without extraction for now)
-        const timestamp = new Date(postData.timestamp);
-
-        // Include import metadata for traceability
-        const rawData = {
-          ...postData,
-          _meta: {
-            importMethod: 'manual_snapshot',
-            importedAt: new Date().toISOString(),
-          },
-        };
-
-        await db.insert(eventsRaw).values({
-          sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-          runId: runRecord.id,
-          sourceEventId: postData.id,
-          title: postData.caption?.slice(0, 200) || 'Instagram Post',
-          descriptionHtml: postData.caption || '',
-          startDatetime: timestamp,
-          timezone: account.defaultTimezone || 'America/Vancouver',
-          url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
-          imageUrl: postData.imageUrl,
-          localImagePath: localImagePath,
-          raw: JSON.stringify(rawData),
-          contentHash: postData.id,
-          instagramAccountId: account.id,
-          instagramPostId: postData.id,
-          instagramCaption: postData.caption,
+      const normalizedPosts = posts
+        .filter(post => post.permalink) // Filter out posts without permalinks
+        .map(post => {
+          const timestamp = new Date(post.timestamp);
+          const safeTimestamp = Number.isNaN(timestamp.getTime()) ? new Date() : timestamp;
+          return {
+            id: post.id,
+            username: post.username,
+            caption: post.caption,
+            imageUrl: post.imageUrl,
+            permalink: post.permalink!,
+            timestamp: safeTimestamp,
+            isVideo: post.isVideo ?? false,
+          };
         });
 
-        stats.created++;
-      }
-
-      // Update run status
-      await db.update(runs)
-        .set({
-          status: stats.created > 0 ? 'success' : 'partial',
-          finishedAt: new Date(),
-          eventsFound: stats.created,
-        })
-        .where(eq(runs.id, runRecord.id));
-
-      const message = stats.created > 0
-        ? `Imported ${stats.created} new post(s) from Apify snapshot.`
-        : stats.skippedExisting > 0
-          ? 'No new posts imported; all posts already exist.'
-          : stats.missingAccounts > 0
-            ? 'Skipped posts because matching accounts were not found.'
-            : 'No posts were imported.';
+      const result = await importInstagramPostsFromApify(normalizedPosts, {
+        metadata: { importMethod: 'manual_snapshot' },
+        sourceLabel: 'Apify snapshot',
+      });
 
       return {
         success: true,
-        stats,
-        message,
+        stats: result.stats,
+        message: result.message,
       };
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -394,8 +205,6 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         reply.status(400);
         return { error: 'Apify API token not configured' };
       }
-
-      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
 
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,
@@ -472,135 +281,24 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
           return { error: 'Apify API token not configured' };
         }
 
-        const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
-
         const client = await createEnhancedApifyClient(
           settings.apifyApiToken,
           settings.apifyActorId || undefined
         );
 
-        // Fetch run snapshot
         const snapshot = await client.fetchRunSnapshot(runId, limit);
 
-        if (!snapshot.posts || snapshot.posts.length === 0) {
-          return {
-            success: true,
-            stats: {
-              attempted: 0,
-              created: 0,
-              skippedExisting: 0,
-              missingAccounts: 0,
-            },
-            message: 'No posts found in the Apify run.',
-          };
-        }
-
-        // Create a run record for this import
-        const [runRecord] = await db.insert(runs).values({
-          sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-          status: 'running',
-          metadata: { apifyRunId: runId },
-        }).returning();
-
-        // Import posts
-        const stats = {
-          attempted: snapshot.posts.length,
-          created: 0,
-          skippedExisting: 0,
-          missingAccounts: 0,
-        };
-
-        for (const postData of snapshot.posts) {
-          // Skip posts without username
-          if (!postData.username) {
-            stats.missingAccounts++;
-            continue;
-          }
-
-          // Find account by username
-          const [account] = await db
-            .select()
-            .from(instagramAccounts)
-            .where(eq(instagramAccounts.instagramUsername, postData.username));
-
-          if (!account) {
-            stats.missingAccounts++;
-            continue;
-          }
-
-          // Check if post already exists
-          const [existing] = await db
-            .select()
-            .from(eventsRaw)
-            .where(eq(eventsRaw.instagramPostId, postData.id));
-
-          if (existing) {
-            stats.skippedExisting++;
-            continue;
-          }
-
-          // Download image if available
-          let localImagePath: string | null = null;
-          const imageUrl = (postData as any).imageUrl || (postData as any).displayUrl;
-          if (imageUrl) {
-            localImagePath = await downloadInstagramImage(imageUrl, postData.id);
-          }
-
-          // Create event_raw record
-          const timestamp = new Date(postData.timestamp);
-
-          // Include apifyRunId in raw data for traceability
-          const rawData = {
-            ...postData,
-            _meta: {
-              apifyRunId: runId,
-              importedAt: new Date().toISOString(),
-            },
-          };
-
-          await db.insert(eventsRaw).values({
-            sourceId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', // Instagram source ID
-            runId: runRecord.id,
-            sourceEventId: postData.id,
-            title: postData.caption?.slice(0, 200) || 'Instagram Post',
-            descriptionHtml: postData.caption || '',
-            startDatetime: timestamp,
-            timezone: account.defaultTimezone || 'America/Vancouver',
-            url: postData.permalink || `https://instagram.com/p/${postData.id}/`,
-            imageUrl: postData.imageUrl,
-            localImagePath: localImagePath,
-            raw: JSON.stringify(rawData),
-            contentHash: postData.id,
-            instagramAccountId: account.id,
-            instagramPostId: postData.id,
-            instagramCaption: postData.caption,
-          });
-
-          stats.created++;
-        }
-
-        // Update run status
-        await db.update(runs)
-          .set({
-            status: stats.created > 0 ? 'success' : 'partial',
-            finishedAt: new Date(),
-            eventsFound: stats.created,
-          })
-          .where(eq(runs.id, runRecord.id));
-
-        const message = stats.created > 0
-          ? `Imported ${stats.created} new post(s) from Apify run ${runId}.`
-          : stats.skippedExisting > 0
-            ? 'No new posts imported; all posts already exist.'
-            : stats.missingAccounts > 0
-              ? 'Skipped posts because matching accounts were not found.'
-              : 'No posts were imported.';
+        const result = await importInstagramPostsFromApify(snapshot.posts ?? [], {
+          apifyRunId: runId,
+          metadata: snapshot.input ? { apifyRunInput: snapshot.input } : undefined,
+          sourceLabel: `Apify run ${runId}`,
+        });
 
         return {
           success: true,
           runId,
-          stats,
-          message,
+          stats: result.stats,
+          message: result.message,
         };
       } catch (error: any) {
         fastify.log.error('Failed to import from run:', error);
@@ -629,8 +327,6 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
         };
       }
 
-      const { createEnhancedApifyClient } = await loadEnhancedApifyClientModule();
-
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,
         settings.apifyActorId || undefined
@@ -640,7 +336,7 @@ export const instagramApifyRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         configured: true,
-        actorId: settings.apifyActorId || 'apify/instagram-profile-scraper',
+        actorId: settings.apifyActorId || 'apify/instagram-post-scraper',
         resultsLimit: settings.apifyResultsLimit || 30,
         ...runtimeInfo,
         nodeRunnerStatus: runtimeInfo.nodeAvailable

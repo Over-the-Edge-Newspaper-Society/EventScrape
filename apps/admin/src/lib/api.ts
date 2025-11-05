@@ -304,7 +304,14 @@ export const instagramApi = {
     body: JSON.stringify(data),
   }),
   delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
-  trigger: (id: string) => fetchApi<{ message: string; sourceId: string; username: string; jobId: string }>(`/instagram-sources/${id}/trigger`, { method: 'POST' }),
+  trigger: (id: string, data?: { postLimit?: number }) =>
+    fetchApi<{ message: string; accountId: string; username: string; runId: string; stats: InstagramImportStats }>(
+      `/instagram-sources/${id}/trigger`,
+      {
+        method: 'POST',
+        body: data ? JSON.stringify(data) : undefined,
+      }
+    ),
   triggerAllActive: (options?: { postLimit?: number; accountLimit?: number; batchSize?: number }) =>
     fetchApi<{
       message: string
@@ -740,6 +747,14 @@ export interface InstagramSession {
   expiresAt?: string
   lastUsedAt?: string
   isValid: boolean
+}
+
+export interface InstagramImportStats {
+  attempted: number
+  created: number
+  updated: number
+  skippedExisting: number
+  missingAccounts: number
 }
 
 export interface InstagramEventRaw extends EventRaw {
