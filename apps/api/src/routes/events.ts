@@ -147,13 +147,16 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
 
       const totalPages = Math.ceil(count / query.limit);
 
-      const normalizedEvents = events.map(({ event, source, instagramAccount }) => ({
-        event,
-        source: {
-          ...source,
-          name: instagramAccount?.name ?? source?.name ?? 'Unknown',
-        },
-      }));
+      const normalizedEvents = events.map(({ event, source, instagramAccount }) => {
+        const safeSource = source ?? {};
+        return {
+          event,
+          source: {
+            ...safeSource,
+            name: instagramAccount?.name ?? source?.name ?? 'Unknown',
+          },
+        };
+      });
 
       return {
         events: normalizedEvents,
@@ -213,7 +216,7 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
     const normalizedEvent = {
       event: result[0].event,
       source: {
-        ...result[0].source,
+        ...(result[0].source ?? {}),
         name: result[0].instagramAccount?.name ?? result[0].source?.name ?? 'Unknown',
       },
     };
