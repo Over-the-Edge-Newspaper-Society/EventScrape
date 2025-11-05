@@ -93,6 +93,188 @@ const parseDateTimeRangeFromText = (text: string): { start?: string; end?: strin
   return result;
 };
 
+type DetailPageSeriesEntry = { start?: string | null; end?: string | null; rawText?: string | null };
+
+const extractPrinceGeorgeDetailPageData = (): {
+  eventType?: string | null;
+  communityType?: string | null;
+  location?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  startDateTime?: string | null;
+  endDateTime?: string | null;
+  dates: DetailPageSeriesEntry[];
+} => {
+  const cleanText = (value: string | null | undefined): string => {
+    if (!value) return '';
+    return value.replace(/\s+/g, ' ').replace(/\s+-\s+/g, ' - ').trim();
+  };
+
+  const collectTimeSeries = (container: Element | null): DetailPageSeriesEntry[] => {
+    const series: DetailPageSeriesEntry[] = [];
+    if (!container) return series;
+    const timeNodes = Array.from(container.querySelectorAll('time[datetime]')) as HTMLElement[];
+
+    const findMatchingEnd = (startEl: HTMLElement): HTMLElement | null => {
+      let cursor: ChildNode | null = startEl.nextSibling;
+      while (cursor) {
+        if (cursor.nodeType === Node.ELEMENT_NODE) {
+          const element = cursor as HTMLElement;
+          const tag = element.tagName?.toLowerCase();
+          if (tag === 'time' && element.hasAttribute('datetime')) {
+            return element;
+          }
+          if (tag === 'br') {
+            break;
+          }
+        }
+        if (cursor.nodeType === Node.TEXT_NODE && cursor.textContent?.includes('\n')) {
+          break;
+        }
+        cursor = cursor.nextSibling;
+      }
+      return null;
+    };
+
+    for (let i = 0; i < timeNodes.length; i++) {
+      const startEl = timeNodes[i];
+      const start = startEl?.getAttribute('datetime');
+      if (!start) continue;
+
+      const matchingEnd = findMatchingEnd(startEl);
+      const end = matchingEnd?.getAttribute('datetime') || null;
+      const startText = cleanText(startEl.textContent);
+      const endText = matchingEnd ? cleanText(matchingEnd.textContent) : '';
+      const rawText = cleanText(endText ? `${startText} - ${endText}` : startText);
+
+      series.push({ start, end, rawText: rawText || null });
+
+      if (matchingEnd) {
+        const nextIndex = timeNodes.indexOf(matchingEnd);
+        if (nextIndex > i) {
+          i = nextIndex;
+        }
+      }
+    }
+
+    return series;
+  };
+
+  const collectTextEntries = (container: Element | null): DetailPageSeriesEntry[] => {
+    const entries: DetailPageSeriesEntry[] = [];
+    if (!container) return entries;
+
+    const html = container.innerHTML || '';
+    const plain = html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/<[^>]+>/g, ' ');
+
+    plain
+      .split('\n')
+      .map(line => cleanText(line))
+      .filter(Boolean)
+      .forEach(text => entries.push({ rawText: text }));
+
+    return entries;
+  };
+
+  const dates: DetailPageSeriesEntry[] = [];
+  const seenContainers = new Set<Element>();
+
+  ['.views-field-field-when', '.field--name-field-when', '.add-to-cal__wrapper'].forEach(selector => {
+    const nodes = document.querySelectorAll(selector);
+    nodes.forEach(node => {
+      if (!seenContainers.has(node as Element)) {
+        seenContainers.add(node as Element);
+        dates.push(...collectTimeSeries(node as Element));
+      }
+    });
+  });
+
+  ['.views-field-field-when', '.field--name-field-when'].forEach(selector => {
+    const nodes = document.querySelectorAll(selector);
+    nodes.forEach(node => {
+      collectTextEntries(node as Element).forEach(entry => {
+        dates.push({ rawText: entry.rawText });
+      });
+    });
+  });
+
+  document.querySelectorAll('.add-to-cal__item').forEach(item => {
+    const text = cleanText(item.textContent);
+    if (text) {
+      dates.push({ rawText: text });
+    }
+  });
+
+  const eventTypeEl = document.querySelector('.field--name-field-types .field__item');
+  const communityTypeEl = document.querySelector('.field--name-field-types2 .field__item');
+  const eventType = eventTypeEl?.textContent?.trim();
+  const communityType = communityTypeEl?.textContent?.trim();
+
+  const locationEl = document.querySelector('.field--name-field-contact-information .field__item');
+  const location = locationEl?.textContent?.trim();
+
+  const descriptionEl = document.querySelector('.field--name-body.field--type-text-with-summary .field__item') ||
+    document.querySelector('.field--name-body .field__item') ||
+    document.querySelector('.field--name-body.field--type-text-with-summary') ||
+    document.querySelector('.field--name-body');
+  const description = descriptionEl?.innerHTML?.trim();
+
+  const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
+  const imageUrl = imageEl?.src;
+
+  return {
+    eventType,
+    communityType,
+    location,
+    description,
+    imageUrl,
+    startDateTime: dates.find(d => d.start)?.start || null,
+    endDateTime: dates.find(d => d.end)?.end || null,
+    dates,
+  };
+};
+
+const normalizeSeriesEntries = (rawSeries: DetailPageSeriesEntry[]): Array<{ start: string; end?: string; rawText?: string | null }> => {
+  const normalizedSeries = rawSeries.map(entry => {
+    if (entry?.start) {
+      return { start: entry.start, end: entry.end ?? undefined, rawText: entry.rawText ?? null };
+    }
+    if (entry?.rawText) {
+      const parsed = parseDateTimeRangeFromText(entry.rawText);
+      if (parsed?.start) {
+        return { start: parsed.start, end: parsed.end, rawText: entry.rawText };
+      }
+    }
+    return { start: null, end: null, rawText: entry?.rawText ?? null };
+  });
+
+  const dedupedSeries: Array<{ start: string; end?: string; rawText?: string | null }> = [];
+  const seenSeries = new Set<string>();
+  const buildKey = (entry: { start?: string | null; end?: string; rawText?: string | null }) => {
+    if (entry.rawText) {
+      return entry.rawText.replace(/\s+/g, ' ').trim().toLowerCase();
+    }
+    return `${entry.start}|${entry.end || ''}`;
+  };
+
+  for (const entry of normalizedSeries) {
+    if (!entry.start) continue;
+    const key = buildKey(entry);
+    if (seenSeries.has(key)) continue;
+    seenSeries.add(key);
+    dedupedSeries.push({
+      start: entry.start,
+      end: entry.end,
+      rawText: entry.rawText ?? null,
+    });
+  }
+
+  return dedupedSeries;
+};
+
 const princeGeorgeModule: ScraperModule = {
   key: 'prince_george_ca',
   label: 'City of Prince George Events',
@@ -638,77 +820,12 @@ const princeGeorgeModule: ScraperModule = {
             if (ctx.stats) ctx.stats.pagesCrawled++; // Count each event detail page
 
             // Extract enhancement data from detail page
-            const enhancementData = await page.evaluate(() => {
-              // Extract event types
-              const eventTypeEl = document.querySelector('.field--name-field-types .field__item');
-              const communityTypeEl = document.querySelector('.field--name-field-types2 .field__item');
-              const eventType = eventTypeEl?.textContent?.trim();
-              const communityType = communityTypeEl?.textContent?.trim();
-
-              // Extract location
-              const locationEl = document.querySelector('.field--name-field-contact-information .field__item');
-              const location = locationEl?.textContent?.trim();
-
-              // Extract description from the main body field
-              // Try multiple selectors to handle different page structures
-              const descriptionEl = document.querySelector('.field--name-body.field--type-text-with-summary .field__item') || 
-                                  document.querySelector('.field--name-body .field__item') ||
-                                  document.querySelector('.field--name-body.field--type-text-with-summary') ||
-                                  document.querySelector('.field--name-body');
-              const description = descriptionEl?.innerHTML?.trim();
-
-              // Extract image
-              const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
-              const imageUrl = imageEl?.src;
-
-              // Extract ALL date instances (series) from the when field
-              // Look for all time elements with datetime attribute - they're separated by <br> tags
-              const timeElements = Array.from(document.querySelectorAll('.views-field-field-when time[datetime]')) as HTMLElement[];
-              const dates: Array<{ start?: string | null; end?: string | null; rawText?: string | null }> = [];
-
-              // Process pairs of time elements (start and end times)
-              for (let i = 0; i < timeElements.length; i += 2) {
-                const startEl = timeElements[i];
-                const endEl = timeElements[i + 1];
-
-                if (startEl) {
-                  const start = startEl.getAttribute('datetime');
-                  const endAttr = endEl?.getAttribute('datetime') || null;
-                  const rawText = (startEl.textContent || '') + (endEl ? ' - ' + (endEl.textContent || '') : '');
-                  dates.push({ start: start || null, end: endAttr, rawText: rawText.trim() || null });
-                }
-              }
-
-              return {
-                eventType,
-                communityType,
-                location,
-                description,
-                imageUrl,
-                // Backward compatibility fields
-                startDateTime: dates.find(d => d.start)?.start || null,
-                endDateTime: dates.find(d => d.end)?.end || null,
-                dates,
-              };
-            });
+            const enhancementData = await page.evaluate(extractPrinceGeorgeDetailPageData);
             const rawSeries = Array.isArray(enhancementData.dates)
               ? (enhancementData.dates as Array<{ start?: string | null; end?: string | null; rawText?: string | null }>)
               : [];
 
-            const normalizedSeries = rawSeries.map(entry => {
-              if (entry?.start) {
-                return { start: entry.start, end: entry.end ?? undefined, rawText: entry.rawText ?? null };
-              }
-              if (entry?.rawText) {
-                const parsed = parseDateTimeRangeFromText(entry.rawText);
-                if (parsed?.start) {
-                  return { start: parsed.start, end: parsed.end, rawText: entry.rawText };
-                }
-              }
-              return { start: null, end: null, rawText: entry?.rawText ?? null };
-            });
-
-            const validSeries = normalizedSeries.filter(item => Boolean(item.start)) as Array<{ start: string; end?: string; rawText?: string | null }>;
+            const validSeries = normalizeSeriesEntries(rawSeries);
 
             if (validSeries.length) {
               seriesCache[eventLink.url] = validSeries.map(({ start, end }) => ({ start, end }));
@@ -896,6 +1013,12 @@ const princeGeorgeModule: ScraperModule = {
 
     return events;
   },
+};
+
+export const __testables = {
+  extractPrinceGeorgeDetailPageData,
+  normalizeSeriesEntries,
+  parseDateTimeRangeFromText,
 };
 
 export default princeGeorgeModule;

@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { JSDOM } from 'jsdom';
-import princeGeorgeModule from './index.js';
+import princeGeorgeModule, { __testables } from './index.js';
+import { fileURLToPath } from 'url';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 describe('Prince George CA Module', () => {
   it('should have correct module configuration', () => {
@@ -169,5 +172,45 @@ describe('Prince George CA Module', () => {
     expect(categories).toEqual(['Civic Centre Event', 'Special Events']);
     expect(testEventData.dates[0].start).toBe('2025-08-01T11:00:00-07:00');
     expect(testEventData.location).toBe('Canada Games Plaza');
+  });
+
+  it('captures mixed recurring schedules for Public Skating events', async () => {
+    const fixtureHtml = await readFile(
+      join(__dirname, 'fixtures', 'public-skating-detail.html'),
+      'utf-8'
+    );
+
+    const dom = new JSDOM(fixtureHtml);
+    global.document = dom.window.document;
+    global.window = dom.window as any;
+
+    const detailData = __testables.extractPrinceGeorgeDetailPageData();
+    expect(detailData.dates.length).toBeGreaterThanOrEqual(6);
+
+    const normalizedSeries = __testables.normalizeSeriesEntries(detailData.dates);
+    expect(normalizedSeries).toHaveLength(6);
+
+    const expectedStarts = [
+      '2025-10-03T19:30:00-07:00',
+      '2025-10-10T19:30:00-07:00',
+      '2025-10-05T12:00:00-07:00',
+      '2025-10-12T12:00:00-07:00',
+      '2025-11-03T19:30:00-08:00',
+      '2025-11-10T19:30:00-08:00',
+    ];
+
+    expect(normalizedSeries.map(entry => entry.start)).toEqual(expectedStarts);
+
+    const middayEntries = normalizedSeries.filter(entry => entry.start.includes('T12:00:00'));
+    expect(middayEntries).toHaveLength(2);
+    middayEntries.forEach(entry => {
+      expect(entry.end).toMatch(/T14:00:00/);
+    });
+
+    const eveningEntries = normalizedSeries.filter(entry => entry.start.includes('T19:30:00'));
+    expect(eveningEntries).toHaveLength(4);
+    eveningEntries.forEach(entry => {
+      expect(entry.end).toMatch(/T21:00:00/);
+    });
   });
 });

@@ -286,6 +286,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0022 (System settings)
+    try {
+      const sql22 = await readFile(migrationPath('0022_system_settings.sql'), 'utf-8');
+      await migrationClient.unsafe(sql22);
+      console.log('✅ Applied migration 0022 (System settings)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0022 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0022 not applied');
+      }
+    }
+
     // Ensure instagram_scrape schedule type and constraint exist even if older DB missed migration 0020
     try {
       const result = await migrationClient`

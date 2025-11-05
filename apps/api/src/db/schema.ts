@@ -292,6 +292,14 @@ export const wordpressSettings = pgTable('wordpress_settings', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// System settings table (feature toggles, etc.)
+export const systemSettings = pgTable('system_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  posterImportEnabled: boolean('poster_import_enabled').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Event Series table (parent/master events)
 export const eventSeries = pgTable('event_series', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -514,6 +522,9 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 
 export type WordpressSettings = typeof wordpressSettings.$inferSelect;
 export type NewWordpressSettings = typeof wordpressSettings.$inferInsert;
+
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type NewSystemSettings = typeof systemSettings.$inferInsert;
 
 export type EventSeries = typeof eventSeries.$inferSelect;
 export type NewEventSeries = typeof eventSeries.$inferInsert;
