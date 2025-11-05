@@ -147,6 +147,16 @@ export const posterImportApi = {
     }),
 }
 
+export const systemSettingsApi = {
+  get: () =>
+    fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
+  update: (data: Partial<Pick<SystemSettings, 'posterImportEnabled'>>) =>
+    fetchApi<{ settings: SystemSettings }>('/system-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((response) => response.settings),
+}
+
 // Matches API
 export const matchesApi = {
   getAll: (params?: { status?: string; minScore?: number; limit?: number }) => {
@@ -686,6 +696,13 @@ export interface CreateExportData {
   wpSiteId?: string
   status?: 'publish' | 'draft' | 'pending' // Unified field name for WordPress post status
   wpPostStatus?: 'publish' | 'draft' | 'pending' // Deprecated: keep for backwards compatibility
+}
+
+export interface SystemSettings {
+  id: string
+  posterImportEnabled: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface WordPressSettings {

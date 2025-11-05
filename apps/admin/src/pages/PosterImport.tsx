@@ -1,18 +1,23 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { Download, Upload } from 'lucide-react'
+import { Download, Upload, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
-import { posterImportApi } from '@/lib/api'
+import { posterImportApi, systemSettingsApi } from '@/lib/api'
 
 export function PosterImport() {
   const queryClient = useQueryClient()
   const [posterJsonContent, setPosterJsonContent] = useState('')
   const [posterJsonFile, setPosterJsonFile] = useState<File | null>(null)
+  const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => systemSettingsApi.get(),
+  })
 
   const handlePosterFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -33,6 +38,46 @@ export function PosterImport() {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
     },
   })
+
+  if (isLoadingSystemSettings) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Poster Import</h1>
+          <p className="text-muted-foreground">Loading system settings…</p>
+        </div>
+        <Card className="p-6 text-sm text-muted-foreground border-dashed">
+          Checking whether Poster Import is enabled…
+        </Card>
+      </div>
+    )
+  }
+
+  if (systemSettings && !systemSettings.posterImportEnabled) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Poster Import</h1>
+          <p className="text-muted-foreground">Upload JSON extracted from poster images</p>
+        </div>
+
+        <Card className="p-6 space-y-4 border-dashed border-destructive/40">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <div>
+              <h2 className="text-xl font-semibold">Poster Import is disabled</h2>
+              <p className="text-sm text-muted-foreground">
+                Enable the Poster Import tab from Settings → Feature Toggles to access this workflow.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="secondary">
+            <Link to="/settings">Go to Settings</Link>
+          </Button>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -112,4 +157,3 @@ export function PosterImport() {
     </div>
   )
 }
-

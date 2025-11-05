@@ -5,6 +5,7 @@ import { sources, runs } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 import { enqueueScrapeJob } from '../queue/queue.js'
+import { ensureSystemSettings } from '../services/system-settings.js'
 
 const bodySchema = z.object({
   content: z.string().min(2, 'JSON content is required'),
@@ -16,6 +17,12 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/', async (request, reply) => {
     try {
       const { content, testMode } = bodySchema.parse(request.body)
+
+      const settings = await ensureSystemSettings()
+      if (!settings.posterImportEnabled) {
+        reply.status(403)
+        return { error: 'Poster import is disabled in system settings' }
+      }
 
       // Ensure the AI Poster Import source exists (create if missing)
       const moduleKey = 'ai_poster_import'
@@ -80,4 +87,3 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 }
-

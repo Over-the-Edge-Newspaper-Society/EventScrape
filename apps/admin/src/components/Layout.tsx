@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import {
   type LucideIcon,
@@ -18,6 +19,7 @@ import {
   List
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { systemSettingsApi } from '@/lib/api'
 
 interface LayoutProps {
   children: ReactNode
@@ -68,6 +70,15 @@ const isPathActive = (targetPath: string, currentPath: string) => {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const { data: systemSettings } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => systemSettingsApi.get(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const posterImportEnabled = systemSettings?.posterImportEnabled ?? true
+  const visibleNavigation = navigation.filter(
+    (item) => item.href !== '/poster-import' || posterImportEnabled
+  )
   const [openSections, setOpenSections] = useState<string[]>(() =>
     navigation
       .filter((item) =>
@@ -112,7 +123,7 @@ export function Layout({ children }: LayoutProps) {
         </div>
         
         <nav className="flex-1 px-4 py-4 space-y-2">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const hasChildren = Boolean(item.children?.length)
             const isActive =
               isPathActive(item.href, location.pathname) ||

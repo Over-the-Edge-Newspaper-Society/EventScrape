@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Download, Upload, Trash2, HardDrive, Database, Image } from 'lucide-react'
-import { API_BASE_URL } from '@/lib/api'
+import { Download, Upload, Trash2, HardDrive, Database, Image, Sliders } from 'lucide-react'
+import { API_BASE_URL, systemSettingsApi } from '@/lib/api'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -43,6 +43,11 @@ export function Settings() {
   const [applyDatabase, setApplyDatabase] = useState(false)
   const [applyInstagramData, setApplyInstagramData] = useState(false)
   const [applyImages, setApplyImages] = useState(false)
+
+  const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => systemSettingsApi.get(),
+  })
 
   const { data: backupsData, isLoading: isLoadingBackups } = useQuery({
     queryKey: ['backupBundles'],
@@ -178,6 +183,21 @@ export function Settings() {
     },
   })
 
+  const systemSettingsMutation = useMutation({
+    mutationFn: (payload: { posterImportEnabled: boolean }) => systemSettingsApi.update(payload),
+    onSuccess: (updatedSettings) => {
+      queryClient.setQueryData(['system-settings'], updatedSettings)
+      toast.success(
+        updatedSettings.posterImportEnabled
+          ? 'Poster Import tab enabled'
+          : 'Poster Import tab hidden'
+      )
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update system settings')
+    },
+  })
+
   const handleExport = () => {
     if (!exportIncludeDatabase && !exportIncludeInstagramData && !exportIncludeImages) {
       toast.error('Select at least one component to include in the backup')
@@ -225,6 +245,13 @@ export function Settings() {
     }
   }
 
+  const handleTogglePosterImport = (checked: boolean) => {
+    if (systemSettings?.posterImportEnabled === checked || systemSettingsMutation.isPending) {
+      return
+    }
+    systemSettingsMutation.mutate({ posterImportEnabled: checked })
+  }
+
   const formatBytes = (bytes: number) => {
     if (!bytes) return '0 Bytes'
     const k = 1024
@@ -247,6 +274,32 @@ export function Settings() {
           Manage unified backups and system configuration
         </p>
       </div>
+
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Sliders className="h-6 w-6 text-primary" />
+          <div>
+            <h2 className="text-xl font-semibold">Feature Toggles</h2>
+            <p className="text-sm text-muted-foreground">
+              Hide modules you do not need in the admin sidebar.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+          <div>
+            <Label className="text-sm">Poster Import tab</Label>
+            <p className="text-xs text-muted-foreground">
+              Remove the Poster Import navigation item when your team is not using AI uploads.
+            </p>
+          </div>
+          <Switch
+            checked={systemSettings?.posterImportEnabled ?? true}
+            disabled={isLoadingSystemSettings || systemSettingsMutation.isPending}
+            onCheckedChange={handleTogglePosterImport}
+          />
+        </div>
+      </Card>
 
       <Card className="p-6 space-y-6">
         <div className="flex items-center gap-3">
