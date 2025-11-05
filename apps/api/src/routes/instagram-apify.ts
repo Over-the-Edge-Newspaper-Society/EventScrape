@@ -30,10 +30,29 @@ if (!fs.existsSync(INSTAGRAM_IMAGES_DIR)) {
 }
 
 /**
+ * Check if URL is a direct Instagram CDN URL (which expire quickly)
+ */
+function isInstagramCDN(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.includes('cdninstagram.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Download an Instagram image and save it locally
  * @returns The local filename (not full path) or null if download fails
  */
 async function downloadInstagramImage(imageUrl: string, postId: string): Promise<string | null> {
+  // Skip direct Instagram CDN URLs - they expire and return 403
+  // Only download Apify proxy URLs (images.apifyusercontent.com) which are stable
+  if (isInstagramCDN(imageUrl)) {
+    console.log(`Skipping expired Instagram CDN URL for post ${postId}`);
+    return null;
+  }
+
   try {
     const response = await axios.get(imageUrl, {
       responseType: 'stream',

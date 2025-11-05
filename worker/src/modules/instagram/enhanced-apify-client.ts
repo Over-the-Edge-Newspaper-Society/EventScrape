@@ -582,7 +582,9 @@ export class EnhancedApifyClient {
     }
 
     const caption = item.caption || '';
-    let imageUrl = item.displayUrl || item.display_url || item.thumbnailUrl;
+    // Prioritize Apify proxy URLs (imageUrl) over direct Instagram CDN URLs (displayUrl)
+    // Direct CDN URLs expire quickly, but Apify proxy URLs are stable
+    let imageUrl = item.imageUrl || item.displayUrl || item.display_url || item.thumbnailUrl;
 
     if (!imageUrl && item.images && Array.isArray(item.images) && item.images.length > 0) {
       const first = item.images[0];

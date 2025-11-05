@@ -22,7 +22,26 @@ const sql = process.env.DATABASE_URL
       password: process.env.POSTGRES_PASSWORD || 'eventscrape_dev',
     });
 
+/**
+ * Check if URL is a direct Instagram CDN URL (which expire quickly)
+ */
+function isInstagramCDN(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.includes('cdninstagram.com');
+  } catch {
+    return false;
+  }
+}
+
 async function downloadImage(imageUrl, postId) {
+  // Skip direct Instagram CDN URLs - they expire and return 403
+  // Only download Apify proxy URLs (images.apifyusercontent.com) which are stable
+  if (isInstagramCDN(imageUrl)) {
+    console.log(`  ⊘ Skipping expired Instagram CDN URL`);
+    return null;
+  }
+
   try {
     const response = await axios.get(imageUrl, {
       responseType: 'stream',
