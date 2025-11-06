@@ -21,10 +21,13 @@ const updateSourceSchema = createSourceSchema.partial();
 // Helper function to load available modules from worker
 async function loadAvailableModules(): Promise<Array<{key: string, label: string, baseUrl: string}>> {
   const modules: Array<{key: string, label: string, baseUrl: string}> = [];
-  
-  // Path to worker modules directory
-  const modulesPath = resolve(process.cwd(), '../../worker/src/modules');
-  
+
+  // Path to worker modules directory - handle both dev and production paths
+  const isProduction = process.env.NODE_ENV === 'production';
+  const modulesPath = isProduction
+    ? resolve(process.cwd(), 'apps/api/dist/worker/src/modules')
+    : resolve(process.cwd(), '../../worker/src/modules');
+
   try {
     const entries = await readdir(modulesPath, { withFileTypes: true });
     const moduleDirs = entries.filter(entry => entry.isDirectory());
