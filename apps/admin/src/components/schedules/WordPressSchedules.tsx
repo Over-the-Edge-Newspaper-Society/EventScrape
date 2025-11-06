@@ -9,12 +9,13 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { schedulesApi, sourcesApi, wordpressApi, ScheduleWithSource } from '@/lib/api'
+import { schedulesApi, sourcesApi, wordpressApi, instagramApi, ScheduleWithSource } from '@/lib/api'
 import { Globe, Calendar, Filter, Edit } from 'lucide-react'
 
 export function WordPressSchedules() {
   const queryClient = useQueryClient()
   const { data: sources } = useQuery({ queryKey: ['sources'], queryFn: () => sourcesApi.getAll() })
+  const { data: instagramData } = useQuery({ queryKey: ['instagram-sources'], queryFn: () => instagramApi.getAll() })
   const { data: wpSettings } = useQuery({ queryKey: ['wordpress-settings'], queryFn: () => wordpressApi.getSettings() })
   const { data: schedulesData } = useQuery({ queryKey: ['schedules'], queryFn: () => schedulesApi.getAll() })
 
@@ -286,6 +287,32 @@ export function WordPressSchedules() {
               <Filter className="h-4 w-4" />
               Filter by Sources (optional)
             </Label>
+            <div className="space-y-2 mb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const allInstagramIds = instagramData?.sources.map(a => a.id) || []
+                  const hasAllInstagram = allInstagramIds.every(id => selectedSourceIds.includes(id))
+                  if (hasAllInstagram) {
+                    // Deselect all Instagram
+                    setSelectedSourceIds(prev => prev.filter(id => !allInstagramIds.includes(id)))
+                  } else {
+                    // Select all Instagram
+                    setSelectedSourceIds(prev => {
+                      const withoutInstagram = prev.filter(id => !allInstagramIds.includes(id))
+                      return [...withoutInstagram, ...allInstagramIds]
+                    })
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                {(() => {
+                  const allInstagramIds = instagramData?.sources.map(a => a.id) || []
+                  const hasAllInstagram = allInstagramIds.every(id => selectedSourceIds.includes(id))
+                  return hasAllInstagram ? 'Deselect all Instagram accounts' : 'Select all Instagram accounts'
+                })()}
+              </button>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
               {sources?.sources.map((source) => (
                 <label key={source.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -296,6 +323,20 @@ export function WordPressSchedules() {
                     className="rounded"
                   />
                   {source.name}
+                </label>
+              ))}
+              {instagramData?.sources.map((account) => (
+                <label key={account.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedSourceIds.includes(account.id)}
+                    onChange={() => toggleSourceSelection(account.id)}
+                    className="rounded"
+                  />
+                  <span className="flex items-center gap-1">
+                    {account.name}
+                    <span className="text-muted-foreground text-xs">(@{account.instagramUsername})</span>
+                  </span>
                 </label>
               ))}
             </div>

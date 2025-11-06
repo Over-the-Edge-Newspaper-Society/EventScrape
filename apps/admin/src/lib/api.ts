@@ -61,6 +61,11 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     throw new ApiError(response.status, errorData.error || `HTTP ${response.status}`)
   }
 
+  // Handle 204 No Content responses
+  if (response.status === 204) {
+    return undefined as T
+  }
+
   return response.json()
 }
 

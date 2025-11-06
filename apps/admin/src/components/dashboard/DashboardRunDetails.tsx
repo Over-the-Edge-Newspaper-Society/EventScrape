@@ -55,6 +55,7 @@ function RunDetailsContent({ runId, onClose }: Omit<RunDetailsProps, 'children'>
     : 0
   
   const durationFormatted = `${Math.floor(duration / 1000)}s`
+  const pagesLabel = source?.moduleKey === 'instagram' ? 'Posts Processed' : 'Pages Crawled'
 
   return (
     <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
@@ -101,7 +102,7 @@ function RunDetailsContent({ runId, onClose }: Omit<RunDetailsProps, 'children'>
                 <span className="font-medium">{run.eventsFound}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Pages Crawled:</span>
+                <span className="text-muted-foreground">{pagesLabel}:</span>
                 <span>{run.pagesCrawled}</span>
               </div>
             </CardContent>
@@ -199,4 +200,3 @@ function RunDetailsContent({ runId, onClose }: Omit<RunDetailsProps, 'children'>
     </DialogContent>
   )
 }
-

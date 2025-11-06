@@ -136,6 +136,7 @@ export function RunHistoryTable({
                 const queuedCount = Math.max(summaryData.pending - summaryData.running, 0)
                 const metadata = (run.metadata ?? {}) as Record<string, any>
                 const options = metadata.options as { postLimit?: number; batchSize?: number } | undefined
+                const pagesLabel = source?.moduleKey === 'instagram' ? 'posts' : 'pages'
 
                 return (
                   <TableRow key={run.id}>
@@ -174,7 +175,9 @@ export function RunHistoryTable({
                           <span className="text-xs text-muted-foreground">events</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          <span className="text-xs text-muted-foreground">{run.pagesCrawled} pages</span>
+                          <span className="text-xs text-muted-foreground">
+                            {run.pagesCrawled} {pagesLabel}
+                          </span>
                         </div>
                         {summaryData.total > 0 && (
                           <div className="text-xs text-muted-foreground space-y-0.5">

@@ -24,6 +24,57 @@ export interface InstagramScrapeJobData {
 const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_images';
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton settings ID
 
+type RunMetadata = Record<string, unknown>;
+
+function normalizeRunMetadata(raw: unknown): RunMetadata {
+  if (!raw) {
+    return {};
+  }
+
+  if (Array.isArray(raw)) {
+    return raw.reduce<RunMetadata>((acc, entry) => {
+      return { ...acc, ...normalizeRunMetadata(entry) };
+    }, {});
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      return normalizeRunMetadata(JSON.parse(raw));
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof raw === 'object') {
+    return { ...(raw as Record<string, unknown>) };
+  }
+
+  return {};
+}
+
+function cleanMetadata(metadata: RunMetadata): RunMetadata {
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== undefined)
+  );
+}
+
+function isApifyQuotaExceededError(error: Error): boolean {
+  return (
+    typeof error.message === 'string' &&
+    error.message.toLowerCase().includes('monthly usage hard limit exceeded')
+  );
+}
+
+async function fetchRunMetadata(runId: string): Promise<RunMetadata> {
+  const [row] = await db`
+    SELECT metadata
+    FROM runs
+    WHERE id = ${runId}
+    LIMIT 1
+  `;
+  return normalizeRunMetadata(row?.metadata);
+}
+
 /**
  * Fetch Instagram settings from database
  */
@@ -83,6 +134,16 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
   }
 
   job.log(`Starting Instagram scrape for account ${accountId}`);
+
+  let runMetadata = await fetchRunMetadata(runId);
+  const mergeRunMetadata = async (patch: RunMetadata) => {
+    runMetadata = cleanMetadata({ ...runMetadata, ...patch });
+    await db`
+      UPDATE runs
+      SET metadata = ${db.json(runMetadata)}
+      WHERE id = ${runId}
+    `;
+  };
 
   try {
     // 0. Fetch Instagram settings from database
@@ -237,16 +298,12 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
 
     job.log(`Fetched ${posts.length} new posts`);
 
-    await db`
-      UPDATE runs
-      SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-        'instagramAccountId', ${account.id},
-        'instagramUsername', ${account.instagram_username},
-        'postLimit', ${postLimit},
-        'batchSize', ${batchSize ?? null}
-      )
-      WHERE id = ${runId}
-    `;
+    await mergeRunMetadata({
+      instagramAccountId: account.id,
+      instagramUsername: account.instagram_username,
+      postLimit,
+      batchSize: batchSize ?? null,
+    });
 
     let eventsCreated = 0;
 
@@ -358,6 +415,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
             )
             ON CONFLICT (source_id, source_event_id) DO UPDATE
             SET
+              run_id = EXCLUDED.run_id,
               description_html = EXCLUDED.description_html,
               url = EXCLUDED.url,
               image_url = COALESCE(EXCLUDED.image_url, events_raw.image_url),
@@ -441,7 +499,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     ${event.venue?.name || null}, ${event.venue?.address || null},
                     ${event.venue?.city || null}, ${event.venue?.region || null}, ${event.venue?.country || null},
                     ${event.organizer || null}, ${event.category || null}, ${event.price || null},
-                    ${event.tags ? JSON.stringify(event.tags) : null},
+                    ${event.tags || null},
                     ${post.permalink || `https://instagram.com/p/${post.id}/`},
                     ${post.imageUrl || null},
                     ${JSON.stringify(rawData)},
@@ -466,16 +524,19 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     const pagesCrawled = Math.max(posts.length, 1);
 
     // 7. Update run status
+    runMetadata = cleanMetadata({
+      ...runMetadata,
+      postsFetched: posts.length,
+      eventsCreated,
+    });
+
     await db`
       UPDATE runs
       SET status = 'success',
           finished_at = NOW(),
           events_found = ${eventsCreated},
           pages_crawled = ${pagesCrawled},
-          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-            'postsFetched', ${posts.length},
-            'eventsCreated', ${eventsCreated}
-          )
+          metadata = ${db.json(runMetadata)}
       WHERE id = ${runId}
     `;
 
@@ -514,20 +575,43 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
     // Handle enhanced client errors
     if (error instanceof ApifyClientError || error instanceof ApifyRunTimeoutError) {
       job.log(`Apify client error: ${error.message}`);
+
+      if (isApifyQuotaExceededError(error)) {
+        const quotaMessage = 'Apify usage hard limit exceeded';
+        job.log('Apify monthly usage limit reached — marking run as error without retry.');
+        if (runId) {
+          runMetadata = cleanMetadata({ ...runMetadata, error: quotaMessage });
+          await db`
+            UPDATE runs
+            SET status = 'error',
+                finished_at = NOW(),
+                metadata = ${db.json(runMetadata)}
+            WHERE id = ${runId}
+          `;
+        }
+        if (parentRunId) {
+          await refreshInstagramBatchRun(parentRunId);
+        }
+        return;
+      }
+
       throw error;
     }
 
     job.log(`Instagram scrape failed: ${error.message}`);
 
-    const errorMessage = error.message || String(error) || 'Unknown error';
+    const errorMessage = String(error?.message || error || 'Unknown error');
 
-    await db`
-      UPDATE runs
-      SET status = 'error',
-          finished_at = NOW(),
-          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('error', ${errorMessage})
-      WHERE id = ${runId}
-    `;
+      if (runId) {
+        runMetadata = cleanMetadata({ ...runMetadata, error: errorMessage });
+        await db`
+          UPDATE runs
+          SET status = 'error',
+              finished_at = NOW(),
+              metadata = ${db.json(runMetadata)}
+          WHERE id = ${runId}
+        `;
+      }
 
     if (parentRunId) {
       await refreshInstagramBatchRun(parentRunId);
@@ -566,24 +650,27 @@ async function refreshInstagramBatchRun(parentRunId: string) {
         ? 'partial'
         : 'success';
 
+    let parentMetadata = await fetchRunMetadata(parentRunId);
+    parentMetadata = cleanMetadata({
+      ...parentMetadata,
+      batch: {
+        total: Number(summary.total ?? 0),
+        success: Number(summary.success_count ?? 0),
+        failed: failedCount,
+        pending: pendingCount,
+      },
+    });
+
     await db`
       UPDATE runs
       SET status = ${nextStatus},
           events_found = ${eventsTotal},
           pages_crawled = ${pagesTotal},
           finished_at = CASE WHEN ${pendingCount} = 0 THEN NOW() ELSE finished_at END,
-          metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-            'batch',
-            jsonb_build_object(
-              'total', ${Number(summary.total ?? 0)},
-              'success', ${Number(summary.success_count ?? 0)},
-              'failed', ${failedCount},
-              'pending', ${pendingCount}
-            )
-          )
+          metadata = ${db.json(parentMetadata)}
       WHERE id = ${parentRunId}
     `;
   } catch (error) {
-    logger.error(`Failed to refresh parent Instagram run ${parentRunId}:`, error);
+    console.error(`Failed to refresh parent Instagram run ${parentRunId}:`, error);
   }
 }

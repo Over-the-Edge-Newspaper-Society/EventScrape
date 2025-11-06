@@ -15,6 +15,58 @@ import {
 
 const INSTAGRAM_SOURCE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+type RunMetadata = Record<string, unknown>;
+
+function normalizeRunMetadata(raw: unknown): RunMetadata {
+  if (!raw) {
+    return {};
+  }
+
+  if (Array.isArray(raw)) {
+    return raw.reduce<RunMetadata>((acc, entry) => {
+      return { ...acc, ...normalizeRunMetadata(entry) };
+    }, {});
+  }
+
+  if (typeof raw === 'string') {
+    try {
+      return normalizeRunMetadata(JSON.parse(raw));
+    } catch {
+      return {};
+    }
+  }
+
+  if (typeof raw === 'object') {
+    return { ...(raw as Record<string, unknown>) };
+  }
+
+  return {};
+}
+
+function cleanMetadata(metadata: RunMetadata): RunMetadata {
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== undefined)
+  );
+}
+
+async function getRunMetadata(runId: string): Promise<RunMetadata> {
+  const rows = await queryClient`
+    SELECT metadata
+    FROM runs
+    WHERE id = ${runId}
+    LIMIT 1
+  `;
+  return normalizeRunMetadata(rows[0]?.metadata);
+}
+
+async function setRunMetadata(runId: string, metadata: RunMetadata): Promise<void> {
+  await queryClient`
+    UPDATE runs
+    SET metadata = ${queryClient.json(cleanMetadata(metadata) as any)}
+    WHERE id = ${runId}
+  `;
+}
+
 export class NoActiveInstagramAccountsError extends Error {
   constructor(message = 'No active Instagram accounts found') {
     super(message);
@@ -83,7 +135,7 @@ async function triggerInstagramScrapesForAccounts(
     accountLimit: effectiveAccountLimit,
   };
 
-  const metadata: Record<string, unknown> = {
+  const metadata: RunMetadata = {
     type: 'instagram_batch',
     accountsTotal: accountsToScrape.length,
     options: baseOptions,
@@ -112,16 +164,18 @@ async function triggerInstagramScrapesForAccounts(
     const childRunId = uuidv4();
     const queuePosition = jobs.length + 1;
 
+    const childMetadata: RunMetadata = {
+      instagramAccountId: account.id,
+      instagramUsername: account.instagramUsername,
+      queuePosition,
+    };
+
     await db.insert(runs).values({
       id: childRunId,
       sourceId: INSTAGRAM_SOURCE_ID,
       status: 'queued',
       parentRunId,
-      metadata: {
-        instagramAccountId: account.id,
-        instagramUsername: account.instagramUsername,
-        queuePosition,
-      },
+      metadata: childMetadata,
     });
 
     const job = await enqueueInstagramScrapeJob({
@@ -133,11 +187,7 @@ async function triggerInstagramScrapesForAccounts(
     });
 
     if (job.id) {
-      await queryClient`
-        UPDATE runs
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('jobId', ${job.id})
-        WHERE id = ${childRunId}
-      `;
+      await setRunMetadata(childRunId, { ...childMetadata, jobId: job.id });
     }
 
     jobs.push({
@@ -349,11 +399,9 @@ export async function cancelInstagramScrapeJobs(jobIds: string[]): Promise<Insta
     if (state === 'active') {
       await markInstagramJobCancelRequested(jobId);
       if (runIdFromJob) {
-        await queryClient`
-          UPDATE runs
-          SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cancelRequested', true)
-          WHERE id = ${runIdFromJob}
-        `;
+        const metadata = await getRunMetadata(runIdFromJob);
+        metadata.cancelRequested = true;
+        await setRunMetadata(runIdFromJob, metadata);
       }
       results.push({
         jobId,
@@ -384,11 +432,14 @@ async function findRunByJobId(jobId: string) {
 }
 
 async function markRunAsCancelled(runId: string) {
+  let metadata = await getRunMetadata(runId);
+  metadata = cleanMetadata({ ...metadata, cancelled: true });
+
   await queryClient`
     UPDATE runs
     SET status = 'partial',
         finished_at = NOW(),
-        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('cancelled', true)
+        metadata = ${queryClient.json(metadata as any)}
     WHERE id = ${runId}
   `;
 }
@@ -421,21 +472,21 @@ async function updateBatchRunSummary(parentRunId: string) {
       ? 'partial'
       : 'success';
 
+  let metadata = await getRunMetadata(parentRunId);
+  metadata.batch = {
+    total: Number(summary.total ?? 0),
+    success: Number(summary.success_count ?? 0),
+    failed: failedCount,
+    pending: pendingCount,
+  };
+
   await queryClient`
     UPDATE runs
     SET status = ${nextStatus},
         events_found = ${eventsTotal},
         pages_crawled = ${pagesTotal},
         finished_at = CASE WHEN ${pendingCount} = 0 THEN NOW() ELSE finished_at END,
-        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-          'batch',
-          jsonb_build_object(
-            'total', ${Number(summary.total ?? 0)},
-            'success', ${Number(summary.success_count ?? 0)},
-            'failed', ${failedCount},
-            'pending', ${pendingCount}
-          )
-        )
+        metadata = ${queryClient.json(cleanMetadata(metadata) as any)}
     WHERE id = ${parentRunId}
   `;
 }

@@ -22,7 +22,8 @@ export class ModuleLoader {
   async loadModules(): Promise<void> {
     try {
       const entries = await readdir(this.modulesDir, { withFileTypes: true });
-      const moduleDirs = entries.filter(entry => entry.isDirectory());
+      // Skip 'instagram' directory as it's not a standard scraper module
+      const moduleDirs = entries.filter(entry => entry.isDirectory() && entry.name !== 'instagram');
 
       for (const dir of moduleDirs) {
         try {

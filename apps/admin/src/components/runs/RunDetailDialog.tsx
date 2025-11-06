@@ -64,6 +64,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
 
   const durationFormatted = `${Math.floor(duration / 1000)}s`
   const runEvents = events ?? []
+  const summaryPagesLabel = source?.moduleKey === 'instagram' ? 'Posts Processed' : 'Pages Crawled'
 
   const formatDateTime = (value?: string | null) => {
     if (!value) return '—'
@@ -131,7 +132,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                 <span className="font-medium">{run.eventsFound}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Pages Crawled:</span>
+                <span className="text-muted-foreground">{summaryPagesLabel}:</span>
                 <span>{run.pagesCrawled}</span>
               </div>
               {isBatchRun && (
@@ -264,6 +265,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                       const username = childMetadata.instagramUsername || '—'
                       const childStart = new Date(child.run.startedAt)
                       const childFinish = child.run.finishedAt ? new Date(child.run.finishedAt) : null
+                      const childPagesLabel = child.source?.moduleKey === 'instagram' ? 'posts' : 'pages'
 
                       return (
                         <TableRow key={child.run.id}>
@@ -274,7 +276,9 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                           </TableCell>
                           <TableCell>
                             <div className="text-sm font-medium">{child.run.eventsFound}</div>
-                            <div className="text-xs text-muted-foreground">{child.run.pagesCrawled} pages</div>
+                            <div className="text-xs text-muted-foreground">
+                              {child.run.pagesCrawled} {childPagesLabel}
+                            </div>
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             {!isNaN(childStart.getTime()) ? childStart.toLocaleString() : '—'}

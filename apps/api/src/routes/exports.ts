@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, gte, lte, ilike, inArray } from 'drizzle-orm';
+import { eq, desc, and, gte, lte, ilike, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { exports as exportsTable, eventsRaw, wordpressSettings, schedules } from '../db/schema.js';
 import { writeFile, mkdir, readFile } from 'fs/promises';
@@ -230,7 +230,14 @@ export async function processExport(exportId: string, data: any): Promise<void> 
     conditions.push(ilike(eventsRaw.category, `%${data.filters.category}%`));
   }
   if (data.filters.sourceIds && data.filters.sourceIds.length > 0) {
-    conditions.push(inArray(eventsRaw.sourceId, data.filters.sourceIds));
+    // Support both regular sources and Instagram accounts
+    // Events can have either sourceId OR instagramAccountId
+    conditions.push(
+      or(
+        inArray(eventsRaw.sourceId, data.filters.sourceIds),
+        inArray(eventsRaw.instagramAccountId, data.filters.sourceIds)
+      )
+    );
   }
   if (data.filters.ids && data.filters.ids.length > 0) {
     conditions.push(inArray(eventsRaw.id, data.filters.ids));
