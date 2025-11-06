@@ -457,10 +457,32 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
             // 6d. Create event_raw records for each event in the extraction
             if (geminiResult.events && geminiResult.events.length > 0) {
               for (const [eventIndex, event] of geminiResult.events.entries()) {
-                // Parse date/time
-                const startDateTime = new Date(`${event.startDate}T${event.startTime || '00:00:00'}`);
-                const endDateTime = event.endDate ? new Date(`${event.endDate}T${event.endTime || '23:59:59'}`) : null;
+                // Parse date/time with proper timezone handling
                 const timezone = event.timezone || account.default_timezone || 'America/Vancouver';
+
+                // Convert local time to UTC
+                // Create datetime string in ISO format for the local timezone
+                const startDateTimeLocal = `${event.startDate}T${event.startTime || '00:00:00'}`;
+                const endDateTimeLocal = event.endDate ? `${event.endDate}T${event.endTime || '23:59:59'}` : null;
+
+                // Convert to UTC by parsing as local time in the specified timezone
+                // Use toLocaleString to get UTC representation
+                const startDateTime = new Date(new Date(startDateTimeLocal).toLocaleString('en-US', { timeZone: timezone }));
+                // Adjust: the above gives us local interpretation, we need to calculate UTC offset
+                // Better approach: use explicit timezone offset calculation
+                const startLocalDate = new Date(startDateTimeLocal);
+                const startUtcDate = new Date(startLocalDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+                const startTzDate = new Date(startLocalDate.toLocaleString('en-US', { timeZone: timezone }));
+                const tzOffset = startUtcDate.getTime() - startTzDate.getTime();
+                const startDateTime = new Date(startLocalDate.getTime() + tzOffset);
+
+                const endDateTime = endDateTimeLocal ? (() => {
+                  const endLocalDate = new Date(endDateTimeLocal);
+                  const endUtcDate = new Date(endLocalDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+                  const endTzDate = new Date(endLocalDate.toLocaleString('en-US', { timeZone: timezone }));
+                  const endTzOffset = endUtcDate.getTime() - endTzDate.getTime();
+                  return new Date(endLocalDate.getTime() + endTzOffset);
+                })() : null;
 
                 // Combine Instagram post data with Gemini extraction result
                 const classificationEnvelope = classificationRecord

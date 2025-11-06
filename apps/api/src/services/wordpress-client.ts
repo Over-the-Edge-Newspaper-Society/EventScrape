@@ -545,10 +545,23 @@ export class WordPressClient {
   async importEventWithOccurrences(
     event: WordPressEvent,
     imageUrl?: string,
-    updateIfExists: boolean = false
+    updateIfExists: boolean = false,
+    clubData?: ClubData
   ): Promise<WordPressUploadResult> {
     try {
       const endpoint = `${this.siteUrl}/wp-json/unbc-events/v1/import-event`;
+
+      // Match organization if club data is available
+      let organizationId: string | null = null;
+      if (clubData) {
+        organizationId = await this.matchOrganization(clubData);
+      }
+
+      // Prepare meta with organization_id if matched
+      const meta = event.event_meta || event.meta || {};
+      if (organizationId) {
+        (meta as any).organization_id = organizationId;
+      }
 
       const requestBody = {
         event: {
@@ -556,7 +569,7 @@ export class WordPressClient {
           description: event.content,
           status: event.status || 'publish',
           external_id: event.external_id,
-          meta: event.event_meta || event.meta,
+          meta,
           series_data: event.series_data,
           occurrences: event.occurrences,
           featured_media_url: imageUrl,
@@ -567,6 +580,9 @@ export class WordPressClient {
 
       console.log(`[WordPress Client] POST ${endpoint} (with occurrences)`);
       console.log(`[WordPress Client] Series type: ${event.series_data?.occurrence_type}, Occurrences: ${event.occurrences?.length || 0}`);
+      if (organizationId) {
+        console.log(`[WordPress Client] Organization matched: ${organizationId}`);
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -648,22 +664,40 @@ export class WordPressClient {
       let clubData: ClubData | undefined;
       if (event.raw?.massPosterMeta?.club) {
         clubData = event.raw.massPosterMeta.club;
+        console.log(`[WordPress Client] Extracted club data for "${event.title}":`, clubData);
+      } else {
+        console.log(`[WordPress Client] No club data found for "${event.title}" - raw.massPosterMeta:`, event.raw?.massPosterMeta);
       }
 
       // Match organization
       const organizationId = await this.matchOrganization(clubData);
 
-      // Convert UTC to local timezone
-      const startDate = new Date(event.startDatetime);
-      const endDate = event.endDatetime ? new Date(event.endDatetime) : null;
+      // Extract date and time from raw event data (if available from AI extraction)
+      // This avoids timezone conversion issues - we use the times as extracted
+      let localStart: { date: string; time: string };
+      let localEnd: { date: string; time: string } | null = null;
 
-      const localStart = this.convertToLocalDateTime(
-        startDate,
-        event.timezone || 'UTC'
-      );
-      const localEnd = endDate
-        ? this.convertToLocalDateTime(endDate, event.timezone || 'UTC')
-        : null;
+      if (event.raw?.events?.[0]) {
+        // Use raw extracted data directly (already in local timezone)
+        const rawEvent = event.raw.events[0];
+        localStart = {
+          date: rawEvent.startDate || new Date(event.startDatetime).toISOString().split('T')[0],
+          time: rawEvent.startTime || '00:00:00'
+        };
+        if (rawEvent.endDate && rawEvent.endTime) {
+          localEnd = {
+            date: rawEvent.endDate,
+            time: rawEvent.endTime
+          };
+        }
+      } else {
+        // Fallback: use database datetime (assume it's already in correct timezone)
+        const startDate = new Date(event.startDatetime);
+        const endDate = event.endDatetime ? new Date(event.endDatetime) : null;
+
+        localStart = this.convertToLocalDateTime(startDate, event.timezone || 'UTC');
+        localEnd = endDate ? this.convertToLocalDateTime(endDate, event.timezone || 'UTC') : null;
+      }
 
       // Get category ID from source-category mappings if available
       // Handle case where mappings might be a JSON string from database
@@ -727,7 +761,8 @@ export class WordPressClient {
         const result = await this.importEventWithOccurrences(
           wpEvent,
           event.imageUrl,
-          options.updateIfExists || false
+          options.updateIfExists || false,
+          clubData
         );
         results.push({ event, result });
       } else {
@@ -765,7 +800,8 @@ export class WordPressClient {
         const result = await this.importEventWithOccurrences(
           wpEvent,
           event.imageUrl,
-          options.updateIfExists || false
+          options.updateIfExists || false,
+          clubData
         );
         results.push({ event, result });
       }

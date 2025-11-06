@@ -2,7 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { exports as exportsTable, eventsRaw, wordpressSettings, schedules } from '../db/schema.js';
+import { exports as exportsTable, eventsRaw, wordpressSettings, schedules, instagramAccounts } from '../db/schema.js';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -261,10 +261,24 @@ export async function processExport(exportId: string, data: any): Promise<void> 
       url: eventsRaw.url,
       imageUrl: eventsRaw.imageUrl,
       raw: eventsRaw.raw,
+      instagramAccountId: eventsRaw.instagramAccountId,
+      instagramPostId: eventsRaw.instagramPostId,
+      isEventPoster: eventsRaw.isEventPoster,
     })
     .from(eventsRaw)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(eventsRaw.startDatetime);
+
+  // Filter out Instagram posts that are NOT marked as event posters
+  // For Instagram posts (those with instagramAccountId), only include if isEventPoster is true
+  const filteredEvents = events.filter(event => {
+    // If it's an Instagram post (has instagramAccountId), only include if marked as event poster
+    if (event.instagramAccountId) {
+      return event.isEventPoster === true;
+    }
+    // For non-Instagram events, include all
+    return true;
+  });
 
   // Ensure exports directory exists
   const exportDir = process.env.EXPORT_DIR || './exports';
@@ -290,28 +304,60 @@ export async function processExport(exportId: string, data: any): Promise<void> 
       throw new Error('WordPress site not found');
     }
 
+    // Fetch Instagram account data for events that have instagramAccountId
+    const instagramAccountIds = [...new Set(filteredEvents.filter(e => e.instagramAccountId).map(e => e.instagramAccountId!))];
+    const accounts = instagramAccountIds.length > 0
+      ? await db.select().from(instagramAccounts).where(inArray(instagramAccounts.id, instagramAccountIds))
+      : [];
+    const accountMap = new Map(accounts.map(a => [a.id, a]));
+
     // Upload to WordPress
     const client = new WordPressClient(wpSetting);
     const results = await client.uploadEvents(
-      events.map((e) => ({
-        id: e.sourceEventId
-          ? createHash('sha256').update(`${e.sourceId}:${e.sourceEventId}`).digest('hex').substring(0, 32)
-          : e.id, // Use hash of source+sourceEventId for stable deduplication across scrapes
-        title: e.title,
-        descriptionHtml: e.descriptionHtml || undefined,
-        startDatetime: e.startDatetime,
-        endDatetime: e.endDatetime || undefined,
-        timezone: e.timezone || undefined,
-        venueName: e.venueName || undefined,
-        venueAddress: e.venueAddress || undefined,
-        city: e.city || undefined,
-        organizer: e.organizer || undefined,
-        category: e.category || undefined,
-        url: e.url,
-        imageUrl: e.imageUrl || undefined,
-        raw: e.raw,
-        sourceId: e.sourceId,
-      })),
+      filteredEvents.map((e) => {
+        // Populate massPosterMeta.club for Instagram events
+        let raw: any = e.raw;
+        if (e.instagramAccountId) {
+          const account = accountMap.get(e.instagramAccountId);
+          if (account) {
+            const existingRaw = typeof e.raw === 'object' && e.raw !== null ? e.raw : {};
+            const existingMassPosterMeta = (existingRaw as any).massPosterMeta || {};
+            raw = {
+              ...existingRaw,
+              massPosterMeta: {
+                ...existingMassPosterMeta,
+                club: {
+                  id: account.id,
+                  name: account.name,
+                  username: account.instagramUsername,
+                  profileUrl: `https://instagram.com/${account.instagramUsername}`,
+                  platform: 'instagram',
+                },
+              },
+            };
+          }
+        }
+
+        return {
+          id: e.sourceEventId
+            ? createHash('sha256').update(`${e.sourceId}:${e.sourceEventId}`).digest('hex').substring(0, 32)
+            : e.id, // Use hash of source+sourceEventId for stable deduplication across scrapes
+          title: e.title,
+          descriptionHtml: e.descriptionHtml || undefined,
+          startDatetime: e.startDatetime,
+          endDatetime: e.endDatetime || undefined,
+          timezone: e.timezone || undefined,
+          venueName: e.venueName || undefined,
+          venueAddress: e.venueAddress || undefined,
+          city: e.city || undefined,
+          organizer: e.organizer || undefined,
+          category: e.category || undefined,
+          url: e.url,
+          imageUrl: e.imageUrl || undefined,
+          raw,
+          sourceId: e.sourceId,
+        };
+      }),
       {
         status: data.status || data.wpPostStatus || 'draft', // Prefer 'status', fallback to 'wpPostStatus' for backwards compatibility
         updateIfExists: false,
@@ -408,15 +454,15 @@ export async function processExport(exportId: string, data: any): Promise<void> 
 
     switch (data.format) {
       case 'csv':
-        content = generateCSV(events, data.fieldMap);
+        content = generateCSV(filteredEvents, data.fieldMap);
         filename = `export-${exportId}.csv`;
         break;
       case 'json':
-        content = generateJSON(events, data.fieldMap);
+        content = generateJSON(filteredEvents, data.fieldMap);
         filename = `export-${exportId}.json`;
         break;
       case 'ics':
-        content = generateICS(events);
+        content = generateICS(filteredEvents);
         filename = `export-${exportId}.ics`;
         break;
       default:
@@ -432,7 +478,7 @@ export async function processExport(exportId: string, data: any): Promise<void> 
       .update(exportsTable)
       .set({
         status: 'success',
-        itemCount: events.length,
+        itemCount: filteredEvents.length,
         filePath: filePath,
       })
       .where(eq(exportsTable.id, exportId));
