@@ -182,10 +182,10 @@ export async function saveEventWithOccurrences(
     organizer: event.organizer || null,
     category: event.category || null,
     price: event.price || null,
-    tags: event.tags ? JSON.stringify(event.tags) : null,
+    tags: event.tags ?? null,
     url_primary: event.url,
     image_url: event.imageUrl || null,
-    raw: JSON.stringify(event.raw),
+    raw: event.raw ?? {},
     content_hash: contentHash,
   };
 
@@ -286,7 +286,7 @@ export async function saveEventWithOccurrences(
       venue_address_override: null,
       event_status_override: null,
       status_reason_override: null,
-      raw: dateInfo.rawText ? JSON.stringify({ rawText: dateInfo.rawText }) : null,
+      raw: dateInfo.rawText ? { rawText: dateInfo.rawText } : null,
     };
 
     // Insert occurrence (or update last_seen_at if exists)
@@ -329,11 +329,11 @@ export async function saveToEventsRaw(
     organizer: event.organizer || null,
     category: event.category || null,
     price: event.price || null,
-    tags: event.tags ? JSON.stringify(event.tags) : null,
+    tags: event.tags ?? null,
     url: event.url,
     image_url: event.imageUrl || null,
     scraped_at: event.scrapedAt,
-    raw: JSON.stringify(event.raw),
+    raw: event.raw ?? {},
     content_hash: event.contentHash,
     last_seen_at: new Date(),
     series_id: seriesId,

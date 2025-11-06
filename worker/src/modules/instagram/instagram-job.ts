@@ -408,7 +408,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
             ) VALUES (
               ${INSTAGRAM_SOURCE_ID}, ${runId}, ${post.id}, ${baseTitle}, ${descriptionHtml},
               ${post.timestamp.toISOString()}, null, ${timezone}, ${postUrl}, ${post.imageUrl},
-              ${JSON.stringify(baseRawPayload)},
+              ${baseRawPayload},
               ${`instagram-post-${post.id}`},
               ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
               ${confidence}, ${isEventPoster}, ${runId}
@@ -521,7 +521,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                     ${event.tags || null},
                     ${post.permalink || `https://instagram.com/p/${post.id}/`},
                     ${post.imageUrl || null},
-                    ${JSON.stringify(rawData)},
+                    ${rawData},
                     ${`${post.id}-event-${eventIndex}`},
                     ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
                     ${confidence}, ${isEventPoster ?? true}

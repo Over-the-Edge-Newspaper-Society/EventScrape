@@ -3,7 +3,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../db/connection.js'
 import { eventsRaw, instagramAccounts, runs } from '../db/schema.js'
 import type { ApifyPost } from '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
@@ -198,6 +198,17 @@ export async function importInstagramPostsFromApify(
 
     const rawData = {
       ...post,
+      instagram: {
+        timestamp: timestamp.toISOString(),
+        postId: post.id,
+        caption: post.caption,
+        imageUrl: post.imageUrl,
+        permalink: post.permalink,
+        isVideo: post.isVideo || false,
+        scrapedAccount: username,
+        ownerUsername: post.ownerUsername || username,
+        isCollaborative: post.ownerUsername && post.ownerUsername !== username,
+      },
       _meta: {
         importedAt: new Date().toISOString(),
         apifyRunId: options.apifyRunId ?? null,
@@ -216,7 +227,7 @@ export async function importInstagramPostsFromApify(
       url: permalink,
       imageUrl: post.imageUrl,
       localImagePath,
-      raw: JSON.stringify(rawData),
+      raw: sql`${JSON.stringify(rawData)}::jsonb`,
       contentHash: post.id,
       instagramAccountId: account.id,
       instagramPostId: post.id,

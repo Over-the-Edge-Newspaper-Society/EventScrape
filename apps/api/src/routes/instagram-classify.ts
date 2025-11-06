@@ -3,6 +3,7 @@ import { eq, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, sources, instagramSettings } from '../db/schema.js';
 import path from 'path';
+import { parseEventRaw } from './instagram-review/raw-utils.js';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
 const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_images';
@@ -66,15 +67,16 @@ export const instagramClassifyRoutes: FastifyPluginAsync = async (fastify) => {
           }
 
           const fullImagePath = path.join(DOWNLOAD_DIR, post.localImagePath);
+          const parsedRaw = parseEventRaw(post.raw);
 
           let instagramTimestamp = post.scrapedAt;
-          try {
-            const existingRaw = post.raw ? JSON.parse(post.raw as string) : null;
-            if (existingRaw?.instagram?.timestamp) {
-              instagramTimestamp = new Date(existingRaw.instagram.timestamp);
+          const rawInstagramTimestamp =
+            (parsedRaw as { instagram?: { timestamp?: string } } | undefined)?.instagram?.timestamp;
+          if (rawInstagramTimestamp) {
+            const parsedTimestamp = new Date(rawInstagramTimestamp);
+            if (!Number.isNaN(parsedTimestamp.getTime())) {
+              instagramTimestamp = parsedTimestamp;
             }
-          } catch {
-            // ignore raw parsing errors
           }
 
           const classification = await classifyEventFromImageFile(
@@ -91,32 +93,34 @@ export const instagramClassifyRoutes: FastifyPluginAsync = async (fastify) => {
             classificationConfidence: classification.confidence ?? null,
           };
 
+          const classificationRecord = {
+            ...classification,
+            decidedAt: new Date().toISOString(),
+            method: 'gemini-backlog',
+          };
+
           try {
-            const existingRaw = post.raw ? JSON.parse(post.raw as string) : null;
-            const classificationRecord = {
-              ...classification,
-              decidedAt: new Date().toISOString(),
-              method: 'gemini-backlog',
+            const baseRaw: Record<string, unknown> =
+              parsedRaw && typeof parsedRaw === 'object'
+                ? { ...(parsedRaw as Record<string, unknown>) }
+                : {};
+
+            const existingClassification =
+              typeof baseRaw['classification'] === 'object' && baseRaw['classification'] !== null
+                ? { ...(baseRaw['classification'] as Record<string, unknown>) }
+                : {};
+
+            const mergedRaw = {
+              ...baseRaw,
+              classification: {
+                ...existingClassification,
+                gemini: classificationRecord,
+              },
             };
 
-            const mergedRaw =
-              existingRaw && typeof existingRaw === 'object'
-                ? {
-                    ...existingRaw,
-                    classification: {
-                      ...(existingRaw.classification || {}),
-                      gemini: classificationRecord,
-                    },
-                  }
-                : {
-                    classification: {
-                      gemini: classificationRecord,
-                    },
-                  };
-
-            updatePayload.raw = JSON.stringify(mergedRaw);
+            updatePayload.raw = mergedRaw;
           } catch {
-            // Leave raw untouched if parsing fails
+            // Leave raw untouched if merging fails for any unexpected reason
           }
 
           await db

@@ -505,28 +505,50 @@ export class EnhancedApifyClient {
     chunk.forEach(username => consecutiveKnown.set(username, 0));
 
     for (const item of items) {
-      const username = this.extractUsernameFromItem(item);
-      if (!username || !postsByUser.has(username)) continue;
+      const ownerUsername = this.extractUsernameFromItem(item);
+      const inputUrl = item.inputUrl || item.input_url;
 
-      const userPosts = postsByUser.get(username)!;
+      // Determine which scraped account this post belongs to
+      // For collaborative posts, associate with the account being scraped, not the owner
+      let targetUsername: string | undefined = undefined;
+
+      // Check if this post's input URL matches any of the accounts we're scraping
+      if (inputUrl) {
+        for (const username of chunk) {
+          if (inputUrl.includes(`/${username}/`) || inputUrl.includes(`/${username}`)) {
+            targetUsername = username;
+            break;
+          }
+        }
+      }
+
+      // If we couldn't determine from URL, use the owner username
+      if (!targetUsername) {
+        targetUsername = ownerUsername;
+      }
+
+      // Skip if we can't determine the account or it's not in our scrape list
+      if (!targetUsername || !postsByUser.has(targetUsername)) continue;
+
+      const userPosts = postsByUser.get(targetUsername)!;
       if (userPosts.length >= limitPerUsername) continue;
 
       const shortcode = item.shortCode || item.shortcode || item.id;
       if (!shortcode) continue;
 
-      // Check known posts
-      const knownIds = knownIdsMap.get(username);
+      // Check known posts for the target account
+      const knownIds = knownIdsMap.get(targetUsername);
       if (knownIds && knownIds.has(shortcode)) {
-        const count = (consecutiveKnown.get(username) || 0) + 1;
-        consecutiveKnown.set(username, count);
+        const count = (consecutiveKnown.get(targetUsername) || 0) + 1;
+        consecutiveKnown.set(targetUsername, count);
         if (count >= 2) continue; // Skip after 2 consecutive known
         continue;
       }
 
-      consecutiveKnown.set(username, 0);
+      consecutiveKnown.set(targetUsername, 0);
 
-      // Convert to post
-      const post = this.convertItemToPost(item, username);
+      // Convert to post, passing the target username (scraped account) not the owner
+      const post = this.convertItemToPost(item, targetUsername);
       if (post) {
         userPosts.push(post);
       }
