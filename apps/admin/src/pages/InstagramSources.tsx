@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   instagramApi,
@@ -83,6 +83,13 @@ export function InstagramSources() {
       return data.settings as InstagramSettings
     },
   })
+
+  // Update apifyRunLimit when settings are loaded
+  useEffect(() => {
+    if (settingsData?.apifyResultsLimit) {
+      setApifyRunLimit(settingsData.apifyResultsLimit)
+    }
+  }, [settingsData])
 
   const {
     isVisible: showScrapeProgress,
@@ -286,6 +293,9 @@ export function InstagramSources() {
       return
     }
     const previous = lastScrapeOptionsRef.current
+    // Use settings default if available, otherwise fall back to hardcoded default
+    const settingsDefaultPostLimit = settingsData?.apifyResultsLimit ?? 10
+
     const initialAccountLimit =
       previous?.accountLimit && previous.accountLimit > 0
         ? Math.min(previous.accountLimit, activeSources)
@@ -293,7 +303,9 @@ export function InstagramSources() {
     setScrapeOptions({
       accountLimit: initialAccountLimit,
       postsPerAccount:
-        previous?.postsPerAccount && previous.postsPerAccount > 0 ? previous.postsPerAccount : 10,
+        previous?.postsPerAccount && previous.postsPerAccount > 0
+          ? previous.postsPerAccount
+          : settingsDefaultPostLimit,
       batchSize: previous?.batchSize && previous.batchSize > 0 ? previous.batchSize : 8,
     })
     setConfirmScrapeAllOpen(true)

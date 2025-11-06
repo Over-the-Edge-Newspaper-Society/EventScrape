@@ -3,8 +3,9 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
-import { eq, inArray, sql } from 'drizzle-orm'
-import { db } from '../db/connection.js'
+import { eq, inArray } from 'drizzle-orm'
+import postgres from 'postgres'
+import { db, queryClient } from '../db/connection.js'
 import { eventsRaw, instagramAccounts, runs } from '../db/schema.js'
 import type { ApifyPost } from '../../../../worker/src/modules/instagram/enhanced-apify-client.js'
 import { INSTAGRAM_SOURCE_ID, DOWNLOAD_DIR as DEFAULT_DOWNLOAD_DIR } from '../routes/instagram-review/constants.js'
@@ -216,23 +217,20 @@ export async function importInstagramPostsFromApify(
       },
     }
 
-    await db.insert(eventsRaw).values({
-      sourceId: INSTAGRAM_SOURCE_ID,
-      runId: runRecord.id,
-      sourceEventId: post.id,
-      title: post.caption?.slice(0, 200) || 'Instagram Post',
-      descriptionHtml: post.caption || '',
-      startDatetime: timestamp,
-      timezone: account.defaultTimezone || 'America/Vancouver',
-      url: permalink,
-      imageUrl: post.imageUrl,
-      localImagePath,
-      raw: sql`${JSON.stringify(rawData)}::jsonb`,
-      contentHash: post.id,
-      instagramAccountId: account.id,
-      instagramPostId: post.id,
-      instagramCaption: post.caption,
-    })
+    // Use raw SQL to avoid Drizzle's JSONB double-encoding issue
+    await queryClient`
+      INSERT INTO events_raw (
+        source_id, run_id, source_event_id, title, description_html,
+        start_datetime, timezone, url, image_url, local_image_path,
+        raw, content_hash, instagram_account_id, instagram_post_id, instagram_caption
+      ) VALUES (
+        ${INSTAGRAM_SOURCE_ID}, ${runRecord.id}, ${post.id},
+        ${post.caption?.slice(0, 200) || 'Instagram Post'}, ${post.caption || ''},
+        ${timestamp}, ${account.defaultTimezone || 'America/Vancouver'},
+        ${permalink}, ${post.imageUrl || null}, ${localImagePath || null},
+        ${queryClient.json(rawData)}, ${post.id}, ${account.id}, ${post.id}, ${post.caption || null}
+      )
+    `
 
     stats.created++
   }

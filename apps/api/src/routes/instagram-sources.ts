@@ -41,7 +41,7 @@ const uploadSessionSchema = z.object({
 });
 
 const triggerSingleScrapeSchema = z.object({
-  postLimit: z.number().int().min(1).max(100).optional().default(10),
+  postLimit: z.number().int().min(1).max(100).optional(),
 });
 
 export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -200,7 +200,7 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for an account via Apify
   fastify.post('/:id/trigger', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { postLimit } = triggerSingleScrapeSchema.parse(request.body ?? {});
+    const body = triggerSingleScrapeSchema.parse(request.body ?? {});
 
     try {
       const [account] = await db
@@ -227,6 +227,9 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         reply.status(400);
         return { error: 'Apify API token not configured' };
       }
+
+      // Use postLimit from request body, or fall back to settings default
+      const postLimit = body.postLimit ?? settings.apifyResultsLimit ?? 10;
 
       const client = await createEnhancedApifyClient(
         settings.apifyApiToken,

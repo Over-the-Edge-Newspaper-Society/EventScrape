@@ -2,6 +2,7 @@ export interface InstagramSettings {
   defaultScraperType: 'apify' | 'instagram-private-api'
   allowPerAccountOverride: boolean
   autoClassifyWithAi?: boolean
+  apifyResultsLimit?: number
 }
 
 export interface InstagramScrapeOptions {

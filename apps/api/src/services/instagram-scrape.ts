@@ -1,7 +1,7 @@
 import { eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, queryClient } from '../db/connection.js';
-import { instagramAccounts, runs } from '../db/schema.js';
+import { instagramAccounts, runs, instagramSettings } from '../db/schema.js';
 import type { InstagramAccount } from '../db/schema.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -14,6 +14,7 @@ import {
 } from '../queue/queue.js';
 
 const INSTAGRAM_SOURCE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
 
 type RunMetadata = Record<string, unknown>;
 
@@ -100,8 +101,25 @@ export interface InstagramScheduleTriggerOptions extends TriggerInstagramScrapeO
   scheduleId?: string;
 }
 
-function normalizeScrapeOptions(options: TriggerInstagramScrapeOptions = {}): NormalizedScrapeOptions {
-  const postLimit = Math.min(Math.max(options.postLimit ?? 10, 1), 100);
+async function getInstagramSettings() {
+  const [settings] = await db
+    .select()
+    .from(instagramSettings)
+    .where(eq(instagramSettings.id, SETTINGS_ID));
+
+  return settings;
+}
+
+async function normalizeScrapeOptions(options: TriggerInstagramScrapeOptions = {}): Promise<NormalizedScrapeOptions> {
+  let defaultPostLimit = 10;
+
+  // Fetch default from settings if postLimit is not provided
+  if (options.postLimit === undefined) {
+    const settings = await getInstagramSettings();
+    defaultPostLimit = settings?.apifyResultsLimit ?? 10;
+  }
+
+  const postLimit = Math.min(Math.max(options.postLimit ?? defaultPostLimit, 1), 100);
   const batchSize = options.batchSize ? Math.min(Math.max(options.batchSize, 1), 25) : undefined;
   const accountLimit =
     options.accountLimit && options.accountLimit > 0 ? Math.max(1, Math.floor(options.accountLimit)) : undefined;
@@ -118,7 +136,7 @@ async function triggerInstagramScrapesForAccounts(
     throw new NoActiveInstagramAccountsError();
   }
 
-  const normalized = normalizeScrapeOptions(options);
+  const normalized = await normalizeScrapeOptions(options);
   const effectiveAccountLimit = normalized.accountLimit
     ? Math.min(normalized.accountLimit, accounts.length)
     : accounts.length;
