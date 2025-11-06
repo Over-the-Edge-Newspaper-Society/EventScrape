@@ -466,9 +466,6 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
                 const endDateTimeLocal = event.endDate ? `${event.endDate}T${event.endTime || '23:59:59'}` : null;
 
                 // Convert to UTC by parsing as local time in the specified timezone
-                // Use toLocaleString to get UTC representation
-                const startDateTime = new Date(new Date(startDateTimeLocal).toLocaleString('en-US', { timeZone: timezone }));
-                // Adjust: the above gives us local interpretation, we need to calculate UTC offset
                 // Better approach: use explicit timezone offset calculation
                 const startLocalDate = new Date(startDateTimeLocal);
                 const startUtcDate = new Date(startLocalDate.toLocaleString('en-US', { timeZone: 'UTC' }));
