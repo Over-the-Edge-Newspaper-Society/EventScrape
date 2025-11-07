@@ -20,6 +20,35 @@ import {
 const BACKUP_DIR = process.env.BACKUP_DIR || '/data/backups';
 const IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
 
+function synthesizeRunsFromEvents(events: any[]) {
+  const fallbackRuns = new Map<string, any>();
+  const nowIso = new Date().toISOString();
+
+  for (const event of events ?? []) {
+    const ensureRun = (maybeRunId?: string | null) => {
+      if (!maybeRunId || fallbackRuns.has(maybeRunId)) return;
+      const timestamp = event?.scrapedAt ?? event?.startDatetime ?? nowIso;
+      fallbackRuns.set(maybeRunId, {
+        id: maybeRunId,
+        sourceId: event?.sourceId,
+        startedAt: timestamp,
+        finishedAt: event?.scrapedAt ?? event?.endDatetime ?? null,
+        status: 'success',
+        pagesCrawled: 0,
+        eventsFound: 0,
+        errorsJsonb: null,
+        parentRunId: null,
+        metadata: null,
+      });
+    };
+
+    ensureRun(event?.runId);
+    ensureRun(event?.lastUpdatedByRunId);
+  }
+
+  return Array.from(fallbackRuns.values());
+}
+
 export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-images/:filename - Serve Instagram images
   fastify.get('/instagram-images/:filename', async (request, reply) => {
@@ -82,6 +111,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
       archive.append(JSON.stringify(instagramData.sources, null, 2), { name: 'sources.json' });
       archive.append(JSON.stringify(instagramData.accounts, null, 2), { name: 'accounts.json' });
       archive.append(JSON.stringify(instagramData.sessions, null, 2), { name: 'sessions.json' });
+      archive.append(JSON.stringify(instagramData.runs, null, 2), { name: 'runs.json' });
       archive.append(JSON.stringify(instagramData.events, null, 2), { name: 'events.json' });
 
       // Add Instagram images directory (optional)
@@ -252,10 +282,34 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.log.info('No accounts.json found, skipping Instagram accounts restore');
       }
 
+      let runsJson = '[]';
+      let runsFileMissing = false;
+      try {
+        runsJson = await fs.readFile(path.join(extractDir, 'runs.json'), 'utf-8');
+      } catch {
+        runsFileMissing = true;
+      }
+
       const sourcesData = JSON.parse(sourcesJson);
       const accountsData = JSON.parse(accountsJson);
       const sessionsData = JSON.parse(sessionsJson);
       const eventsData = JSON.parse(eventsJson);
+      let runsData: any[] = [];
+      try {
+        runsData = JSON.parse(runsJson);
+      } catch {
+        runsData = [];
+      }
+
+      if ((runsFileMissing || runsData.length === 0) && eventsData.length > 0) {
+        runsData = synthesizeRunsFromEvents(eventsData);
+        if (runsData.length > 0) {
+          fastify.log.warn(
+            { synthesizedRuns: runsData.length },
+            'runs.json missing from Instagram backup; synthesized fallback runs',
+          );
+        }
+      }
 
       fastify.log.info('Clearing existing Instagram data before restore...');
       await clearInstagramData();
@@ -263,6 +317,7 @@ export const instagramBackupRoutes: FastifyPluginAsync = async (fastify) => {
         sources: sourcesData,
         accounts: accountsData,
         sessions: sessionsData,
+        runs: runsData,
         events: eventsData,
       });
 
