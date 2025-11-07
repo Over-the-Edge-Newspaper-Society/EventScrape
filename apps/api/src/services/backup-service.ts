@@ -11,7 +11,7 @@ import {
   runs,
   sources,
 } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
 
@@ -32,6 +32,7 @@ export interface InstagramDataExport {
   sources: any[];
   accounts: any[];
   sessions: any[];
+  runs: any[];
   events: any[];
 }
 
@@ -39,6 +40,7 @@ export interface InstagramRestoreResult {
   sourcesCreated: number;
   accountsCreated: number;
   sessionsCreated: number;
+  runsCreated: number;
   eventsCreated: number;
   imagesRestored: number;
 }
@@ -115,6 +117,14 @@ export async function fetchInstagramData(): Promise<InstagramDataExport> {
 
   const accountsData = await db.select().from(instagramAccounts);
   const sessionsData = await db.select().from(instagramSessions);
+  const instagramSourceIds = sourcesData.map((source) => source.id);
+  let runsData: any[] = [];
+  if (instagramSourceIds.length > 0) {
+    runsData = await db
+      .select()
+      .from(runs)
+      .where(inArray(runs.sourceId, instagramSourceIds));
+  }
   const eventsData = await db
     .select()
     .from(eventsRaw)
@@ -124,6 +134,7 @@ export async function fetchInstagramData(): Promise<InstagramDataExport> {
     sources: sourcesData,
     accounts: accountsData,
     sessions: sessionsData,
+    runs: runsData,
     events: eventsData,
   };
 }
@@ -156,13 +167,13 @@ export async function restoreInstagramData(
     sourcesCreated: 0,
     accountsCreated: 0,
     sessionsCreated: 0,
+    runsCreated: 0,
     eventsCreated: 0,
   };
 
   for (const source of data.sources) {
     try {
-      const { id, ...sourceWithoutId } = source;
-      await db.insert(sources).values(sourceWithoutId);
+      await db.insert(sources).values(source);
       results.sourcesCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore source ${source.name}:`, error.message);
@@ -171,8 +182,7 @@ export async function restoreInstagramData(
 
   for (const account of data.accounts) {
     try {
-      const { id, ...accountWithoutId } = account;
-      await db.insert(instagramAccounts).values(accountWithoutId);
+      await db.insert(instagramAccounts).values(account);
       results.accountsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore Instagram account ${account.instagramUsername}:`, error.message);
@@ -181,18 +191,25 @@ export async function restoreInstagramData(
 
   for (const session of data.sessions) {
     try {
-      const { id, ...sessionWithoutId } = session;
-      await db.insert(instagramSessions).values(sessionWithoutId);
+      await db.insert(instagramSessions).values(session);
       results.sessionsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore session ${session.username}:`, error.message);
     }
   }
 
+  for (const run of data.runs ?? []) {
+    try {
+      await db.insert(runs).values(run);
+      results.runsCreated++;
+    } catch (error: any) {
+      console.warn(`Failed to restore run ${run.id}:`, error.message);
+    }
+  }
+
   for (const event of data.events) {
     try {
-      const { id, ...eventWithoutId } = event;
-      await db.insert(eventsRaw).values(eventWithoutId);
+      await db.insert(eventsRaw).values(event);
       results.eventsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore event ${event.instagramPostId || event.id}:`, error.message);
