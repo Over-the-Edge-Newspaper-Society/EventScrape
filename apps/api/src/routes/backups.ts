@@ -302,11 +302,17 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
         return 'value' in field ? String(field.value) : undefined;
       };
 
+      const parseBooleanField = (value: string | undefined): boolean => {
+        if (!value) return false;
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === '1' || normalized === 'on';
+      };
+
       fastify.log.info({ fieldsRaw }, 'Import request fields');
 
-      const applyDatabase = getFieldValue(fieldsRaw.applyDatabase) === 'true';
-      const applyInstagramData = getFieldValue(fieldsRaw.applyInstagramData) === 'true';
-      const applyImages = getFieldValue(fieldsRaw.applyImages) === 'true';
+      const applyDatabase = parseBooleanField(getFieldValue(fieldsRaw.applyDatabase));
+      const applyInstagramData = parseBooleanField(getFieldValue(fieldsRaw.applyInstagramData));
+      const applyImages = parseBooleanField(getFieldValue(fieldsRaw.applyImages));
 
       fastify.log.info({ applyDatabase, applyInstagramData, applyImages }, 'Parsed import options');
 
