@@ -16,9 +16,11 @@ type InstagramReviewQueueProps = {
   onMarkAsNotEvent: (postId: string) => void
   onAiClassify: (postId: string) => void
   onExtract: (postId: string, overwrite?: boolean) => void
+  onDelete: (postId: string) => void
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
+  isDeletePending: boolean
   onPrevPage: () => void
   onNextPage: () => void
 }
@@ -32,9 +34,11 @@ export function InstagramReviewQueue({
   onMarkAsNotEvent,
   onAiClassify,
   onExtract,
+  onDelete,
   isClassifyPending,
   isAiClassifyPending,
   isExtractPending,
+  isDeletePending,
   onPrevPage,
   onNextPage,
 }: InstagramReviewQueueProps) {
@@ -144,10 +148,12 @@ export function InstagramReviewQueue({
             isClassifyPending={isClassifyPending}
             isAiClassifyPending={isAiClassifyPending}
             isExtractPending={isExtractPending}
+            isDeletePending={isDeletePending}
             onMarkAsEvent={onMarkAsEvent}
             onMarkAsNotEvent={onMarkAsNotEvent}
             onAiClassify={onAiClassify}
             onExtract={onExtract}
+            onDelete={onDelete}
           />
         ))}
       </div>

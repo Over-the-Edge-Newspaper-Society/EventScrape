@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { eq, desc, and, gte, lte, ilike, sql, inArray, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { eventsRaw, eventsCanonical, sources, matches, instagramAccounts } from '../db/schema.js';
+import { unlink } from 'fs/promises';
+import { join } from 'path';
 
 const querySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -371,14 +373,21 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
   // Delete single raw event by ID
   fastify.delete('/raw/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    
+
     if (!id || typeof id !== 'string') {
       reply.status(400);
       return { error: 'Invalid event ID' };
     }
 
     try {
-      // First, delete any matches that reference this event
+      // First, fetch the event to get the image path
+      const [event] = await db
+        .select()
+        .from(eventsRaw)
+        .where(eq(eventsRaw.id, id))
+        .limit(1);
+
+      // Delete any matches that reference this event
       await db
         .delete(matches)
         .where(
@@ -388,10 +397,25 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
           )
         );
 
-      // Then delete the event itself
+      // Delete the event from the database
       await db
         .delete(eventsRaw)
         .where(eq(eventsRaw.id, id));
+
+      // Delete the associated image file if it exists
+      if (event?.localImagePath) {
+        const IMAGES_DIR = process.env.INSTAGRAM_IMAGES_DIR || '/data/instagram_images';
+        const imagePath = join(IMAGES_DIR, event.localImagePath);
+        try {
+          await unlink(imagePath);
+          fastify.log.info(`Deleted image file: ${imagePath}`);
+        } catch (err: any) {
+          // Log but don't fail the deletion if image file doesn't exist
+          if (err.code !== 'ENOENT') {
+            fastify.log.warn(`Failed to delete image file ${imagePath}:`, err.message);
+          }
+        }
+      }
 
       return { message: 'Event deleted successfully', deletedId: id };
     } catch (error: any) {

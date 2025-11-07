@@ -13,10 +13,12 @@ type InstagramReviewGroupProps = {
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
+  isDeletePending: boolean
   onMarkAsEvent: (postId: string) => void
   onMarkAsNotEvent: (postId: string) => void
   onAiClassify: (postId: string) => void
   onExtract: (postId: string, overwrite?: boolean) => void
+  onDelete: (postId: string) => void
 }
 
 export function InstagramReviewGroup({
@@ -29,10 +31,12 @@ export function InstagramReviewGroup({
   isAiClassifyPending,
   isClassifyPending,
   isExtractPending,
+  isDeletePending,
   onAiClassify,
   onExtract,
   onMarkAsEvent,
   onMarkAsNotEvent,
+  onDelete,
 }: InstagramReviewGroupProps) {
   const displayMatchesHandle =
     accountUsername &&
@@ -88,10 +92,12 @@ export function InstagramReviewGroup({
               isAiClassifyPending={isAiClassifyPending}
               isClassifyPending={isClassifyPending}
               isExtractPending={isExtractPending}
+              isDeletePending={isDeletePending}
               onAiClassify={onAiClassify}
               onExtract={onExtract}
               onMarkAsEvent={onMarkAsEvent}
               onMarkAsNotEvent={onMarkAsNotEvent}
+              onDelete={onDelete}
             />
           )
         })}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,21 @@ function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'c
     notes: source?.notes || '',
     rateLimitPerMin: source?.rateLimitPerMin || 60,
   })
+
+  // Update form data when source prop changes
+  useEffect(() => {
+    if (source) {
+      setFormData({
+        name: source.name || '',
+        baseUrl: source.baseUrl || '',
+        moduleKey: source.moduleKey || '',
+        active: source.active ?? true,
+        defaultTimezone: source.defaultTimezone || 'America/Vancouver',
+        notes: source.notes || '',
+        rateLimitPerMin: source.rateLimitPerMin || 60,
+      })
+    }
+  }, [source])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

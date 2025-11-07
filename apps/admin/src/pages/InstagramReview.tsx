@@ -4,7 +4,7 @@ import { InstagramReviewFilterTabs } from '@/components/instagram/InstagramRevie
 import { InstagramReviewQueue } from '@/components/instagram/InstagramReviewQueue'
 import type { InstagramReviewFilter } from '@/components/instagram/types'
 import { InstagramReviewStatsCard } from '@/components/instagram/InstagramReviewStatsCard'
-import { instagramReviewApi } from '@/lib/api'
+import { instagramReviewApi, eventsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
@@ -154,6 +154,22 @@ export function InstagramReview() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => eventsApi.deleteRaw(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
+      toast.success('Post deleted successfully', {
+        description: 'Post and associated image have been removed',
+      })
+    },
+    onError: (error: any) => {
+      toast.error('Failed to delete post', {
+        description: error?.message || 'Unknown error',
+      })
+    },
+  })
+
   const handleMarkAsEvent = (postId: string) => {
     classifyMutation.mutate({ id: postId, isEventPoster: true })
   }
@@ -168,6 +184,12 @@ export function InstagramReview() {
 
   const handleExtract = (postId: string, overwrite: boolean = false) => {
     extractMutation.mutate({ id: postId, overwrite })
+  }
+
+  const handleDelete = (postId: string) => {
+    if (confirm('Are you sure you want to delete this post? This will remove the post data and associated image file.')) {
+      deleteMutation.mutate(postId)
+    }
   }
 
   const handleFilterChange = (newFilter: InstagramReviewFilter) => {
@@ -273,9 +295,11 @@ export function InstagramReview() {
           onMarkAsNotEvent={handleMarkAsNotEvent}
           onAiClassify={handleAiClassify}
           onExtract={handleExtract}
+          onDelete={handleDelete}
           isClassifyPending={classifyMutation.isPending}
           isAiClassifyPending={aiClassifyMutation.isPending}
           isExtractPending={extractMutation.isPending}
+          isDeletePending={deleteMutation.isPending}
           onPrevPage={() => setPage((current) => Math.max(1, current - 1))}
           onNextPage={() => setPage((current) => current + 1)}
         />

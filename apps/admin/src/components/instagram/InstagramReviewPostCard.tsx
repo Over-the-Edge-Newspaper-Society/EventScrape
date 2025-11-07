@@ -16,6 +16,7 @@ import {
   Loader2,
   MapPin,
   Sparkles,
+  Trash2,
   XCircle,
 } from 'lucide-react'
 
@@ -27,10 +28,12 @@ type InstagramReviewPostCardProps = {
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
+  isDeletePending: boolean
   onMarkAsEvent: (postId: string) => void
   onMarkAsNotEvent: (postId: string) => void
   onAiClassify: (postId: string) => void
   onExtract: (postId: string, overwrite?: boolean) => void
+  onDelete: (postId: string) => void
 }
 
 export function InstagramReviewPostCard({
@@ -41,10 +44,12 @@ export function InstagramReviewPostCard({
   isClassifyPending,
   isAiClassifyPending,
   isExtractPending,
+  isDeletePending,
   onMarkAsEvent,
   onMarkAsNotEvent,
   onAiClassify,
   onExtract,
+  onDelete,
 }: InstagramReviewPostCardProps) {
   const { event } = item
   const parsedRaw = parseEventRaw(event.raw)
@@ -89,6 +94,20 @@ export function InstagramReviewPostCard({
               )}
             </div>
           </div>
+          <Button
+            onClick={() => onDelete(event.id)}
+            disabled={isDeletePending}
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-destructive"
+            title="Delete post and image"
+          >
+            {isDeletePending ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Trash2 className="h-5 w-5" />
+            )}
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
