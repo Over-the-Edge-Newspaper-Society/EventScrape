@@ -87,8 +87,34 @@ CMD ["serve", "-s", "dist", "-l", "3000"]
 FROM base AS worker
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_HEADLESS=true
+# Install only the libraries Playwright needs instead of the huge --with-deps bundle
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      fonts-liberation \
+      libasound2 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libatspi2.0-0 \
+      libcairo2 \
+      libcups2 \
+      libdbus-1-3 \
+      libdrm2 \
+      libgbm1 \
+      libgtk-3-0 \
+      libnss3 \
+      libx11-6 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxrandr2 \
+      libxshmfence1 \
+      libxss1 \
+      libxtst6 \
+    && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
-    && pnpm exec playwright install --with-deps \
+    && pnpm exec playwright install chromium \
     && pnpm --filter @eventscrape/worker build \
     && test -f worker/dist/worker.js
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape \
