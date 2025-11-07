@@ -33,6 +33,7 @@ interface Manifest {
     instagramSources?: number;
     instagramAccounts?: number;
     instagramSessions?: number;
+    instagramRuns?: number;
     instagramEvents?: number;
     instagramImages?: number;
   };
@@ -40,6 +41,35 @@ interface Manifest {
 
 function manifestFilename(bundleFilename: string) {
   return bundleFilename.replace(/\.zip$/, '.json');
+}
+
+function synthesizeRunsFromEvents(events: any[]) {
+  const fallbackRuns = new Map<string, any>();
+  const nowIso = new Date().toISOString();
+
+  for (const event of events) {
+    const ensureRun = (maybeRunId?: string | null) => {
+      if (!maybeRunId || fallbackRuns.has(maybeRunId)) return;
+      const timestamp = event?.scrapedAt ?? event?.startDatetime ?? nowIso;
+      fallbackRuns.set(maybeRunId, {
+        id: maybeRunId,
+        sourceId: event?.sourceId,
+        startedAt: timestamp,
+        finishedAt: event?.scrapedAt ?? event?.endDatetime ?? null,
+        status: 'success',
+        pagesCrawled: 0,
+        eventsFound: 0,
+        errorsJsonb: null,
+        parentRunId: null,
+        metadata: null,
+      });
+    };
+
+    ensureRun(event?.runId);
+    ensureRun(event?.lastUpdatedByRunId);
+  }
+
+  return Array.from(fallbackRuns.values());
 }
 
 export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
@@ -100,6 +130,7 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
           manifest.counts.instagramSources = data.sources.length;
           manifest.counts.instagramAccounts = data.accounts.length;
           manifest.counts.instagramSessions = data.sessions.length;
+          manifest.counts.instagramRuns = data.runs.length;
           manifest.counts.instagramEvents = data.events.length;
 
           const instagramDir = join(tempRoot, 'instagram');
@@ -107,6 +138,7 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
           await fs.writeFile(join(instagramDir, 'sources.json'), JSON.stringify(data.sources, null, 2));
           await fs.writeFile(join(instagramDir, 'accounts.json'), JSON.stringify(data.accounts, null, 2));
           await fs.writeFile(join(instagramDir, 'sessions.json'), JSON.stringify(data.sessions, null, 2));
+          await fs.writeFile(join(instagramDir, 'runs.json'), JSON.stringify(data.runs, null, 2));
           await fs.writeFile(join(instagramDir, 'events.json'), JSON.stringify(data.events, null, 2));
         }
 
@@ -347,12 +379,43 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
           // accounts.json is optional
         }
 
+        let runsJson = '[]';
+        let runsFileMissing = false;
+        try {
+          runsJson = await fs.readFile(join(instagramDir, 'runs.json'), 'utf-8');
+        } catch {
+          runsFileMissing = true;
+        }
+
+        const sourcesData = JSON.parse(sourcesJson);
+        const sessionsData = JSON.parse(sessionsJson);
+        const eventsData = JSON.parse(eventsJson);
+        const accountsData = JSON.parse(accountsJson);
+        let runsData: any[] = [];
+        try {
+          runsData = JSON.parse(runsJson);
+        } catch {
+          runsData = [];
+        }
+
+        if ((runsFileMissing || runsData.length === 0) && eventsData.length > 0) {
+          const synthesizedRuns = synthesizeRunsFromEvents(eventsData);
+          if (synthesizedRuns.length > 0) {
+            fastify.log.warn(
+              { synthesizedRuns: synthesizedRuns.length },
+              'runs.json missing from bundle; synthesized fallback run records',
+            );
+            runsData = synthesizedRuns;
+          }
+        }
+
         await clearInstagramData();
         const restoreResults = await restoreInstagramData({
-          sources: JSON.parse(sourcesJson),
-          accounts: JSON.parse(accountsJson),
-          sessions: JSON.parse(sessionsJson),
-          events: JSON.parse(eventsJson),
+          sources: sourcesData,
+          accounts: accountsData,
+          sessions: sessionsData,
+          runs: runsData,
+          events: eventsData,
         });
 
         response.restored.instagramData = true;
