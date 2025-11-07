@@ -1,8 +1,9 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { existsSync } from 'fs';
 import fs from 'fs/promises';
+import { readdir } from 'fs/promises';
 import { db } from '../db/connection.js';
 import {
   eventsRaw,
@@ -14,6 +15,29 @@ import {
 import { eq, inArray } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
+
+// Helper function to load available module keys
+async function getAvailableModuleKeys(): Promise<Set<string>> {
+  const moduleKeys = new Set<string>();
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const modulesPath = isProduction
+    ? resolve(process.cwd(), 'apps/api/dist/worker/src/modules')
+    : resolve(process.cwd(), '../../worker/src/modules');
+
+  try {
+    const entries = await readdir(modulesPath, { withFileTypes: true });
+    const moduleDirs = entries.filter(entry => entry.isDirectory());
+
+    for (const dir of moduleDirs) {
+      moduleKeys.add(dir.name);
+    }
+  } catch (error: any) {
+    console.warn('[getAvailableModuleKeys] Failed to read modules directory:', error.message);
+  }
+
+  return moduleKeys;
+}
 
 export interface ParsedDatabaseConfig {
   user: string;
@@ -171,10 +195,33 @@ export async function restoreInstagramData(
     eventsCreated: 0,
   };
 
+  // Load available modules to validate sources
+  const availableModules = await getAvailableModuleKeys();
+
   for (const source of data.sources) {
     try {
-      await db.insert(sources).values(source);
+      // Check if module exists
+      const moduleExists = availableModules.has(source.moduleKey);
+
+      // Convert date strings back to Date objects
+      const sourceData = {
+        ...source,
+        // Deactivate source if module doesn't exist
+        active: moduleExists ? source.active : false,
+        // Add note if module is missing
+        notes: !moduleExists
+          ? (source.notes ? `${source.notes} (Module unavailable in current installation)` : 'Module unavailable in current installation')
+          : source.notes,
+        lastChecked: source.lastChecked ? new Date(source.lastChecked) : source.lastChecked,
+        createdAt: source.createdAt ? new Date(source.createdAt) : source.createdAt,
+        updatedAt: source.updatedAt ? new Date(source.updatedAt) : source.updatedAt,
+      };
+      await db.insert(sources).values(sourceData);
       results.sourcesCreated++;
+
+      if (!moduleExists) {
+        console.warn(`Restored source '${source.name}' as inactive - module '${source.moduleKey}' not found`);
+      }
     } catch (error: any) {
       console.warn(`Failed to restore source ${source.name}:`, error.message);
     }
@@ -182,7 +229,14 @@ export async function restoreInstagramData(
 
   for (const account of data.accounts) {
     try {
-      await db.insert(instagramAccounts).values(account);
+      // Convert date strings back to Date objects
+      const accountData = {
+        ...account,
+        lastChecked: account.lastChecked ? new Date(account.lastChecked) : account.lastChecked,
+        createdAt: account.createdAt ? new Date(account.createdAt) : account.createdAt,
+        updatedAt: account.updatedAt ? new Date(account.updatedAt) : account.updatedAt,
+      };
+      await db.insert(instagramAccounts).values(accountData);
       results.accountsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore Instagram account ${account.instagramUsername}:`, error.message);
@@ -191,7 +245,14 @@ export async function restoreInstagramData(
 
   for (const session of data.sessions) {
     try {
-      await db.insert(instagramSessions).values(session);
+      // Convert date strings back to Date objects
+      const sessionData = {
+        ...session,
+        uploadedAt: session.uploadedAt ? new Date(session.uploadedAt) : session.uploadedAt,
+        expiresAt: session.expiresAt ? new Date(session.expiresAt) : session.expiresAt,
+        lastUsedAt: session.lastUsedAt ? new Date(session.lastUsedAt) : session.lastUsedAt,
+      };
+      await db.insert(instagramSessions).values(sessionData);
       results.sessionsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore session ${session.username}:`, error.message);
@@ -200,7 +261,13 @@ export async function restoreInstagramData(
 
   for (const run of data.runs ?? []) {
     try {
-      await db.insert(runs).values(run);
+      // Convert date strings back to Date objects
+      const runData = {
+        ...run,
+        startedAt: run.startedAt ? new Date(run.startedAt) : run.startedAt,
+        finishedAt: run.finishedAt ? new Date(run.finishedAt) : run.finishedAt,
+      };
+      await db.insert(runs).values(runData);
       results.runsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore run ${run.id}:`, error.message);
@@ -209,7 +276,15 @@ export async function restoreInstagramData(
 
   for (const event of data.events) {
     try {
-      await db.insert(eventsRaw).values(event);
+      // Convert date strings back to Date objects
+      const eventData = {
+        ...event,
+        startDatetime: event.startDatetime ? new Date(event.startDatetime) : event.startDatetime,
+        endDatetime: event.endDatetime ? new Date(event.endDatetime) : event.endDatetime,
+        scrapedAt: event.scrapedAt ? new Date(event.scrapedAt) : event.scrapedAt,
+        lastSeenAt: event.lastSeenAt ? new Date(event.lastSeenAt) : event.lastSeenAt,
+      };
+      await db.insert(eventsRaw).values(eventData);
       results.eventsCreated++;
     } catch (error: any) {
       console.warn(`Failed to restore event ${event.instagramPostId || event.id}:`, error.message);

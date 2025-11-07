@@ -102,10 +102,11 @@ export function Settings() {
       applyImages: boolean
     }) => {
       const formData = new FormData()
-      formData.append('file', payload.file)
+      // Fields must come before file for @fastify/multipart to parse them correctly
       formData.append('applyDatabase', String(payload.applyDatabase))
       formData.append('applyInstagramData', String(payload.applyInstagramData))
       formData.append('applyImages', String(payload.applyImages))
+      formData.append('file', payload.file)
 
       const res = await fetch(`${API_BASE_URL}/backups/import`, {
         method: 'POST',
