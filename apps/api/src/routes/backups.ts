@@ -296,10 +296,29 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
 
       const getFieldValue = (field: any): string | undefined => {
         if (!field) return undefined;
-        if (Array.isArray(field)) return undefined;
-        // Handle both {value: "..."} and direct string values
-        if (typeof field === 'string') return field;
-        return 'value' in field ? String(field.value) : undefined;
+        const entry = Array.isArray(field) ? field[0] : field;
+        if (entry == null) return undefined;
+
+        if (typeof entry === 'string') {
+          return entry;
+        }
+
+        if (typeof entry === 'object' && 'value' in entry) {
+          const value = entry.value;
+          if (typeof value === 'string') {
+            return value;
+          }
+          if (Buffer.isBuffer(value)) {
+            return value.toString();
+          }
+          return value != null ? String(value) : undefined;
+        }
+
+        if (typeof entry === 'boolean' || typeof entry === 'number') {
+          return String(entry);
+        }
+
+        return undefined;
       };
 
       const parseBooleanField = (value: string | undefined): boolean => {
