@@ -70,7 +70,12 @@ async function loadAvailableModules(): Promise<Array<{key: string, label: string
     }
   } catch (error: any) {
     console.error('[loadAvailableModules] Failed to read modules directory:', error);
-    throw error; // Re-throw so the sync endpoint can handle it properly
+    console.error('[loadAvailableModules] Error details:', {
+      message: error.message,
+      code: error.code,
+      path: modulesPath
+    });
+    // Don't throw - return empty array and let sync endpoint handle it
   }
 
   console.log(`[loadAvailableModules] Returning ${modules.length} modules`);
