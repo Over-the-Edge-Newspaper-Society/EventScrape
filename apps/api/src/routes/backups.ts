@@ -265,12 +265,18 @@ export const backupBundleRoutes: FastifyPluginAsync = async (fastify) => {
       const getFieldValue = (field: any): string | undefined => {
         if (!field) return undefined;
         if (Array.isArray(field)) return undefined;
-        return 'value' in field ? field.value : undefined;
+        // Handle both {value: "..."} and direct string values
+        if (typeof field === 'string') return field;
+        return 'value' in field ? String(field.value) : undefined;
       };
+
+      fastify.log.info({ fieldsRaw }, 'Import request fields');
 
       const applyDatabase = getFieldValue(fieldsRaw.applyDatabase) === 'true';
       const applyInstagramData = getFieldValue(fieldsRaw.applyInstagramData) === 'true';
       const applyImages = getFieldValue(fieldsRaw.applyImages) === 'true';
+
+      fastify.log.info({ applyDatabase, applyInstagramData, applyImages }, 'Parsed import options');
 
       const options = importOptionsSchema.parse({
         applyDatabase,
