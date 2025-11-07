@@ -28,9 +28,12 @@ async function loadAvailableModules(): Promise<Array<{key: string, label: string
     ? resolve(process.cwd(), 'apps/api/dist/worker/src/modules')
     : resolve(process.cwd(), '../../worker/src/modules');
 
+  console.log(`[loadAvailableModules] NODE_ENV=${process.env.NODE_ENV}, isProduction=${isProduction}, modulesPath=${modulesPath}, cwd=${process.cwd()}`);
+
   try {
     const entries = await readdir(modulesPath, { withFileTypes: true });
     const moduleDirs = entries.filter(entry => entry.isDirectory());
+    console.log(`[loadAvailableModules] Found ${moduleDirs.length} module directories:`, moduleDirs.map(d => d.name));
 
     for (const dir of moduleDirs) {
       try {
@@ -66,9 +69,11 @@ async function loadAvailableModules(): Promise<Array<{key: string, label: string
       }
     }
   } catch (error: any) {
-    console.error('Failed to read modules directory:', error);
+    console.error('[loadAvailableModules] Failed to read modules directory:', error);
+    throw error; // Re-throw so the sync endpoint can handle it properly
   }
-  
+
+  console.log(`[loadAvailableModules] Returning ${modules.length} modules`);
   return modules;
 }
 
@@ -82,8 +87,11 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
   // Sync available modules with database
   fastify.post('/sync', async (_, reply) => {
     try {
+      fastify.log.info('[/sync] Starting sync process...');
       const availableModules = await loadAvailableModules();
+      fastify.log.info(`[/sync] Loaded ${availableModules.length} available modules`);
       const existingSources = await db.select().from(sources);
+      fastify.log.info(`[/sync] Found ${existingSources.length} existing sources`);
       
       let created = 0;
       let updated = 0;
