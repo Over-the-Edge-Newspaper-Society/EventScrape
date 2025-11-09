@@ -17,24 +17,27 @@ export function InstagramReviewFilterTabs({
     onChange(nextValue as InstagramReviewFilter)
   }
 
+  const tabs = [
+    { value: 'pending', label: 'Pending Review', count: stats?.unclassified },
+    { value: 'event', label: 'Marked as Event', count: stats?.markedAsEvent },
+    { value: 'not-event', label: 'Not Event', count: stats?.markedAsNotEvent },
+    { value: 'needs-extraction', label: 'Needs Extraction', count: stats?.needsExtraction },
+    { value: 'all', label: 'All', count: stats?.total },
+  ] as const
+
   return (
     <Tabs value={value} onValueChange={handleValueChange}>
-      <TabsList className="grid w-full grid-cols-5">
-        <TabsTrigger value="pending">
-          Pending Review {stats && `(${stats.unclassified})`}
-        </TabsTrigger>
-        <TabsTrigger value="event">
-          Marked as Event {stats && `(${stats.markedAsEvent})`}
-        </TabsTrigger>
-        <TabsTrigger value="not-event">
-          Not Event {stats && `(${stats.markedAsNotEvent})`}
-        </TabsTrigger>
-        <TabsTrigger value="needs-extraction">
-          Needs Extraction {stats && `(${stats.needsExtraction})`}
-        </TabsTrigger>
-        <TabsTrigger value="all">
-          All {stats && `(${stats.total})`}
-        </TabsTrigger>
+      <TabsList className="flex h-auto w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:grid lg:grid-cols-5">
+        {tabs.map((tab) => (
+          <TabsTrigger
+            key={tab.value}
+            value={tab.value}
+            className="w-full text-center"
+          >
+            {tab.label}
+            {typeof tab.count === 'number' && ` (${tab.count})`}
+          </TabsTrigger>
+        ))}
       </TabsList>
     </Tabs>
   )

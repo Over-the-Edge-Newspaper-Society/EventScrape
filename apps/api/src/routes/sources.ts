@@ -121,12 +121,23 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
           created++;
         } else if (!existingSource.active) {
           // Reactivate inactive source if module is available
+          // Remove old status messages before adding new one
+          let cleanedNotes = existingSource.notes || '';
+          cleanedNotes = cleanedNotes
+            .replace(/\s*\(Deactivated - module not found\)\s*/g, '')
+            .replace(/\s*\(Reactivated from available module\)\s*/g, '')
+            .trim();
+
+          const newNotes = cleanedNotes
+            ? `${cleanedNotes} (Reactivated from available module)`
+            : 'Reactivated from available module';
+
           await db
             .update(sources)
-            .set({ 
-              active: true, 
+            .set({
+              active: true,
               updatedAt: new Date(),
-              notes: existingSource.notes ? `${existingSource.notes} (Reactivated from available module)` : 'Reactivated from available module'
+              notes: newNotes
             })
             .where(eq(sources.id, existingSource.id));
           updated++;
@@ -139,12 +150,23 @@ export const sourcesRoutes: FastifyPluginAsync = async (fastify) => {
       
       let deactivated = 0;
       for (const orphan of orphanedSources) {
+        // Remove old status messages before adding new one
+        let cleanedNotes = orphan.notes || '';
+        cleanedNotes = cleanedNotes
+          .replace(/\s*\(Deactivated - module not found\)\s*/g, '')
+          .replace(/\s*\(Reactivated from available module\)\s*/g, '')
+          .trim();
+
+        const newNotes = cleanedNotes
+          ? `${cleanedNotes} (Deactivated - module not found)`
+          : 'Deactivated - module not found';
+
         await db
           .update(sources)
-          .set({ 
-            active: false, 
+          .set({
+            active: false,
             updatedAt: new Date(),
-            notes: orphan.notes ? `${orphan.notes} (Deactivated - module not found)` : 'Deactivated - module not found'
+            notes: newNotes
           })
           .where(eq(sources.id, orphan.id));
         deactivated++;
