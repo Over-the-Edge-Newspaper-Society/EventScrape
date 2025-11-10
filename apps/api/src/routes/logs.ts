@@ -22,21 +22,51 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       'Access-Control-Allow-Headers': 'Cache-Control',
     });
 
-    const streamKey = `logs:${runId}`;
-    let lastId = '$'; // Start from the end
-
     // Function to send SSE message
     const sendEvent = (data: any, event = 'message') => {
       reply.raw.write(`event: ${event}\n`);
       reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    const streamKey = `logs:${runId}`;
+    let lastId = '$'; // Updated after we replay existing entries
+    
+    // Use a dedicated Redis connection for this stream so BLOCK reads don't affect others
+    const redisStreamClient = redis.duplicate();
+    let isClosed = false;
+    let heartbeat: NodeJS.Timeout | undefined;
+    const cleanup = () => {
+      if (isClosed) return;
+      isClosed = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+      }
+      redisStreamClient.quit().catch(() => redisStreamClient.disconnect());
+      reply.raw.end();
+    };
+    
+    try {
+      await redisStreamClient.connect();
+    } catch (error) {
+      console.error('Failed to connect to Redis for log stream:', error);
+      sendEvent({ type: 'error', message: 'Failed to connect to log stream' }, 'error');
+      cleanup();
+      return;
+    }
+
+    heartbeat = setInterval(() => {
+      if (!isClosed) {
+        // Comment lines are ignored by SSE clients but keep proxy connections alive
+        reply.raw.write(': heartbeat\n\n');
+      }
+    }, 15000);
+
     // Send initial connection event
     sendEvent({ type: 'connected', runId });
 
     // Read existing logs first
     try {
-      const existingLogs = await redis.xrange(streamKey, '-', '+', 'COUNT', 1000);
+      const existingLogs = await redisStreamClient.xrange(streamKey, '-', '+', 'COUNT', 1000);
       for (const [id, fields] of existingLogs) {
         const logData: Record<string, string> = {};
         for (let i = 0; i < fields.length; i += 2) {
@@ -54,10 +84,16 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
         });
         lastId = id;
       }
+
+      // If no historical logs were found we need to start from the beginning
+      // so new entries are not skipped when XREAD sees '$'.
+      if (lastId === '$') {
+        lastId = '0-0';
+      }
       
       // Trim old logs to prevent memory issues - keep only last 2000 entries
       try {
-        await redis.xtrim(streamKey, 'MAXLEN', '~', 2000);
+        await redisStreamClient.xtrim(streamKey, 'MAXLEN', '~', 2000);
       } catch (trimError) {
         console.warn('Error trimming log stream:', trimError);
       }
@@ -65,55 +101,56 @@ export const logsRoutes: FastifyPluginAsync = async (fastify) => {
       console.error('Error reading existing logs:', error);
     }
 
-    // Set up interval to check for new logs
-    const interval = setInterval(async () => {
-      try {
-        // Check if stream exists first
-        const streamExists = await redis.exists(streamKey);
-        if (!streamExists) {
-          return; // Skip if stream doesn't exist yet
-        }
-
-        const newLogs = await redis.xread('STREAMS', streamKey, lastId, 'COUNT', 50);
-        
-        if (newLogs && newLogs.length > 0) {
-          const [, logs] = newLogs[0];
+    const streamLoop = async () => {
+      while (!isClosed) {
+        try {
+          const newLogs = await redisStreamClient.call(
+            'XREAD', 'BLOCK', 5000, 'COUNT', 50, 'STREAMS', streamKey, lastId
+          ) as any;
           
-          for (const [id, fields] of logs) {
-            const logData: Record<string, string> = {};
-            for (let i = 0; i < fields.length; i += 2) {
-              logData[fields[i]] = fields[i + 1];
+          if (newLogs && newLogs.length > 0) {
+            const [, logs] = newLogs[0];
+            
+            for (const [id, fields] of logs) {
+              const logData: Record<string, string> = {};
+              for (let i = 0; i < fields.length; i += 2) {
+                logData[fields[i]] = fields[i + 1];
+              }
+              
+              sendEvent({
+                type: 'log',
+                id,
+                timestamp: parseInt(logData.timestamp) || Date.now(),
+                level: parseInt(logData.level) || 30,
+                msg: logData.msg || '',
+                runId: logData.runId || runId,
+                source: logData.source || '',
+                raw: logData.raw || ''
+              });
+              
+              lastId = id;
             }
-            
-            sendEvent({
-              type: 'log',
-              id,
-              timestamp: parseInt(logData.timestamp) || Date.now(),
-              level: parseInt(logData.level) || 30,
-              msg: logData.msg || '',
-              runId: logData.runId || runId,
-              source: logData.source || '',
-              raw: logData.raw || ''
-            });
-            
-            lastId = id;
           }
+        } catch (error: any) {
+          if (isClosed) {
+            break;
+          }
+          
+          console.error('Error reading logs:', error);
+          // Small delay before retrying to avoid tight error loop
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-      } catch (error: any) {
-        console.error('Error reading logs:', error);
       }
-    }, 500); // Check every 500ms for more responsive updates
+    };
+
+    streamLoop().catch((error) => {
+      console.error('Log stream loop crashed:', error);
+      cleanup();
+    });
 
     // Clean up on connection close
-    request.raw.on('close', () => {
-      clearInterval(interval);
-      reply.raw.end();
-    });
-
-    request.raw.on('error', () => {
-      clearInterval(interval);
-      reply.raw.end();
-    });
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
   });
 
   // Get historical logs for a run
