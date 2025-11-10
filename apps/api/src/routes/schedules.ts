@@ -124,8 +124,12 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing) { reply.status(404); return { error: 'Schedule not found' } }
 
       // If disabling, unregister
-      if (data.active === false && existing.repeatKey) {
-        await unregisterScheduleByKey(existing.repeatKey)
+      if (data.active === false) {
+        await unregisterScheduleByKey(existing.repeatKey, {
+          scheduleId: existing.id,
+          cron: existing.cron,
+          timezone: existing.timezone,
+        })
       }
 
       const [updated] = await db.update(schedules).set({
@@ -162,7 +166,11 @@ export const schedulesRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existing) { reply.status(404); return { error: 'Schedule not found' } }
 
       // Unregister from queue
-      if (existing.repeatKey) await unregisterScheduleByKey(existing.repeatKey)
+      await unregisterScheduleByKey(existing.repeatKey, {
+        scheduleId: existing.id,
+        cron: existing.cron,
+        timezone: existing.timezone,
+      })
 
       // First, set schedule_id to NULL in any related exports to preserve export history
       await db.update(exports).set({ scheduleId: null }).where(eq(exports.scheduleId, id))

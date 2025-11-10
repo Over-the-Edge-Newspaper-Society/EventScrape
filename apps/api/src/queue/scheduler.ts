@@ -239,12 +239,32 @@ export async function registerSchedule(schedule: {
   }
 }
 
-export async function unregisterScheduleByKey(repeatKey?: string | null) {
-  if (!repeatKey) return
+export async function unregisterScheduleByKey(
+  repeatKey?: string | null,
+  fallback?: { scheduleId: string; cron: string; timezone?: string | null }
+) {
+  if (repeatKey) {
+    try {
+      await scheduleQueue.removeRepeatableByKey(repeatKey)
+      return
+    } catch (error) {
+      console.warn('Failed to remove schedule via repeatKey, attempting fallback removal', error)
+    }
+  }
+
+  if (!fallback) return
+
   try {
-    await scheduleQueue.removeRepeatableByKey(repeatKey)
-  } catch (e) {
-    // ignore
+    await scheduleQueue.removeRepeatable(
+      'trigger',
+      {
+        pattern: fallback.cron,
+        tz: fallback.timezone || DEFAULT_TIMEZONE,
+      },
+      `schedule:${fallback.scheduleId}`
+    )
+  } catch (error) {
+    console.warn('Failed to remove schedule via fallback cron removal', error)
   }
 }
 
