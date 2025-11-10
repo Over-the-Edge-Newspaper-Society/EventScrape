@@ -120,6 +120,7 @@ services:
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
       EXPORT_DIR: /data/exports
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +128,7 @@ services:
         condition: service_healthy
     volumes:
       - export_data:/data/exports
+      - instagram_images:/data/instagram_images
     networks:
       eventscrape:
         aliases:

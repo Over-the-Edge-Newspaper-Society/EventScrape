@@ -1,19 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { exportsApi, CreateExportData, API_BASE_URL } from '@/lib/api'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { exportsApi, eventsApi, CreateExportData, API_BASE_URL, EventWithSource } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, AlertCircle, ExternalLink, Clock } from 'lucide-react'
+import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, AlertCircle, ExternalLink, Clock, Database, Loader2 } from 'lucide-react'
 import { ExportWizard } from '@/components/exports/ExportWizard'
 export function Exports() {
   const queryClient = useQueryClient()
   const [showWizard, setShowWizard] = useState(false)
   const [selectedExport, setSelectedExport] = useState<any | null>(null)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
+  const [resultFilter, setResultFilter] = useState<'all' | 'created' | 'updated' | 'skipped' | 'failed'>('all')
+  const [rawEventDialogOpen, setRawEventDialogOpen] = useState(false)
+  const [rawEventDetails, setRawEventDetails] = useState<EventWithSource | null>(null)
+  const [rawEventLoading, setRawEventLoading] = useState(false)
+  const [rawEventLoadingId, setRawEventLoadingId] = useState<string | null>(null)
+  const [rawEventError, setRawEventError] = useState<string | null>(null)
 
   const { data: exports, isLoading } = useQuery({
     queryKey: ['exports'],
@@ -49,6 +56,42 @@ export function Exports() {
       console.error('Cancel export failed:', error)
     }
   }
+
+  const handleViewRawEvent = async (rawEventId?: string) => {
+    setRawEventDialogOpen(true)
+    setRawEventDetails(null)
+
+    if (!rawEventId) {
+      setRawEventError('This result does not include a reference to the original raw event.')
+      return
+    }
+
+    setRawEventLoading(true)
+    setRawEventLoadingId(rawEventId)
+    setRawEventError(null)
+
+    try {
+      const data = await eventsApi.getRawById(rawEventId)
+      setRawEventDetails(data.event)
+    } catch (error: any) {
+      const message = error?.message || 'Failed to load raw event.'
+      setRawEventError(message)
+    } finally {
+      setRawEventLoading(false)
+      setRawEventLoadingId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!showDetailsDialog) {
+      setResultFilter('all')
+      setRawEventDialogOpen(false)
+      setRawEventDetails(null)
+      setRawEventError(null)
+      setRawEventLoading(false)
+      setRawEventLoadingId(null)
+    }
+  }, [showDetailsDialog])
 
   const getFormatIcon = (format: string) => {
     const icons = {
@@ -87,6 +130,17 @@ export function Exports() {
       default: return `export-${id}`;
     }
   }
+
+  const wpResults = selectedExport?.params?.wpResults
+  const filteredResults = (wpResults?.results ?? []).filter((result: any) => {
+    if (resultFilter === 'all') {
+      return true
+    }
+    if (resultFilter === 'failed') {
+      return result.success === false
+    }
+    return result.success !== false && result.action === resultFilter
+  })
 
   return (
     <div className="space-y-6">
@@ -417,7 +471,24 @@ export function Exports() {
 
               {/* Detailed Results Table */}
               <div>
-                <h3 className="font-semibold mb-2">Event-by-Event Results</h3>
+                <div className="flex flex-col gap-2 mb-2 md:flex-row md:items-center md:justify-between">
+                  <h3 className="font-semibold">Event-by-Event Results</h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">Filter</span>
+                    <Select value={resultFilter} onValueChange={(value) => setResultFilter(value as typeof resultFilter)}>
+                      <SelectTrigger className="w-40 h-8 text-sm">
+                        <SelectValue placeholder="Result type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        <SelectItem value="created">Created</SelectItem>
+                        <SelectItem value="updated">Updated</SelectItem>
+                        <SelectItem value="skipped">Skipped</SelectItem>
+                        <SelectItem value="failed">Failed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="border dark:border-gray-700 rounded-lg overflow-hidden max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-200 dark:scrollbar-track-gray-800">
                   <Table>
                     <TableHeader>
@@ -425,11 +496,18 @@ export function Exports() {
                         <TableHead>Event Title</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>WordPress Link</TableHead>
+                        <TableHead>Raw Event</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedExport.params.wpResults.results.map((result: any, idx: number) => (
-                        <TableRow key={idx}>
+                      {!filteredResults.length ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">
+                            No events match this filter.
+                          </TableCell>
+                        </TableRow>
+                      ) : filteredResults.map((result: any, idx: number) => (
+                        <TableRow key={`${result.eventId ?? idx}-${idx}`}>
                           <TableCell className="max-w-md">
                             <div className="truncate" title={result.eventTitle}>
                               {result.eventTitle}
@@ -467,6 +545,26 @@ export function Exports() {
                               <span className="text-muted-foreground text-xs">-</span>
                             )}
                           </TableCell>
+                          <TableCell>
+                            {result.rawEventId ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center gap-1"
+                                onClick={() => handleViewRawEvent(result.rawEventId)}
+                                disabled={rawEventLoadingId === result.rawEventId}
+                              >
+                                {rawEventLoadingId === result.rawEventId ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Database className="h-3 w-3" />
+                                )}
+                                View Raw Event
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Not available</span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -474,6 +572,127 @@ export function Exports() {
                 </div>
               </div>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Raw Event Details Dialog */}
+      <Dialog
+        open={rawEventDialogOpen}
+        onOpenChange={(open) => {
+          setRawEventDialogOpen(open)
+          if (!open) {
+            setRawEventDetails(null)
+            setRawEventError(null)
+            setRawEventLoading(false)
+            setRawEventLoadingId(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Raw Event Details</DialogTitle>
+            <DialogDescription>
+              View the original event record that was sent to WordPress.
+            </DialogDescription>
+          </DialogHeader>
+          {rawEventLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading raw event...
+            </div>
+          ) : rawEventError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {rawEventError}
+            </div>
+          ) : rawEventDetails ? (
+            <div className="space-y-4">
+              <div>
+                <p className="text-lg font-semibold">{rawEventDetails.event.title}</p>
+                <p className="text-sm text-muted-foreground">
+                  Source: {rawEventDetails.source?.name ?? 'Unknown'}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Start</p>
+                  <p className="font-medium">
+                    {new Date(rawEventDetails.event.startDatetime).toLocaleString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">End</p>
+                  <p className="font-medium">
+                    {rawEventDetails.event.endDatetime
+                      ? new Date(rawEventDetails.event.endDatetime).toLocaleString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Venue</p>
+                  <p className="font-medium">{rawEventDetails.event.venueName || '—'}</p>
+                  {rawEventDetails.event.venueAddress && (
+                    <p className="text-muted-foreground">{rawEventDetails.event.venueAddress}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">City</p>
+                  <p className="font-medium">{rawEventDetails.event.city || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Organizer</p>
+                  <p className="font-medium">{rawEventDetails.event.organizer || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Category</p>
+                  <p className="font-medium">{rawEventDetails.event.category || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">URL</p>
+                  {rawEventDetails.event.url ? (
+                    <a
+                      href={rawEventDetails.event.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline break-all"
+                    >
+                      {rawEventDetails.event.url}
+                    </a>
+                  ) : (
+                    <p className="font-medium">—</p>
+                  )}
+                </div>
+              </div>
+              {rawEventDetails.event.descriptionHtml && (
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground mb-2">Description</p>
+                  <div
+                    className="prose prose-sm max-w-none rounded-md border p-3"
+                    dangerouslySetInnerHTML={{ __html: rawEventDetails.event.descriptionHtml }}
+                  />
+                </div>
+              )}
+              <div>
+                <p className="text-xs uppercase text-muted-foreground mb-2">Raw Payload</p>
+                <pre className="max-h-64 overflow-y-auto rounded-md bg-muted p-3 text-xs">
+                  {JSON.stringify(rawEventDetails.event.raw, null, 2)}
+                </pre>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select an event to see its raw record.</p>
           )}
         </DialogContent>
       </Dialog>

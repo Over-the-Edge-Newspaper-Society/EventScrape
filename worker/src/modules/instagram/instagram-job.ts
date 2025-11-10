@@ -413,7 +413,7 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
               ${accountId}, ${post.id}, ${post.caption}, ${localImagePath},
               ${confidence}, ${isEventPoster}, ${runId}
             )
-            ON CONFLICT (source_id, source_event_id) DO UPDATE
+            ON CONFLICT (source_id, source_event_id) WHERE source_event_id IS NOT NULL DO UPDATE
             SET
               run_id = EXCLUDED.run_id,
               description_html = EXCLUDED.description_html,
@@ -428,8 +428,12 @@ export async function handleInstagramScrapeJob(job: Job<InstagramScrapeJobData>)
               scraped_at = NOW(),
               last_seen_at = NOW()
           `;
+          job.log(`Successfully upserted base post ${post.id}`);
         } catch (error: any) {
-          job.log(`Failed to upsert base post ${post.id}: ${error.message}`);
+          job.log(`ERROR: Failed to upsert base post ${post.id}: ${error.message}`);
+          job.log(`ERROR: Post data - title: ${baseTitle}, url: ${postUrl}`);
+          job.log(`ERROR: Full error: ${JSON.stringify(error, null, 2)}`);
+          console.error(`Failed to upsert base post ${post.id}:`, error);
         }
 
         // 6c. Extract event data with Gemini if classified as event or mode is manual

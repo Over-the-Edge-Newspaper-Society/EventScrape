@@ -342,6 +342,7 @@ export async function processExport(exportId: string, data: any): Promise<void> 
           id: e.sourceEventId
             ? createHash('sha256').update(`${e.sourceId}:${e.sourceEventId}`).digest('hex').substring(0, 32)
             : e.id, // Use hash of source+sourceEventId for stable deduplication across scrapes
+          rawEventId: e.id,
           title: e.title,
           descriptionHtml: e.descriptionHtml || undefined,
           startDatetime: e.startDatetime,
@@ -396,6 +397,7 @@ export async function processExport(exportId: string, data: any): Promise<void> 
         for (let i = 0; i < occurrences; i++) {
           expandedResults.push({
             eventId: r.event.id,
+            rawEventId: r.event.rawEventId || r.event.id,
             eventTitle: `${r.event.title} (Occurrence ${i + 1}/${occurrences})`,
             success: r.result.success,
             action: r.result.action,
@@ -410,6 +412,7 @@ export async function processExport(exportId: string, data: any): Promise<void> 
         // Single event
         expandedResults.push({
           eventId: r.event.id,
+          rawEventId: r.event.rawEventId || r.event.id,
           eventTitle: r.event.title,
           success: r.result.success,
           action: r.result.action,

@@ -750,6 +750,8 @@ export interface InstagramSource {
   createdAt: string
   updatedAt: string
   lastChecked?: string
+  postsCount?: number
+  eventCount?: number
 }
 
 export interface CreateInstagramSourceData {

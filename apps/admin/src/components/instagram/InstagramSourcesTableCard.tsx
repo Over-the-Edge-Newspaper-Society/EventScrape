@@ -98,12 +98,13 @@ export function InstagramSourcesTableCard({
                   <TableRow>
                     <TableHead>Account</TableHead>
                     <TableHead>Classification</TableHead>
-                    <TableHead>Settings</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+                  <TableHead>Settings</TableHead>
+                  <TableHead>Stats</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                   {filteredSources.map((source) => (
                     <TableRow key={source.id}>
                       <TableCell>
@@ -147,6 +148,22 @@ export function InstagramSourcesTableCard({
                               Last checked {formatRelativeTime(source.lastChecked)}
                             </p>
                           )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-1">
+                          <div>
+                            <span className="font-semibold text-foreground">
+                              {(source.postsCount ?? 0).toLocaleString()}
+                            </span>{' '}
+                            <span className="text-muted-foreground">posts pulled</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-foreground">
+                              {(source.eventCount ?? 0).toLocaleString()}
+                            </span>{' '}
+                            <span className="text-muted-foreground">events created</span>
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>{getStatusBadge(source.active)}</TableCell>

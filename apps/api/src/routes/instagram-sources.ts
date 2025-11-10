@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { eq, sql, isNotNull } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { instagramAccounts, instagramSessions, instagramSettings, eventsRaw } from '../db/schema.js';
 import {
@@ -53,7 +53,35 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         .from(instagramAccounts)
         .orderBy(instagramAccounts.createdAt);
 
-      return { sources: accounts };
+      const stats = await db
+        .select({
+          instagramAccountId: eventsRaw.instagramAccountId,
+          postsCount: sql<number>`COUNT(*)`,
+          eventCount: sql<number>`COUNT(*) FILTER (WHERE ${eventsRaw.isEventPoster} IS TRUE)`,
+        })
+        .from(eventsRaw)
+        .where(isNotNull(eventsRaw.instagramAccountId))
+        .groupBy(eventsRaw.instagramAccountId);
+
+      const statsMap = new Map<string, { postsCount: number; eventCount: number }>();
+      for (const stat of stats) {
+        if (!stat.instagramAccountId) continue;
+        statsMap.set(stat.instagramAccountId, {
+          postsCount: Number(stat.postsCount ?? 0),
+          eventCount: Number(stat.eventCount ?? 0),
+        });
+      }
+
+      const enrichedAccounts = accounts.map((account) => {
+        const accountStats = statsMap.get(account.id) ?? { postsCount: 0, eventCount: 0 };
+        return {
+          ...account,
+          postsCount: accountStats.postsCount,
+          eventCount: accountStats.eventCount,
+        };
+      });
+
+      return { sources: enrichedAccounts };
     } catch (error: any) {
       fastify.log.error('Failed to fetch Instagram accounts:', error);
       reply.status(500);

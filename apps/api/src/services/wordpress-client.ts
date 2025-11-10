@@ -630,6 +630,7 @@ export class WordPressClient {
   async uploadEvents(
     events: Array<{
       id: string;
+      rawEventId?: string;
       title: string;
       descriptionHtml?: string;
       startDatetime: string | Date;
