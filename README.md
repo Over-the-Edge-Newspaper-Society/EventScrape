@@ -174,7 +174,28 @@ pnpm db:seed          # Seed database
 pnpm db:studio        # Open Drizzle Studio
 
 # Testing
+```bash
 pnpm test             # Run tests
+```
+
+### Playwright Docker Runner
+A Playwright-specific compose file (`docker-compose.playwright.yml`) lets you run scraper tests inside Microsoft’s official Playwright image so the browsers and dependencies match CI exactly.
+
+```bash
+# Runs the Prince George Vitest suite inside the container
+./scripts/playwright-test.sh
+
+# Pass any PNPM/Vitest command after installing deps in the container
+./scripts/playwright-test.sh "pnpm --filter @eventscrape/worker exec vitest run path/to/other.test.ts"
+```
+
+Under the hood this script runs:
+
+```bash
+docker compose -f docker-compose.playwright.yml run --rm playwright "<your command>"
+```
+
+The compose service mounts the repo, reuses cached Playwright browsers (`playwright-cache` volume), and persists the PNPM store (`pnpm-store` volume) so subsequent runs are much faster. Override the command to run UI mode, Playwright CLI checks, or any other worker-specific tests without touching the host environment.
 ```
 
 ## 🔌 API Documentation

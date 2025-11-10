@@ -16,7 +16,7 @@ describe('Prince George CA Module', () => {
 
   it('should extract event links from calendar HTML', async () => {
     const fixtureHtml = await readFile(
-      join(process.cwd(), 'src/modules/prince_george_ca/fixtures/calendar.html'), 
+      join(__dirname, 'fixtures', 'calendar.html'), 
       'utf-8'
     );
     
@@ -64,7 +64,7 @@ describe('Prince George CA Module', () => {
 
   it('should extract event details from detail page HTML', async () => {
     const fixtureHtml = await readFile(
-      join(process.cwd(), 'src/modules/prince_george_ca/fixtures/event-detail.html'), 
+      join(__dirname, 'fixtures', 'event-detail.html'), 
       'utf-8'
     );
     
@@ -108,9 +108,13 @@ describe('Prince George CA Module', () => {
     expect(locationEl?.textContent?.trim()).toBe('Canada Games Plaza');
 
     // Extract description
-    const descriptionEl = document.querySelector('.field--name-body .field__item');
-    expect(descriptionEl?.textContent).toContain('Come down to the Canada Games Plaza');
-    expect(descriptionEl?.textContent).toContain('Foodie Fridays');
+    const descriptionEl = document.querySelector('.field--name-body.field--type-text-with-summary .field__item')
+      || document.querySelector('.field--name-body.field--type-text-with-summary')
+      || document.querySelector('.field--name-body .field__item')
+      || document.querySelector('.field--name-body');
+    const descriptionText = descriptionEl?.textContent || '';
+    expect(descriptionText).toContain('Come down to the Canada Games Plaza');
+    expect(descriptionText).toContain('Foodie Fridays');
 
     // Extract image
     const imageEl = document.querySelector('.field--name-field-media-image img') as HTMLImageElement;
@@ -118,7 +122,7 @@ describe('Prince George CA Module', () => {
   });
 
   it('matches series instances to a calendar date (YYYY-MM-DD or natural language)', async () => {
-    const fixtureHtml = await readFile(join(process.cwd(), 'worker/src/modules/prince_george_ca/fixtures/event-detail.html'), 'utf-8');
+    const fixtureHtml = await readFile(join(__dirname, 'fixtures', 'event-detail.html'), 'utf-8');
     const dom = new JSDOM(fixtureHtml);
     const { document } = dom.window as any;
 

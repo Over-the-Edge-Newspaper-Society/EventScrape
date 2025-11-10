@@ -1,0 +1,23 @@
+services:
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.54.2-noble
+    working_dir: /workspace
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      corepack enable pnpm &&
+      pnpm install --frozen-lockfile &&
+      pnpm --filter @eventscrape/worker exec vitest run src/modules/prince_george_ca/prince_george_ca.test.ts
+    environment:
+      - CI=true
+      - PNPM_HOME=/root/.local/share/pnpm
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+    volumes:
+      - .:/workspace
+      - playwright-cache:/ms-playwright
+      - pnpm-store:/root/.local/share/pnpm/store
+    tty: true
+
+volumes:
+  playwright-cache:
+  pnpm-store:
