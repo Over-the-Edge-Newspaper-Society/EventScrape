@@ -51,7 +51,7 @@ export const registerExtractionRoutes = (
     try {
       const { accountId, limit, overwrite } = bulkExtractSchema.parse(request.body ?? {});
 
-      const geminiApiKey = await extractionService.getGeminiApiKey();
+      const { provider, apiKey } = await extractionService.getAISettings();
 
       const whereConditions = [
         eq(sources.sourceType, 'instagram'),
@@ -96,7 +96,8 @@ export const registerExtractionRoutes = (
       for (const post of postsToProcess) {
         try {
           const extractionResult = await extractionService.performExtraction(post, {
-            geminiApiKey,
+            provider,
+            apiKey,
             overwrite,
             createEvents: true,
           });

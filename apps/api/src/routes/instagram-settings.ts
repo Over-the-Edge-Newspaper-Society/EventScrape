@@ -12,7 +12,10 @@ const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton setting
 const updateSettingsSchema = z.object({
   apifyApiToken: z.string().optional(),
   geminiApiKey: z.string().optional(),
+  claudeApiKey: z.string().optional(),
+  aiProvider: z.enum(['gemini', 'claude']).optional(),
   geminiPrompt: z.string().optional(),
+  claudePrompt: z.string().optional(),
   apifyActorId: z.string().optional(),
   apifyResultsLimit: z.number().int().positive().optional(),
   fetchDelayMinutes: z.number().int().positive().optional(),
@@ -54,9 +57,12 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
           autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
+          aiProvider: instagramSettings.aiProvider,
           geminiPrompt: instagramSettings.geminiPrompt,
+          claudePrompt: instagramSettings.claudePrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
+          hasClaudeKey: instagramSettings.claudeApiKey,
           defaultScraperType: instagramSettings.defaultScraperType,
           allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
           createdAt: instagramSettings.createdAt,
@@ -77,9 +83,12 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
             autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
             autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
+            aiProvider: instagramSettings.aiProvider,
             geminiPrompt: instagramSettings.geminiPrompt ?? defaultPrompt,
+            claudePrompt: instagramSettings.claudePrompt,
             hasApifyToken: instagramSettings.apifyApiToken,
             hasGeminiKey: instagramSettings.geminiApiKey,
+            hasClaudeKey: instagramSettings.claudeApiKey,
             defaultScraperType: instagramSettings.defaultScraperType,
             allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
             createdAt: instagramSettings.createdAt,
@@ -91,6 +100,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
             ...newSettings,
             hasApifyToken: !!newSettings.hasApifyToken,
             hasGeminiKey: !!newSettings.hasGeminiKey,
+            hasClaudeKey: !!newSettings.hasClaudeKey,
             geminiPrompt: newSettings.geminiPrompt ?? defaultPrompt,
           },
         };
@@ -101,6 +111,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           ...settings,
           hasApifyToken: !!settings.hasApifyToken,
           hasGeminiKey: !!settings.hasGeminiKey,
+          hasClaudeKey: !!settings.hasClaudeKey,
           geminiPrompt: settings.geminiPrompt ?? defaultPrompt,
         },
       };
@@ -122,7 +133,10 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (data.apifyApiToken !== undefined) updateData.apifyApiToken = data.apifyApiToken;
       if (data.geminiApiKey !== undefined) updateData.geminiApiKey = data.geminiApiKey;
+      if (data.claudeApiKey !== undefined) updateData.claudeApiKey = data.claudeApiKey;
+      if (data.aiProvider !== undefined) updateData.aiProvider = data.aiProvider;
       if (data.geminiPrompt !== undefined) updateData.geminiPrompt = data.geminiPrompt;
+      if (data.claudePrompt !== undefined) updateData.claudePrompt = data.claudePrompt;
       if (data.apifyActorId !== undefined) updateData.apifyActorId = data.apifyActorId;
       if (data.apifyResultsLimit !== undefined) updateData.apifyResultsLimit = data.apifyResultsLimit;
       if (data.fetchDelayMinutes !== undefined) updateData.fetchDelayMinutes = data.fetchDelayMinutes;
@@ -142,9 +156,12 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           fetchDelayMinutes: instagramSettings.fetchDelayMinutes,
           autoExtractNewPosts: instagramSettings.autoExtractNewPosts,
           autoClassifyWithAi: instagramSettings.autoClassifyWithAi,
+          aiProvider: instagramSettings.aiProvider,
           geminiPrompt: instagramSettings.geminiPrompt,
+          claudePrompt: instagramSettings.claudePrompt,
           hasApifyToken: instagramSettings.apifyApiToken,
           hasGeminiKey: instagramSettings.geminiApiKey,
+          hasClaudeKey: instagramSettings.claudeApiKey,
           defaultScraperType: instagramSettings.defaultScraperType,
           allowPerAccountOverride: instagramSettings.allowPerAccountOverride,
           createdAt: instagramSettings.createdAt,
@@ -158,6 +175,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           ...updated,
           hasApifyToken: !!updated.hasApifyToken,
           hasGeminiKey: !!updated.hasGeminiKey,
+          hasClaudeKey: !!updated.hasClaudeKey,
           geminiPrompt: updated.geminiPrompt ?? defaultPrompt,
         },
       };
@@ -205,6 +223,22 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // DELETE /api/instagram-settings/claude-key - Remove Claude key
+  fastify.delete('/claude-key', async (request, reply) => {
+    try {
+      await db
+        .update(instagramSettings)
+        .set({ claudeApiKey: null, updatedAt: new Date() })
+        .where(eq(instagramSettings.id, SETTINGS_ID));
+
+      return { message: 'Claude API key removed successfully' };
+    } catch (error: any) {
+      fastify.log.error('Failed to remove Claude key:', error);
+      reply.status(500);
+      return { error: 'Failed to remove Claude key' };
+    }
+  });
+
   // GET /api/instagram-settings/keys - Get API keys for worker (internal use)
   fastify.get('/keys', async (request, reply) => {
     try {
@@ -212,13 +246,21 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         .select({
           apifyApiToken: instagramSettings.apifyApiToken,
           geminiApiKey: instagramSettings.geminiApiKey,
+          claudeApiKey: instagramSettings.claudeApiKey,
           geminiPrompt: instagramSettings.geminiPrompt,
+          claudePrompt: instagramSettings.claudePrompt,
         })
         .from(instagramSettings)
         .where(eq(instagramSettings.id, SETTINGS_ID));
 
       if (!settings) {
-        return { apifyApiToken: null, geminiApiKey: null, geminiPrompt: null };
+        return {
+          apifyApiToken: null,
+          geminiApiKey: null,
+          claudeApiKey: null,
+          geminiPrompt: null,
+          claudePrompt: null
+        };
       }
 
       return settings;

@@ -94,6 +94,11 @@ export const instagramScraperTypeEnum = pgEnum('instagram_scraper_type', [
   'instagram-private-api',
 ]);
 
+export const aiProviderEnum = pgEnum('ai_provider', [
+  'gemini',
+  'claude',
+]);
+
 // Tables
 export const sources = pgTable('sources', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -444,8 +449,12 @@ export const instagramSettings = pgTable('instagram_settings', {
   // API keys (encrypted)
   apifyApiToken: text('apify_api_token'),
   geminiApiKey: text('gemini_api_key'),
+  claudeApiKey: text('claude_api_key'),
+  // AI provider selection
+  aiProvider: aiProviderEnum('ai_provider').default('gemini'),
   // AI extraction settings
   geminiPrompt: text('gemini_prompt'),
+  claudePrompt: text('claude_prompt'),
   // Scraping configuration
   apifyActorId: text('apify_actor_id').default('apify/instagram-post-scraper'),
   apifyResultsLimit: integer('apify_results_limit').default(10),

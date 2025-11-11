@@ -8,7 +8,7 @@ import { InstagramExtractionError } from './errors.js';
 import { hasExtractedEvents, parseEventRaw } from './raw-utils.js';
 import type { ExtractionResult, InstagramPostWithSource } from './types.js';
 
-type GeminiExtractorModule = {
+type AIExtractorModule = {
   extractEventFromImageFile: (
     imagePath: string,
     apiKey: string,
@@ -19,36 +19,76 @@ type GeminiExtractorModule = {
   ) => Promise<any>;
 };
 
+type AIProvider = 'gemini' | 'claude';
+
 export const createExtractionService = (log: FastifyBaseLogger) => {
-  let geminiExtractorModule: GeminiExtractorModule | null = null;
+  let geminiExtractorModule: AIExtractorModule | null = null;
+  let claudeExtractorModule: AIExtractorModule | null = null;
 
-  const getGeminiExtractor = async (): Promise<GeminiExtractorModule> => {
-    if (geminiExtractorModule) {
+  const getExtractor = async (provider: AIProvider): Promise<AIExtractorModule> => {
+    if (provider === 'gemini') {
+      if (geminiExtractorModule) {
+        return geminiExtractorModule;
+      }
+
+      const importPath = new URL(
+        '../../worker/src/modules/instagram/gemini-extractor.js',
+        import.meta.url
+      ).href;
+
+      geminiExtractorModule = (await import(importPath)) as AIExtractorModule;
       return geminiExtractorModule;
+    } else {
+      // Claude
+      if (claudeExtractorModule) {
+        return claudeExtractorModule;
+      }
+
+      const importPath = new URL(
+        '../../worker/src/modules/instagram/claude-extractor.js',
+        import.meta.url
+      ).href;
+
+      claudeExtractorModule = (await import(importPath)) as AIExtractorModule;
+      return claudeExtractorModule;
     }
-
-    const importPath = new URL(
-      '../../worker/src/modules/instagram/gemini-extractor.js',
-      import.meta.url
-    ).href;
-
-    geminiExtractorModule = (await import(importPath)) as GeminiExtractorModule;
-    return geminiExtractorModule;
   };
 
-  const getGeminiApiKey = async (): Promise<string> => {
+  const getAISettings = async (): Promise<{ provider: AIProvider; apiKey: string }> => {
     const [settings] = await db
-      .select({ geminiApiKey: instagramSettings.geminiApiKey })
+      .select({
+        aiProvider: instagramSettings.aiProvider,
+        geminiApiKey: instagramSettings.geminiApiKey,
+        claudeApiKey: instagramSettings.claudeApiKey,
+      })
       .from(instagramSettings)
       .where(eq(instagramSettings.id, SETTINGS_ID));
 
-    const GEMINI_API_KEY = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+    const provider = (settings?.aiProvider || 'gemini') as AIProvider;
 
-    if (!GEMINI_API_KEY) {
-      throw new InstagramExtractionError('Gemini API key not configured', 400);
+    let apiKey: string | undefined;
+    if (provider === 'gemini') {
+      apiKey = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new InstagramExtractionError('Gemini API key not configured', 400);
+      }
+    } else {
+      apiKey = settings?.claudeApiKey || process.env.CLAUDE_API_KEY;
+      if (!apiKey) {
+        throw new InstagramExtractionError('Claude API key not configured', 400);
+      }
     }
 
-    return GEMINI_API_KEY;
+    return { provider, apiKey };
+  };
+
+  // Keep legacy method for backwards compatibility
+  const getGeminiApiKey = async (): Promise<string> => {
+    const { provider, apiKey } = await getAISettings();
+    if (provider !== 'gemini') {
+      throw new InstagramExtractionError('Gemini is not the active AI provider', 400);
+    }
+    return apiKey;
   };
 
   const fetchPostWithSource = async (id: string): Promise<InstagramPostWithSource> => {
@@ -70,10 +110,10 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
   const performExtraction = async (
     postWithSource: InstagramPostWithSource,
-    options: { geminiApiKey: string; overwrite?: boolean; createEvents?: boolean }
+    options: { provider: AIProvider; apiKey: string; overwrite?: boolean; createEvents?: boolean }
   ): Promise<ExtractionResult> => {
     const { event: post, source } = postWithSource;
-    const { geminiApiKey, overwrite = false, createEvents = true } = options;
+    const { provider, apiKey, overwrite = false, createEvents = true } = options;
 
     if (!post.localImagePath) {
       throw new InstagramExtractionError(
@@ -118,15 +158,18 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
       instagramTimestamp = new Date(post.scrapedAt);
     }
 
-    const { extractEventFromImageFile } = await getGeminiExtractor();
+    const { extractEventFromImageFile } = await getExtractor(provider);
 
-    const geminiResult = await extractEventFromImageFile(fullImagePath, geminiApiKey, {
+    log.info(`Using ${provider.toUpperCase()} AI provider for extraction`);
+
+    const extractionResult = await extractEventFromImageFile(fullImagePath, apiKey, {
       caption: post.instagramCaption || undefined,
       postTimestamp: instagramTimestamp || undefined,
     });
 
     const rawData = {
-      ...geminiResult,
+      ...extractionResult,
+      aiProvider: provider,
       instagram: {
         timestamp: (instagramTimestamp || post.scrapedAt)?.toISOString?.() || new Date().toISOString(),
         postId: post.instagramPostId,
@@ -145,7 +188,7 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
     let eventsCreated = 0;
 
-    if (createEvents && geminiResult.events && geminiResult.events.length > 0) {
+    if (createEvents && extractionResult.events && extractionResult.events.length > 0) {
       const timezone = source.defaultTimezone || 'America/Vancouver';
 
       if (post.instagramPostId) {
@@ -167,12 +210,12 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
           sourceId: INSTAGRAM_SOURCE_ID,
           status: 'success',
           pagesCrawled: 1,
-          eventsFound: geminiResult.events.length,
+          eventsFound: extractionResult.events.length,
           finishedAt: new Date(),
         })
         .returning();
 
-      for (const event of geminiResult.events) {
+      for (const event of extractionResult.events) {
         const startDate = event.startDate
           ? `${event.startDate}T${event.startTime || '00:00:00'}`
           : undefined;
@@ -219,8 +262,8 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
     return {
       success: true,
-      message: `Extracted ${geminiResult.events?.length || 0} event(s) from post`,
-      extraction: geminiResult,
+      message: `Extracted ${extractionResult.events?.length || 0} event(s) from post using ${provider}`,
+      extraction: extractionResult,
       eventsCreated,
     };
   };
@@ -229,13 +272,14 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     id: string,
     options: { overwrite?: boolean; createEvents?: boolean } = {}
   ): Promise<ExtractionResult> => {
-    const geminiApiKey = await getGeminiApiKey();
+    const { provider, apiKey } = await getAISettings();
     const postWithSource = await fetchPostWithSource(id);
-    return performExtraction(postWithSource, { geminiApiKey, ...options });
+    return performExtraction(postWithSource, { provider, apiKey, ...options });
   };
 
   return {
     getGeminiApiKey,
+    getAISettings,
     fetchPostWithSource,
     performExtraction,
     extractPostById,

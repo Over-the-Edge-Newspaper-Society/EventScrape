@@ -16,9 +16,12 @@ export interface InstagramSettings {
   fetchDelayMinutes: number
   autoExtractNewPosts: boolean
   autoClassifyWithAi: boolean
+  aiProvider: 'gemini' | 'claude'
   geminiPrompt: string | null
+  claudePrompt: string | null
   hasApifyToken: boolean
   hasGeminiKey: boolean
+  hasClaudeKey: boolean
   defaultScraperType: 'apify' | 'instagram-private-api'
   allowPerAccountOverride: boolean
   createdAt: string
@@ -31,14 +34,17 @@ export function InstagramSettings() {
   // API Key states
   const [apifyToken, setApifyToken] = useState('')
   const [geminiKey, setGeminiKey] = useState('')
+  const [claudeKey, setClaudeKey] = useState('')
 
   // Settings states - initialize with empty/undefined to avoid controlled/uncontrolled warnings
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'claude'>('gemini')
   const [apifyActorId, setApifyActorId] = useState('')
   const [apifyResultsLimit, setApifyResultsLimit] = useState<number | undefined>(undefined)
   const [fetchDelayMinutes, setFetchDelayMinutes] = useState<number | undefined>(undefined)
   const [autoExtractNewPosts, setAutoExtractNewPosts] = useState(false)
   const [autoClassifyWithAi, setAutoClassifyWithAi] = useState(false)
   const [geminiPrompt, setGeminiPrompt] = useState('')
+  const [_claudePrompt, setClaudePrompt] = useState('')
   const [defaultScraperType, setDefaultScraperType] = useState<'apify' | 'instagram-private-api' | undefined>(undefined)
   const [allowPerAccountOverride, setAllowPerAccountOverride] = useState<boolean | undefined>(undefined)
 
@@ -58,12 +64,14 @@ export function InstagramSettings() {
   // Update form state when settings are loaded
   useEffect(() => {
     if (settings) {
+      setAiProvider(settings.aiProvider || 'gemini')
       setApifyActorId(settings.apifyActorId || '')
       setApifyResultsLimit(settings.apifyResultsLimit)
       setFetchDelayMinutes(settings.fetchDelayMinutes)
       setAutoExtractNewPosts(settings.autoExtractNewPosts ?? false)
       setAutoClassifyWithAi(settings.autoClassifyWithAi ?? false)
       setGeminiPrompt(settings.geminiPrompt || '')
+      setClaudePrompt(settings.claudePrompt || '')
       setDefaultScraperType(settings.defaultScraperType || 'instagram-private-api')
       setAllowPerAccountOverride(settings.allowPerAccountOverride ?? true)
     }
@@ -71,7 +79,7 @@ export function InstagramSettings() {
 
   // Update settings mutation
   const updateSettings = useMutation({
-    mutationFn: async (data: Partial<InstagramSettings> & { apifyApiToken?: string; geminiApiKey?: string }) => {
+    mutationFn: async (data: Partial<InstagramSettings> & { apifyApiToken?: string; geminiApiKey?: string; claudeApiKey?: string }) => {
       const res = await fetch(`${API_BASE_URL}/instagram-settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -84,6 +92,7 @@ export function InstagramSettings() {
       toast.success('Settings updated successfully')
       setApifyToken('')
       setGeminiKey('')
+      setClaudeKey('')
     },
     onError: () => {
       toast.error('Failed to update settings')
@@ -114,6 +123,19 @@ export function InstagramSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instagram-settings'] })
       toast.success('Gemini key removed')
+    },
+  })
+
+  const removeClaudeKey = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/instagram-settings/claude-key`, {
+        method: 'DELETE',
+      })
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-settings'] })
+      toast.success('Claude key removed')
     },
   })
 
@@ -174,6 +196,18 @@ export function InstagramSettings() {
       return
     }
     updateSettings.mutate({ geminiApiKey: geminiKey })
+  }
+
+  const handleSaveClaudeKey = () => {
+    if (!claudeKey) {
+      toast.error('Please enter a Claude API key')
+      return
+    }
+    updateSettings.mutate({ claudeApiKey: claudeKey })
+  }
+
+  const handleSaveAiProvider = (newProvider: 'gemini' | 'claude') => {
+    updateSettings.mutate({ aiProvider: newProvider })
   }
 
   const handleSaveSettings = () => {
@@ -239,13 +273,21 @@ export function InstagramSettings() {
         setApifyToken={setApifyToken}
         geminiKey={geminiKey}
         setGeminiKey={setGeminiKey}
+        claudeKey={claudeKey}
+        setClaudeKey={setClaudeKey}
+        aiProvider={aiProvider}
+        setAiProvider={setAiProvider}
         handleSaveApifyToken={handleSaveApifyToken}
         handleSaveGeminiKey={handleSaveGeminiKey}
+        handleSaveClaudeKey={handleSaveClaudeKey}
+        handleSaveAiProvider={handleSaveAiProvider}
         updateSettingsPending={updateSettings.isPending}
         removeApifyToken={() => removeApifyToken.mutate()}
         removeApifyTokenPending={removeApifyToken.isPending}
         removeGeminiKey={() => removeGeminiKey.mutate()}
         removeGeminiKeyPending={removeGeminiKey.isPending}
+        removeClaudeKey={() => removeClaudeKey.mutate()}
+        removeClaudeKeyPending={removeClaudeKey.isPending}
       />
 
       <AiPromptSection

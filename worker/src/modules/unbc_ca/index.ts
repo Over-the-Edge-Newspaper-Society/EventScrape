@@ -411,15 +411,27 @@ const unbcModule: ScraperModule = {
                 const title = titleEl?.textContent?.trim();
 
                 // Extract date/time information
-                const datetimeElements = document.querySelectorAll('.field--name-field-smart-date-ranges time[datetime]');
+                // Look for .field__item containers to distinguish between:
+                // 1. Single multi-day event (1 container with 2 <time> tags)
+                // 2. Multiple separate occurrences (multiple containers)
+                const fieldItems = document.querySelectorAll('.field--name-field-smart-date-ranges .field__item');
+                const dateInstances: Array<{ start: string | null; end: string | null }> = [];
+
+                fieldItems.forEach(item => {
+                  const times = item.querySelectorAll('time[datetime]');
+                  if (times.length >= 1) {
+                    const start = times[0].getAttribute('datetime');
+                    const end = times.length >= 2 ? times[1].getAttribute('datetime') : null;
+                    dateInstances.push({ start, end });
+                  }
+                });
+
+                // For backward compatibility, extract first occurrence's start/end
                 let startDateTime = null;
                 let endDateTime = null;
-
-                if (datetimeElements.length >= 1) {
-                  startDateTime = datetimeElements[0].getAttribute('datetime');
-                }
-                if (datetimeElements.length >= 2) {
-                  endDateTime = datetimeElements[1].getAttribute('datetime');
+                if (dateInstances.length > 0) {
+                  startDateTime = dateInstances[0].start;
+                  endDateTime = dateInstances[0].end;
                 }
 
                 // Extract location
@@ -450,6 +462,7 @@ const unbcModule: ScraperModule = {
                   title,
                   startDateTime,
                   endDateTime,
+                  dateInstances,
                   location,
                   campus,
                   shortDescription,
@@ -459,56 +472,133 @@ const unbcModule: ScraperModule = {
                 };
               });
 
-              // Update event with detail page data
-              if (enhancementData.title) {
-                baseEvent.title = enhancementData.title;
+              // Check if we have multiple date instances (recurring events)
+              const hasMultipleInstances = enhancementData.dateInstances && enhancementData.dateInstances.length > 1;
+
+              if (hasMultipleInstances) {
+                // Multiple occurrences - create separate events for each instance
+                logger.info(`Found ${enhancementData.dateInstances.length} date instances for recurring event: ${eventLink.title}`);
+
+                for (let i = 0; i < enhancementData.dateInstances.length; i++) {
+                  const instance = enhancementData.dateInstances[i];
+                  if (!instance.start) continue;
+
+                  // Create a separate event for each occurrence
+                  const instanceEvent: RawEvent = {
+                    sourceEventId: `${eventLink.url}#instance-${i}`,
+                    title: enhancementData.title || eventLink.title || 'Untitled Event',
+                    start: instance.start,
+                    city: 'Prince George',
+                    region: 'British Columbia',
+                    country: 'Canada',
+                    organizer: 'University of Northern British Columbia',
+                    category: 'University Event',
+                    url: eventLink.url,
+                    raw: {
+                      listingTime: eventLink.time,
+                      listingDate: eventLink.date,
+                      listingLocation: eventLink.location,
+                      extractedAt: new Date().toISOString(),
+                      originalEventLink: eventLink,
+                      sourcePageUrl: eventLink.url,
+                      detailPageTitle: enhancementData.title,
+                      detailPageStartDateTime: instance.start,
+                      detailPageEndDateTime: instance.end,
+                      detailPageLocation: enhancementData.location,
+                      detailPageCampus: enhancementData.campus,
+                      detailPageShortDescription: enhancementData.shortDescription,
+                      detailPageFullContent: enhancementData.fullContent,
+                      detailPageRegistrationUrl: enhancementData.registrationUrl,
+                      enhancedFromDetailPage: true,
+                      isRecurringInstance: true,
+                      instanceIndex: i,
+                      totalInstances: enhancementData.dateInstances.length,
+                    },
+                  };
+
+                  // Set end time if available
+                  if (instance.end) {
+                    instanceEvent.end = instance.end;
+                  }
+
+                  // Set location
+                  if (enhancementData.location) {
+                    instanceEvent.venueName = enhancementData.location;
+                  }
+
+                  // Set campus tags
+                  if (enhancementData.campus) {
+                    instanceEvent.tags = [enhancementData.campus];
+                  }
+
+                  // Set description
+                  if (enhancementData.shortDescription) {
+                    instanceEvent.descriptionHtml = enhancementData.shortDescription;
+                  }
+
+                  // Set image
+                  if (enhancementData.imageUrl) {
+                    instanceEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
+                  }
+
+                  events.push(instanceEvent);
+                  logger.info(`Created instance ${i + 1}/${enhancementData.dateInstances.length}: ${instance.start}${instance.end ? ` to ${instance.end}` : ''}`);
+                }
+
+                // Skip adding the base event since we've added all instances
+                continue;
+              } else {
+                // Single occurrence or multi-day event - update the base event
+                if (enhancementData.title) {
+                  baseEvent.title = enhancementData.title;
+                }
+
+                if (enhancementData.startDateTime) {
+                  // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+                  baseEvent.start = enhancementData.startDateTime;
+                  logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
+                }
+
+                if (enhancementData.endDateTime) {
+                  // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
+                  baseEvent.end = enhancementData.endDateTime;
+                  logger.info(`Set event end time from detail page: ${baseEvent.end}`);
+                }
+
+                if (enhancementData.location) {
+                  baseEvent.venueName = enhancementData.location;
+                }
+
+                if (enhancementData.campus) {
+                  baseEvent.tags = [enhancementData.campus];
+                }
+
+                if (enhancementData.shortDescription) {
+                  baseEvent.descriptionHtml = enhancementData.shortDescription;
+                }
+
+                if (enhancementData.imageUrl) {
+                  baseEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
+                }
+
+                // Note: Registration URL is stored in raw data, not as separate field
+
+                // Add enhancement data to raw
+                baseEvent.raw = {
+                  ...baseEvent.raw,
+                  detailPageTitle: enhancementData.title,
+                  detailPageStartDateTime: enhancementData.startDateTime,
+                  detailPageEndDateTime: enhancementData.endDateTime,
+                  detailPageLocation: enhancementData.location,
+                  detailPageCampus: enhancementData.campus,
+                  detailPageShortDescription: enhancementData.shortDescription,
+                  detailPageFullContent: enhancementData.fullContent,
+                  detailPageRegistrationUrl: enhancementData.registrationUrl,
+                  enhancedFromDetailPage: true,
+                };
+
+                logger.info(`Enhanced event with details: ${eventLink.title}`);
               }
-
-              if (enhancementData.startDateTime) {
-                // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
-                baseEvent.start = enhancementData.startDateTime;
-                logger.info(`Updated event start time from detail page: ${baseEvent.start}`);
-              }
-
-              if (enhancementData.endDateTime) {
-                // Use the ISO datetime directly - normalizeEvent will handle timezone conversion
-                baseEvent.end = enhancementData.endDateTime;
-                logger.info(`Set event end time from detail page: ${baseEvent.end}`);
-              }
-
-              if (enhancementData.location) {
-                baseEvent.venueName = enhancementData.location;
-              }
-
-              if (enhancementData.campus) {
-                baseEvent.tags = [enhancementData.campus];
-              }
-
-              if (enhancementData.shortDescription) {
-                baseEvent.descriptionHtml = enhancementData.shortDescription;
-              }
-              
-              if (enhancementData.imageUrl) {
-                baseEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
-              }
-
-              // Note: Registration URL is stored in raw data, not as separate field
-
-              // Add enhancement data to raw
-              baseEvent.raw = {
-                ...baseEvent.raw,
-                detailPageTitle: enhancementData.title,
-                detailPageStartDateTime: enhancementData.startDateTime,
-                detailPageEndDateTime: enhancementData.endDateTime,
-                detailPageLocation: enhancementData.location,
-                detailPageCampus: enhancementData.campus,
-                detailPageShortDescription: enhancementData.shortDescription,
-                detailPageFullContent: enhancementData.fullContent,
-                detailPageRegistrationUrl: enhancementData.registrationUrl,
-                enhancedFromDetailPage: true,
-              };
-
-              logger.info(`Enhanced event with details: ${eventLink.title}`);
               
             } catch (detailError) {
               logger.warn(`Failed to load detail page for ${eventLink.title}: ${detailError}`);

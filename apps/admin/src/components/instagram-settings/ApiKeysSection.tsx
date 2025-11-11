@@ -13,13 +13,21 @@ interface ApiKeysSectionProps {
   setApifyToken: (value: string) => void
   geminiKey: string
   setGeminiKey: (value: string) => void
+  claudeKey: string
+  setClaudeKey: (value: string) => void
+  aiProvider: 'gemini' | 'claude'
+  setAiProvider: (value: 'gemini' | 'claude') => void
   handleSaveApifyToken: () => void
   handleSaveGeminiKey: () => void
+  handleSaveClaudeKey: () => void
+  handleSaveAiProvider: (provider: 'gemini' | 'claude') => void
   updateSettingsPending: boolean
   removeApifyToken: () => void
   removeApifyTokenPending: boolean
   removeGeminiKey: () => void
   removeGeminiKeyPending: boolean
+  removeClaudeKey: () => void
+  removeClaudeKeyPending: boolean
 }
 
 export function ApiKeysSection({
@@ -28,13 +36,21 @@ export function ApiKeysSection({
   setApifyToken,
   geminiKey,
   setGeminiKey,
+  claudeKey,
+  setClaudeKey,
+  aiProvider,
+  setAiProvider,
   handleSaveApifyToken,
   handleSaveGeminiKey,
+  handleSaveClaudeKey,
+  handleSaveAiProvider,
   updateSettingsPending,
   removeApifyToken,
   removeApifyTokenPending,
   removeGeminiKey,
   removeGeminiKeyPending,
+  removeClaudeKey,
+  removeClaudeKeyPending,
 }: ApiKeysSectionProps) {
   return (
     <Card>
@@ -44,10 +60,52 @@ export function ApiKeysSection({
           API Keys
         </CardTitle>
         <CardDescription>
-          Store API keys for Apify and Gemini services
+          Store API keys for Apify, Gemini, and Claude services
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* AI Provider Selection */}
+        <div className="space-y-2">
+          <Label>AI Extraction Provider</Label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="aiProvider"
+                value="gemini"
+                checked={aiProvider === 'gemini'}
+                onChange={(e) => {
+                  const newValue = e.target.value as 'gemini' | 'claude'
+                  setAiProvider(newValue)
+                  handleSaveAiProvider(newValue)
+                }}
+                className="h-4 w-4"
+              />
+              <span>Gemini</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="aiProvider"
+                value="claude"
+                checked={aiProvider === 'claude'}
+                onChange={(e) => {
+                  const newValue = e.target.value as 'gemini' | 'claude'
+                  setAiProvider(newValue)
+                  handleSaveAiProvider(newValue)
+                }}
+                className="h-4 w-4"
+              />
+              <span>Claude (Anthropic)</span>
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Select which AI provider to use for event extraction and classification
+          </p>
+        </div>
+
+        <Separator />
+
         {/* Apify Token */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -138,6 +196,54 @@ export function ApiKeysSection({
               className="underline"
             >
               Google AI Studio
+            </a>
+          </p>
+        </div>
+
+        <Separator />
+
+        {/* Claude Key */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="claude-key">Claude API Key</Label>
+            {settings?.hasClaudeKey && (
+              <Badge variant="default" className="flex items-center gap-1">
+                <CheckCircle className="h-3 w-3" />
+                Key saved
+              </Badge>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              id="claude-key"
+              type="password"
+              placeholder="sk-ant-..."
+              value={claudeKey}
+              onChange={(e) => setClaudeKey(e.target.value)}
+            />
+            <Button onClick={handleSaveClaudeKey} disabled={updateSettingsPending}>
+              <Save className="h-4 w-4 mr-2" />
+              Save
+            </Button>
+            {settings?.hasClaudeKey && (
+              <Button
+                variant="outline"
+                onClick={removeClaudeKey}
+                disabled={removeClaudeKeyPending}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Get your key from{' '}
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Anthropic Console → API Keys
             </a>
           </p>
         </div>
