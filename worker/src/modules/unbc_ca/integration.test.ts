@@ -66,22 +66,25 @@ describe('UNBC Integration Tests (Live Website)', () => {
         const title = titleEl?.textContent?.trim() || '';
 
         // Extract date/time information
-        const datetimeElements = document.querySelectorAll('.field--name-field-smart-date-ranges time[datetime]');
+        // Look for .field__item containers to distinguish between:
+        // 1. Single multi-day event (1 container with 2 <time> tags)
+        // 2. Multiple separate occurrences (multiple containers)
+        const fieldItems = document.querySelectorAll('.field--name-field-smart-date-ranges .field__item');
         const dates: Array<{ start: string; end?: string }> = [];
 
-        if (datetimeElements.length >= 1) {
-          const startDateTime = datetimeElements[0].getAttribute('datetime');
-          const endDateTime = datetimeElements.length >= 2
-            ? datetimeElements[1].getAttribute('datetime')
-            : null;
-
-          if (startDateTime) {
-            dates.push({
-              start: startDateTime,
-              end: endDateTime || undefined,
-            });
+        fieldItems.forEach(item => {
+          const times = item.querySelectorAll('time[datetime]');
+          if (times.length >= 1) {
+            const start = times[0].getAttribute('datetime');
+            const end = times.length >= 2 ? times[1].getAttribute('datetime') : null;
+            if (start) {
+              dates.push({
+                start: start,
+                end: end || undefined,
+              });
+            }
           }
-        }
+        });
 
         // Extract location
         const locationEl = document.querySelector('.field--name-field-location .field__item');

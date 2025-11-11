@@ -545,8 +545,11 @@ const unbcModule: ScraperModule = {
                   logger.info(`Created instance ${i + 1}/${enhancementData.dateInstances.length}: ${instance.start}${instance.end ? ` to ${instance.end}` : ''}`);
                 }
 
-                // Skip adding the base event since we've added all instances
-                continue;
+                // Mark base event as processed so we don't add it later
+                baseEvent.raw = Object.assign({}, baseEvent.raw, {
+                  processedAsMultipleInstances: true,
+                  enhancedFromDetailPage: true,
+                });
               } else {
                 // Single occurrence or multi-day event - update the base event
                 if (enhancementData.title) {
@@ -584,8 +587,7 @@ const unbcModule: ScraperModule = {
                 // Note: Registration URL is stored in raw data, not as separate field
 
                 // Add enhancement data to raw
-                baseEvent.raw = {
-                  ...baseEvent.raw,
+                baseEvent.raw = Object.assign({}, baseEvent.raw, {
                   detailPageTitle: enhancementData.title,
                   detailPageStartDateTime: enhancementData.startDateTime,
                   detailPageEndDateTime: enhancementData.endDateTime,
@@ -595,30 +597,33 @@ const unbcModule: ScraperModule = {
                   detailPageFullContent: enhancementData.fullContent,
                   detailPageRegistrationUrl: enhancementData.registrationUrl,
                   enhancedFromDetailPage: true,
-                };
+                });
 
                 logger.info(`Enhanced event with details: ${eventLink.title}`);
               }
               
             } catch (detailError) {
               logger.warn(`Failed to load detail page for ${eventLink.title}: ${detailError}`);
-              baseEvent.raw = {
-                ...baseEvent.raw,
+              baseEvent.raw = Object.assign({}, baseEvent.raw, {
                 detailPageError: 'Failed to load detail page',
                 enhancedFromDetailPage: false,
-              };
+              });
             }
           } else {
             logger.info(`Detail page already processed, using listing data only: ${eventLink.url}`);
-            baseEvent.raw = {
-              ...baseEvent.raw,
+            baseEvent.raw = Object.assign({}, baseEvent.raw, {
               enhancedFromDetailPage: false,
               note: 'Detail page already processed for another listing entry',
-            };
+            });
           }
 
-          events.push(baseEvent);
-          logger.info(`Created event: ${eventLink.title} on ${eventLink.date}`);
+          // Only push base event if it wasn't processed as multiple instances
+          if (!(baseEvent.raw as any)?.processedAsMultipleInstances) {
+            events.push(baseEvent);
+            logger.info(`Created event: ${eventLink.title} on ${eventLink.date}`);
+          } else {
+            logger.info(`Skipped base event (already added as ${(baseEvent.raw as any)?.totalInstances || 0} separate instances)`);
+          }
 
         } catch (eventError) {
           logger.warn(`Failed to process event ${eventLink.title}: ${eventError}`);
