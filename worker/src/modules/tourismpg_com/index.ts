@@ -280,7 +280,7 @@ const tourismPgModule: ScraperModule = {
               '.entry-title',
               'h1'
             ];
-            
+
             for (const selector of titleSelectors) {
               const titleEl = document.querySelector(selector);
               const titleText = titleEl?.textContent?.trim();
@@ -293,10 +293,22 @@ const tourismPgModule: ScraperModule = {
             // Extract start date
             const startDateEl = document.querySelector('.event-start-date .jet-listing-dynamic-field__content');
             let startDateText = startDateEl?.textContent?.trim() || '';
-            
+
             // Extract end date
             const endDateEl = document.querySelector('.event-end-date .jet-listing-dynamic-field__content');
             let endDateText = endDateEl?.textContent?.trim() || '';
+
+            // Check for recurrence patterns in the page text
+            const bodyText = document.body.innerText;
+            let recurrencePattern: string | null = null;
+            let recurrenceDayOfWeek: string | null = null;
+
+            // Match patterns like "Every Saturday", "Every Monday", etc.
+            const everyDayPattern = bodyText.match(/Every\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i);
+            if (everyDayPattern) {
+              recurrencePattern = 'weekly';
+              recurrenceDayOfWeek = everyDayPattern[1];
+            }
 
             // Extract start and end times more specifically
             const startTimeElements = document.querySelectorAll('.jet-listing-dynamic-field__content');
@@ -377,6 +389,8 @@ const tourismPgModule: ScraperModule = {
               venueWebsite,
               description,
               mapSrc,
+              recurrencePattern,
+              recurrenceDayOfWeek,
             };
           });
 
@@ -575,8 +589,99 @@ const tourismPgModule: ScraperModule = {
             }
           }
 
+          // Generate series dates for recurring events
+          const seriesDates: Array<{ start: string; end?: string }> = [];
+
+          if (eventDetails.recurrencePattern === 'weekly' && eventDetails.recurrenceDayOfWeek && eventStart) {
+            // Generate occurrences for the next 12 weeks (3 months)
+            const dayOfWeekMap: Record<string, number> = {
+              'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
+              'Thursday': 4, 'Friday': 5, 'Saturday': 6
+            };
+
+            const targetDayOfWeek = dayOfWeekMap[eventDetails.recurrenceDayOfWeek];
+            if (targetDayOfWeek !== undefined) {
+              const startDate = new Date(eventStart.replace(' ', 'T'));
+
+              // Calculate duration if we have end time
+              let durationMinutes = 0;
+              if (eventEnd) {
+                const endDate = new Date(eventEnd.replace(' ', 'T'));
+                durationMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60);
+              }
+
+              // Find the first occurrence on the target day of week
+              let currentDate = new Date(startDate);
+              const currentDayOfWeek = currentDate.getDay();
+              const daysUntilTarget = (targetDayOfWeek - currentDayOfWeek + 7) % 7;
+              currentDate.setDate(currentDate.getDate() + daysUntilTarget);
+
+              // Generate 12 weekly occurrences
+              for (let i = 0; i < 12; i++) {
+                const occurrenceStart = new Date(currentDate);
+                const startStr = `${occurrenceStart.getFullYear()}-${String(occurrenceStart.getMonth() + 1).padStart(2, '0')}-${String(occurrenceStart.getDate()).padStart(2, '0')} ${String(occurrenceStart.getHours()).padStart(2, '0')}:${String(occurrenceStart.getMinutes()).padStart(2, '0')}`;
+
+                const occurrence: { start: string; end?: string } = { start: startStr };
+
+                if (durationMinutes > 0) {
+                  const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMinutes * 60 * 1000);
+                  occurrence.end = `${occurrenceEnd.getFullYear()}-${String(occurrenceEnd.getMonth() + 1).padStart(2, '0')}-${String(occurrenceEnd.getDate()).padStart(2, '0')} ${String(occurrenceEnd.getHours()).padStart(2, '0')}:${String(occurrenceEnd.getMinutes()).padStart(2, '0')}`;
+                }
+
+                seriesDates.push(occurrence);
+
+                // Move to next week
+                currentDate.setDate(currentDate.getDate() + 7);
+              }
+
+              logger.info(`Generated ${seriesDates.length} weekly occurrences for recurring event: ${eventDetails.title}`);
+            }
+          }
+          // Handle multi-day events (e.g., Nov 14-15)
+          else if (eventStart && eventEnd) {
+            // Check if this is a multi-day event (different dates, not just different times)
+            const startDate = new Date(eventStart.replace(' ', 'T'));
+            const endDate = new Date(eventEnd.replace(' ', 'T'));
+
+            // Get just the date parts (year-month-day)
+            const startDateOnly = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+            const endDateOnly = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+            if (startDateOnly !== endDateOnly) {
+              // Multi-day event - create occurrences for each day
+              const currentDate = new Date(startDate);
+              const finalDate = new Date(endDate);
+
+              while (currentDate <= finalDate) {
+                const dayStart = new Date(currentDate);
+                const dayStartStr = `${dayStart.getFullYear()}-${String(dayStart.getMonth() + 1).padStart(2, '0')}-${String(dayStart.getDate()).padStart(2, '0')} ${String(dayStart.getHours()).padStart(2, '0')}:${String(dayStart.getMinutes()).padStart(2, '0')}`;
+
+                // For the last day, use the actual end time; for other days use end of event hours
+                const dayEnd = new Date(currentDate);
+                if (currentDate.toDateString() === finalDate.toDateString()) {
+                  dayEnd.setHours(finalDate.getHours(), finalDate.getMinutes(), 0, 0);
+                } else {
+                  dayEnd.setHours(finalDate.getHours(), finalDate.getMinutes(), 0, 0);
+                }
+
+                const dayEndStr = `${dayEnd.getFullYear()}-${String(dayEnd.getMonth() + 1).padStart(2, '0')}-${String(dayEnd.getDate()).padStart(2, '0')} ${String(dayEnd.getHours()).padStart(2, '0')}:${String(dayEnd.getMinutes()).padStart(2, '0')}`;
+
+                seriesDates.push({
+                  start: dayStartStr,
+                  end: dayEndStr
+                });
+
+                currentDate.setDate(currentDate.getDate() + 1);
+              }
+
+              logger.info(`Generated ${seriesDates.length} occurrences for multi-day event: ${eventDetails.title}`);
+            }
+          }
+
           // Create the event
-          const sourceEventId = `${eventLink.url}#${eventLink.date}`;
+          const sourceEventId = seriesDates.length > 0
+            ? eventLink.url // Use URL only for series events
+            : `${eventLink.url}#${eventLink.date}`;
 
           const event: RawEvent = {
             sourceEventId: sourceEventId,
@@ -597,8 +702,15 @@ const tourismPgModule: ScraperModule = {
               locationParts: eventDetails.locationParts,
               extractedAt: new Date().toISOString(),
               originalEventLink: eventLink,
+              recurrencePattern: eventDetails.recurrencePattern,
+              recurrenceDayOfWeek: eventDetails.recurrenceDayOfWeek,
             },
           };
+
+          // Add series dates if we have them
+          if (seriesDates.length > 0) {
+            (event.raw as any).seriesDates = seriesDates;
+          }
 
           if (eventEnd) {
             event.end = eventEnd;

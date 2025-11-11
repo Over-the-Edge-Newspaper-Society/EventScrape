@@ -293,11 +293,20 @@ const unbcModule: ScraperModule = {
 
       // Visit each event detail page to get additional details
       const visitedUrls = new Set<string>();
-      
+
       for (const [index, eventLink] of eventsToProcess.entries()) {
+        // Skip if we've already processed this URL (handles recurring events in listing)
+        if (visitedUrls.has(eventLink.url)) {
+          logger.info(`Skipping duplicate listing entry for ${eventLink.url} (already processed)`);
+          continue;
+        }
+
+        // Mark this URL as visited
+        visitedUrls.add(eventLink.url);
+
         try {
           logger.info(`Processing event ${index + 1}/${eventsToProcess.length}: ${eventLink.title}`);
-          
+
           // Parse date and time
           let eventStart = '';
           try {
@@ -355,6 +364,7 @@ const unbcModule: ScraperModule = {
           }
 
           // Create base event
+          // Note: sourceEventId will be updated if this is a series event (after visiting detail page)
           const sourceEventId = `${eventLink.url}#${eventLink.date || new Date(eventStart).toDateString()}`;
 
           const baseEvent: RawEvent = {
@@ -388,10 +398,8 @@ const unbcModule: ScraperModule = {
             }
           }
 
-          // Only visit detail page if we haven't processed this URL before
-          if (!visitedUrls.has(eventLink.url)) {
-            logger.info(`Enhancing with details from: ${eventLink.url}`);
-            visitedUrls.add(eventLink.url);
+          // Visit detail page to get full event information
+          logger.info(`Enhancing with details from: ${eventLink.url}`);
             
             // Rate limiting
             await delay(addJitter(2000, 50));
@@ -476,80 +484,57 @@ const unbcModule: ScraperModule = {
               const hasMultipleInstances = enhancementData.dateInstances && enhancementData.dateInstances.length > 1;
 
               if (hasMultipleInstances) {
-                // Multiple occurrences - create separate events for each instance
-                logger.info(`Found ${enhancementData.dateInstances.length} date instances for recurring event: ${eventLink.title}`);
+                // Multiple occurrences - create ONE event with series metadata
+                logger.info(`Found ${enhancementData.dateInstances.length} date instances for event series: ${eventLink.title}`);
 
-                for (let i = 0; i < enhancementData.dateInstances.length; i++) {
-                  const instance = enhancementData.dateInstances[i];
-                  if (!instance.start) continue;
+                // Update sourceEventId to use just the URL (not date-specific) for series events
+                // This ensures all occurrences from the listing page map to the same series
+                baseEvent.sourceEventId = eventLink.url;
 
-                  // Create a separate event for each occurrence
-                  const instanceEvent: RawEvent = {
-                    sourceEventId: `${eventLink.url}#instance-${i}`,
-                    title: enhancementData.title || eventLink.title || 'Untitled Event',
-                    start: instance.start,
-                    city: 'Prince George',
-                    region: 'British Columbia',
-                    country: 'Canada',
-                    organizer: 'University of Northern British Columbia',
-                    category: 'University Event',
-                    url: eventLink.url,
-                    raw: {
-                      listingTime: eventLink.time,
-                      listingDate: eventLink.date,
-                      listingLocation: eventLink.location,
-                      extractedAt: new Date().toISOString(),
-                      originalEventLink: eventLink,
-                      sourcePageUrl: eventLink.url,
-                      detailPageTitle: enhancementData.title,
-                      detailPageStartDateTime: instance.start,
-                      detailPageEndDateTime: instance.end,
-                      detailPageLocation: enhancementData.location,
-                      detailPageCampus: enhancementData.campus,
-                      detailPageShortDescription: enhancementData.shortDescription,
-                      detailPageFullContent: enhancementData.fullContent,
-                      detailPageRegistrationUrl: enhancementData.registrationUrl,
-                      enhancedFromDetailPage: true,
-                      isRecurringInstance: true,
-                      instanceIndex: i,
-                      totalInstances: enhancementData.dateInstances.length,
-                    },
-                  };
-
-                  // Set end time if available
-                  if (instance.end) {
-                    instanceEvent.end = instance.end;
-                  }
-
-                  // Set location
-                  if (enhancementData.location) {
-                    instanceEvent.venueName = enhancementData.location;
-                  }
-
-                  // Set campus tags
-                  if (enhancementData.campus) {
-                    instanceEvent.tags = [enhancementData.campus];
-                  }
-
-                  // Set description
-                  if (enhancementData.shortDescription) {
-                    instanceEvent.descriptionHtml = enhancementData.shortDescription;
-                  }
-
-                  // Set image
-                  if (enhancementData.imageUrl) {
-                    instanceEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
-                  }
-
-                  events.push(instanceEvent);
-                  logger.info(`Created instance ${i + 1}/${enhancementData.dateInstances.length}: ${instance.start}${instance.end ? ` to ${instance.end}` : ''}`);
+                // Update base event with series information
+                baseEvent.title = enhancementData.title || baseEvent.title;
+                baseEvent.start = enhancementData.dateInstances[0].start!; // First occurrence
+                if (enhancementData.dateInstances[0].end) {
+                  baseEvent.end = enhancementData.dateInstances[0].end;
                 }
 
-                // Mark base event as processed so we don't add it later
+                // Set location
+                if (enhancementData.location) {
+                  baseEvent.venueName = enhancementData.location;
+                }
+
+                // Set campus tags
+                if (enhancementData.campus) {
+                  baseEvent.tags = [enhancementData.campus];
+                }
+
+                // Set description
+                if (enhancementData.shortDescription) {
+                  baseEvent.descriptionHtml = enhancementData.shortDescription;
+                }
+
+                // Set image
+                if (enhancementData.imageUrl) {
+                  baseEvent.imageUrl = new URL(enhancementData.imageUrl, eventLink.url).href;
+                }
+
+                // Add series metadata in the format expected by occurrence-db.ts
                 baseEvent.raw = Object.assign({}, baseEvent.raw, {
-                  processedAsMultipleInstances: true,
+                  detailPageTitle: enhancementData.title,
+                  detailPageLocation: enhancementData.location,
+                  detailPageCampus: enhancementData.campus,
+                  detailPageShortDescription: enhancementData.shortDescription,
+                  detailPageFullContent: enhancementData.fullContent,
+                  detailPageRegistrationUrl: enhancementData.registrationUrl,
                   enhancedFromDetailPage: true,
+                  // Series dates in the format expected by occurrence-db.ts
+                  seriesDates: enhancementData.dateInstances.map((d) => ({
+                    start: d.start!,
+                    end: d.end || undefined,
+                  })),
                 });
+
+                logger.info(`Created event series with ${enhancementData.dateInstances.length} occurrences`);
               } else {
                 // Single occurrence or multi-day event - update the base event
                 if (enhancementData.title) {
@@ -609,20 +594,14 @@ const unbcModule: ScraperModule = {
                 enhancedFromDetailPage: false,
               });
             }
-          } else {
-            logger.info(`Detail page already processed, using listing data only: ${eventLink.url}`);
-            baseEvent.raw = Object.assign({}, baseEvent.raw, {
-              enhancedFromDetailPage: false,
-              note: 'Detail page already processed for another listing entry',
-            });
-          }
 
-          // Only push base event if it wasn't processed as multiple instances
-          if (!(baseEvent.raw as any)?.processedAsMultipleInstances) {
-            events.push(baseEvent);
-            logger.info(`Created event: ${eventLink.title} on ${eventLink.date}`);
+          // Push the event (either single occurrence or series with multiple occurrences)
+          events.push(baseEvent);
+          const seriesDates = (baseEvent.raw as any)?.seriesDates;
+          if (seriesDates && seriesDates.length > 1) {
+            logger.info(`Created event series: ${eventLink.title} with ${seriesDates.length} occurrences`);
           } else {
-            logger.info(`Skipped base event (already added as ${(baseEvent.raw as any)?.totalInstances || 0} separate instances)`);
+            logger.info(`Created event: ${eventLink.title} on ${eventLink.date}`);
           }
 
         } catch (eventError) {
