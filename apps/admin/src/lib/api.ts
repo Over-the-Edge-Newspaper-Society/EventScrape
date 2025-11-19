@@ -46,7 +46,10 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
   }
   
   // Only set Content-Type if we have a body
-  if (options?.body) {
+  const hasFormData =
+    typeof FormData !== 'undefined' && options?.body instanceof FormData
+
+  if (options?.body && !hasFormData) {
     headers['Content-Type'] = 'application/json'
   }
   
@@ -150,12 +153,20 @@ export const posterImportApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  uploadImage: (formData: FormData) =>
+    fetchApi<{ success: boolean; runId: string; jobId: string; eventsPreviewCount?: number }>(
+      `/poster-import/image-ai`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+    ),
 }
 
 export const systemSettingsApi = {
   get: () =>
     fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
-  update: (data: Partial<Pick<SystemSettings, 'posterImportEnabled'>>) =>
+  update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude'; geminiApiKey?: string; claudeApiKey?: string }>) =>
     fetchApi<{ settings: SystemSettings }>('/system-settings', {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -706,6 +717,9 @@ export interface CreateExportData {
 export interface SystemSettings {
   id: string
   posterImportEnabled: boolean
+  aiProvider?: 'gemini' | 'claude'
+  hasGeminiKey?: boolean
+  hasClaudeKey?: boolean
   createdAt: string
   updatedAt: string
 }

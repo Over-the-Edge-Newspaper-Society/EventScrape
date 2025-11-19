@@ -2,11 +2,49 @@ import type { FastifyBaseLogger } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import path from 'path';
 import { db } from '../../db/connection.js';
-import { eventsRaw, sources, instagramSettings, runs } from '../../db/schema.js';
+import { eventsRaw, sources, instagramSettings, systemSettings, runs } from '../../db/schema.js';
 import { DOWNLOAD_DIR, INSTAGRAM_SOURCE_ID, SETTINGS_ID } from './constants.js';
 import { InstagramExtractionError } from './errors.js';
 import { hasExtractedEvents, parseEventRaw } from './raw-utils.js';
 import type { ExtractionResult, InstagramPostWithSource } from './types.js';
+import { SYSTEM_SETTINGS_ID } from '../../services/system-settings.js';
+
+type AiEventCore = {
+  title: string;
+  descriptionHtml?: string;
+  startIso: string;
+  endIso?: string;
+  timezone: string;
+  venueName?: string;
+  venueAddress?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  organizer?: string;
+  category?: string;
+  price?: string;
+  tags?: string[];
+  imageUrl?: string;
+};
+
+type AiEventCoreModule = {
+  mapAiEventToCore: (
+    event: any,
+    options: {
+      defaultTimezone: string;
+      extractionConfidence?: any;
+      wrapperMeta?: any;
+      fallbackLocation?: {
+        city?: string;
+        region?: string;
+        country?: string;
+      };
+      includeAdditionalInfoInDescription: boolean;
+      includeConfidenceInDescription: boolean;
+      includeCategoryInTags: boolean;
+    },
+  ) => AiEventCore;
+};
 
 type AIExtractorModule = {
   extractEventFromImageFile: (
@@ -24,6 +62,7 @@ type AIProvider = 'gemini' | 'claude';
 export const createExtractionService = (log: FastifyBaseLogger) => {
   let geminiExtractorModule: AIExtractorModule | null = null;
   let claudeExtractorModule: AIExtractorModule | null = null;
+  let aiEventCoreModule: AiEventCoreModule | null = null;
 
   const getExtractor = async (provider: AIProvider): Promise<AIExtractorModule> => {
     if (provider === 'gemini') {
@@ -54,8 +93,31 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     }
   };
 
+  const getAiEventCoreModule = async (): Promise<AiEventCoreModule> => {
+    if (aiEventCoreModule) {
+      return aiEventCoreModule;
+    }
+
+    const importPath = new URL(
+      '../../worker/src/modules/ai_poster_import/ai-event-core.js',
+      import.meta.url
+    ).href;
+
+    aiEventCoreModule = (await import(importPath)) as AiEventCoreModule;
+    return aiEventCoreModule;
+  };
+
   const getAISettings = async (): Promise<{ provider: AIProvider; apiKey: string }> => {
-    const [settings] = await db
+    const [global] = await db
+      .select({
+        aiProvider: systemSettings.aiProvider,
+        geminiApiKey: systemSettings.geminiApiKey,
+        claudeApiKey: systemSettings.claudeApiKey,
+      })
+      .from(systemSettings)
+      .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID));
+
+    const [igSettings] = await db
       .select({
         aiProvider: instagramSettings.aiProvider,
         geminiApiKey: instagramSettings.geminiApiKey,
@@ -64,16 +126,16 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
       .from(instagramSettings)
       .where(eq(instagramSettings.id, SETTINGS_ID));
 
-    const provider = (settings?.aiProvider || 'gemini') as AIProvider;
+    const provider = (global?.aiProvider || igSettings?.aiProvider || 'gemini') as AIProvider;
 
     let apiKey: string | undefined;
     if (provider === 'gemini') {
-      apiKey = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+      apiKey = global?.geminiApiKey || igSettings?.geminiApiKey || process.env.GEMINI_API_KEY;
       if (!apiKey) {
         throw new InstagramExtractionError('Gemini API key not configured', 400);
       }
     } else {
-      apiKey = settings?.claudeApiKey || process.env.CLAUDE_API_KEY;
+      apiKey = global?.claudeApiKey || igSettings?.claudeApiKey || process.env.CLAUDE_API_KEY;
       if (!apiKey) {
         throw new InstagramExtractionError('Claude API key not configured', 400);
       }
@@ -159,6 +221,7 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     }
 
     const { extractEventFromImageFile } = await getExtractor(provider);
+    const { mapAiEventToCore } = await getAiEventCoreModule();
 
     log.info(`Using ${provider.toUpperCase()} AI provider for extraction`);
 
@@ -189,7 +252,7 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     let eventsCreated = 0;
 
     if (createEvents && extractionResult.events && extractionResult.events.length > 0) {
-      const timezone = source.defaultTimezone || 'America/Vancouver';
+      const defaultTimezone = source.defaultTimezone || 'America/Vancouver';
 
       if (post.instagramPostId) {
         const deleteResult = await db
@@ -215,37 +278,40 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
         })
         .returning();
 
-      for (const event of extractionResult.events) {
-        const startDate = event.startDate
-          ? `${event.startDate}T${event.startTime || '00:00:00'}`
-          : undefined;
-        const endDate = event.endDate
-          ? `${event.endDate}T${event.endTime || '23:59:59'}`
-          : undefined;
+      for (const aiEvent of extractionResult.events) {
+        const core = mapAiEventToCore(aiEvent, {
+          defaultTimezone,
+          extractionConfidence: extractionResult.extractionConfidence,
+          wrapperMeta: undefined,
+          fallbackLocation: {},
+          includeAdditionalInfoInDescription: false,
+          includeConfidenceInDescription: false,
+          includeCategoryInTags: true,
+        });
 
-        const startDateTime = startDate ? new Date(startDate) : new Date();
-        const endDateTime = endDate ? new Date(endDate) : null;
+        const startDateTime = new Date(core.startIso);
+        const endDateTime = core.endIso ? new Date(core.endIso) : null;
 
         await db.insert(eventsRaw).values({
           sourceId: INSTAGRAM_SOURCE_ID,
           runId: manualRun.id,
           sourceEventId: `${post.instagramPostId}-${Date.now()}`,
-          title: event.title,
-          descriptionHtml: event.description || '',
+          title: core.title,
+          descriptionHtml: core.descriptionHtml || '',
           startDatetime: startDateTime,
           endDatetime: endDateTime,
-          timezone: event.timezone || timezone,
-          venueName: event.venue?.name || null,
-          venueAddress: event.venue?.address || null,
-          city: event.venue?.city || null,
-          region: event.venue?.region || null,
-          country: event.venue?.country || null,
-          organizer: event.organizer || null,
-          category: event.category || null,
-          price: event.price || null,
-          tags: event.tags || null,
+          timezone: core.timezone || defaultTimezone,
+          venueName: core.venueName || null,
+          venueAddress: core.venueAddress || null,
+          city: core.city || null,
+          region: core.region || null,
+          country: core.country || null,
+          organizer: core.organizer || null,
+          category: core.category || null,
+          price: core.price || null,
+          tags: core.tags || null,
           url: post.url || `https://instagram.com/p/${post.instagramPostId}/`,
-          imageUrl: post.imageUrl,
+          imageUrl: core.imageUrl || post.imageUrl,
           raw: rawData,
           contentHash: `${post.instagramPostId}-extraction-${Date.now()}`,
           instagramAccountId: post.instagramAccountId,

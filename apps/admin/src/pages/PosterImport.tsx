@@ -14,6 +14,8 @@ export function PosterImport() {
   const queryClient = useQueryClient()
   const [posterJsonContent, setPosterJsonContent] = useState('')
   const [posterJsonFile, setPosterJsonFile] = useState<File | null>(null)
+   const [posterImageFile, setPosterImageFile] = useState<File | null>(null)
+   const [pictureDate, setPictureDate] = useState('')
   const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
     queryKey: ['system-settings'],
     queryFn: () => systemSettingsApi.get(),
@@ -34,6 +36,20 @@ export function PosterImport() {
 
   const posterImportMutation = useMutation({
     mutationFn: (data: { content: string; testMode?: boolean }) => posterImportApi.upload(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+
+  const posterImageImportMutation = useMutation({
+    mutationFn: (data: { file: File; pictureDate?: string }) => {
+      const formData = new FormData()
+      formData.append('image', data.file)
+      if (data.pictureDate) {
+        formData.append('pictureDate', data.pictureDate)
+      }
+      return posterImportApi.uploadImage(formData)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
     },
@@ -83,8 +99,87 @@ export function PosterImport() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-foreground">Poster Import</h1>
-        <p className="text-muted-foreground">Upload JSON extracted from poster images (no source selection needed)</p>
+        <p className="text-muted-foreground">
+          Upload poster images for AI extraction, or upload JSON extracted from posters (no source selection needed)
+        </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Poster Image Upload (AI Extraction)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Upload className="h-4 w-4 text-emerald-600" />
+              <span className="text-sm font-medium text-emerald-800 dark:text-emerald-100">
+                Quick path: upload a poster image
+              </span>
+            </div>
+            <div className="text-xs text-emerald-700 dark:text-emerald-200 whitespace-pre-line">
+              {`Upload a photo or screenshot of an event poster.\nOptionally provide the date the photo was taken so AI can infer the correct year when the poster only shows month/day.\nThe system will extract events and create a run using the AI Poster Import source.`}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="poster-image-upload">Upload Poster Image</Label>
+              <Input
+                id="poster-image-upload"
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  setPosterImageFile(file ?? null)
+                }}
+                className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/80"
+              />
+              {posterImageFile && (
+                <p className="text-xs text-green-600">✓ Image selected: {posterImageFile.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="poster-picture-date">Picture Date (optional)</Label>
+              <Input
+                id="poster-picture-date"
+                type="date"
+                value={pictureDate}
+                onChange={(e) => setPictureDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Used as a reference date when the poster does not show a year. Leave empty if not needed.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <Button
+              onClick={async () => {
+                if (!posterImageFile) {
+                  toast.error('Please select a poster image')
+                  return
+                }
+                try {
+                  await posterImageImportMutation.mutateAsync({
+                    file: posterImageFile,
+                    pictureDate: pictureDate || undefined,
+                  })
+                  toast.success('Poster image submitted. AI extraction started.')
+                  setPosterImageFile(null)
+                  setPictureDate('')
+                } catch (err) {
+                  console.error(err)
+                  toast.error('Failed to submit poster image')
+                }
+              }}
+              disabled={posterImageImportMutation.isPending}
+              className="flex items-center gap-2"
+            >
+              <Upload className="h-4 w-4" /> Upload Image &amp; Extract Events
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

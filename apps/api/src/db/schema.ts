@@ -301,6 +301,10 @@ export const wordpressSettings = pgTable('wordpress_settings', {
 export const systemSettings = pgTable('system_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
   posterImportEnabled: boolean('poster_import_enabled').notNull().default(true),
+  // Global AI configuration (shared by Instagram + Poster Import)
+  aiProvider: aiProviderEnum('ai_provider').default('gemini'),
+  geminiApiKey: text('gemini_api_key'),
+  claudeApiKey: text('claude_api_key'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

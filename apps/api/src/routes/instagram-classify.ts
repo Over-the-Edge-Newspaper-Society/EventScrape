@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { eventsRaw, sources, instagramSettings } from '../db/schema.js';
+import { eventsRaw, sources, instagramSettings, systemSettings } from '../db/schema.js';
 import path from 'path';
 import { parseEventRaw } from './instagram-review/raw-utils.js';
+import { SYSTEM_SETTINGS_ID } from '../services/system-settings.js';
 
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
 const DOWNLOAD_DIR = process.env.INSTAGRAM_IMAGES_DIR || './data/instagram_images';
@@ -12,13 +13,19 @@ export const instagramClassifyRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/instagram-classify/backlog - Classify all unclassified Instagram posts
   fastify.post('/backlog', async (request, reply) => {
     try {
-      // Get Gemini API key
+      // Get Gemini API key (prefer global system settings, fallback to Instagram settings/env)
+      const [global] = await db
+        .select({ geminiApiKey: systemSettings.geminiApiKey })
+        .from(systemSettings)
+        .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID));
+
       const [settings] = await db
         .select({ geminiApiKey: instagramSettings.geminiApiKey })
         .from(instagramSettings)
         .where(eq(instagramSettings.id, SETTINGS_ID));
 
-      const GEMINI_API_KEY = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+      const GEMINI_API_KEY =
+        global?.geminiApiKey || settings?.geminiApiKey || process.env.GEMINI_API_KEY;
 
       if (!GEMINI_API_KEY) {
         reply.status(400);

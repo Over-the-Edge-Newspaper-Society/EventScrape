@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
@@ -43,6 +43,10 @@ export function Settings() {
   const [applyDatabase, setApplyDatabase] = useState(false)
   const [applyInstagramData, setApplyInstagramData] = useState(false)
   const [applyImages, setApplyImages] = useState(false)
+
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'claude'>('gemini')
+  const [geminiKey, setGeminiKey] = useState('')
+  const [claudeKey, setClaudeKey] = useState('')
 
   const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
     queryKey: ['system-settings'],
@@ -184,7 +188,7 @@ export function Settings() {
     },
   })
 
-  const systemSettingsMutation = useMutation({
+  const featureTogglesMutation = useMutation({
     mutationFn: (payload: { posterImportEnabled: boolean }) => systemSettingsApi.update(payload),
     onSuccess: (updatedSettings) => {
       queryClient.setQueryData(['system-settings'], updatedSettings)
@@ -198,6 +202,30 @@ export function Settings() {
       toast.error(error.message || 'Failed to update system settings')
     },
   })
+
+  const aiSettingsMutation = useMutation({
+    mutationFn: (payload: { aiProvider?: 'gemini' | 'claude'; geminiApiKey?: string; claudeApiKey?: string }) =>
+      systemSettingsApi.update(payload),
+    onSuccess: (updatedSettings) => {
+      queryClient.setQueryData(['system-settings'], updatedSettings)
+      toast.success('AI settings updated')
+      setGeminiKey('')
+      setClaudeKey('')
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update AI settings')
+    },
+  })
+
+  const isSystemSettingsBusy =
+    isLoadingSystemSettings || featureTogglesMutation.isPending || aiSettingsMutation.isPending
+
+  useEffect(() => {
+    if (systemSettings) {
+      setAiProvider(systemSettings.aiProvider || 'gemini')
+    }
+  }, [systemSettings])
+
 
   const handleExport = () => {
     if (!exportIncludeDatabase && !exportIncludeInstagramData && !exportIncludeImages) {
@@ -247,10 +275,10 @@ export function Settings() {
   }
 
   const handleTogglePosterImport = (checked: boolean) => {
-    if (systemSettings?.posterImportEnabled === checked || systemSettingsMutation.isPending) {
+    if (systemSettings?.posterImportEnabled === checked || featureTogglesMutation.isPending) {
       return
     }
-    systemSettingsMutation.mutate({ posterImportEnabled: checked })
+    featureTogglesMutation.mutate({ posterImportEnabled: checked })
   }
 
   const formatBytes = (bytes: number) => {
@@ -296,9 +324,136 @@ export function Settings() {
           </div>
           <Switch
             checked={systemSettings?.posterImportEnabled ?? true}
-            disabled={isLoadingSystemSettings || systemSettingsMutation.isPending}
+            disabled={isSystemSettingsBusy}
             onCheckedChange={handleTogglePosterImport}
           />
+        </div>
+      </Card>
+
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Sliders className="h-6 w-6 text-primary" />
+          <div>
+            <h2 className="text-xl font-semibold">AI Settings</h2>
+            <p className="text-sm text-muted-foreground">
+              Choose the global AI provider and manage API keys used for Instagram extraction and Poster Import.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>AI Extraction Provider</Label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value="gemini"
+                  checked={aiProvider === 'gemini'}
+                  onChange={() => aiSettingsMutation.mutate({ aiProvider: 'gemini' })}
+                  className="h-4 w-4"
+                />
+                <span>Gemini</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value="claude"
+                  checked={aiProvider === 'claude'}
+                  onChange={() => aiSettingsMutation.mutate({ aiProvider: 'claude' })}
+                  className="h-4 w-4"
+                />
+                <span>Claude (Anthropic)</span>
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This provider will be used for both Instagram image extraction and manual poster imports.
+            </p>
+          </div>
+
+          <Separator />
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="gemini-key-global">Gemini API Key</Label>
+                {systemSettings?.hasGeminiKey && <Badge variant="secondary">Key saved</Badge>}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  id="gemini-key-global"
+                  type="password"
+                  placeholder="AI..."
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                />
+                <Button
+                  onClick={() => {
+                    if (!geminiKey) {
+                      toast.error('Please enter a Gemini API key')
+                      return
+                    }
+                    aiSettingsMutation.mutate({ geminiApiKey: geminiKey })
+                  }}
+                  disabled={aiSettingsMutation.isPending}
+                >
+                  Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get your key from{' '}
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  Google AI Studio
+                </a>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="claude-key-global">Claude API Key</Label>
+                {systemSettings?.hasClaudeKey && <Badge variant="secondary">Key saved</Badge>}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  id="claude-key-global"
+                  type="password"
+                  placeholder="sk-ant-..."
+                  value={claudeKey}
+                  onChange={(e) => setClaudeKey(e.target.value)}
+                />
+                <Button
+                  onClick={() => {
+                    if (!claudeKey) {
+                      toast.error('Please enter a Claude API key')
+                      return
+                    }
+                    aiSettingsMutation.mutate({ claudeApiKey: claudeKey })
+                  }}
+                  disabled={aiSettingsMutation.isPending}
+                >
+                  Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get your key from{' '}
+                <a
+                  href="https://console.anthropic.com/settings/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  Anthropic Console → API Keys
+                </a>
+              </p>
+            </div>
+          </div>
         </div>
       </Card>
 

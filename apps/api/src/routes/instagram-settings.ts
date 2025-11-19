@@ -2,12 +2,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { instagramSettings } from '../db/schema.js';
+import { instagramSettings, systemSettings } from '../db/schema.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ensureSystemSettings, updateSystemSettings, SYSTEM_SETTINGS_ID } from '../services/system-settings.js';
 
-const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton settings
+const INSTAGRAM_SETTINGS_ID = '00000000-0000-0000-0000-000000000001'; // Singleton settings
 
 const updateSettingsSchema = z.object({
   apifyApiToken: z.string().optional(),
@@ -69,13 +70,15 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           updatedAt: instagramSettings.updatedAt,
         })
         .from(instagramSettings)
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID));
+
+      const globalSettings = await ensureSystemSettings();
 
       if (!settings) {
         // Create default settings if not exists
         const [newSettings] = await db
           .insert(instagramSettings)
-          .values({ id: SETTINGS_ID })
+          .values({ id: INSTAGRAM_SETTINGS_ID })
           .returning({
             id: instagramSettings.id,
             apifyActorId: instagramSettings.apifyActorId,
@@ -98,9 +101,10 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         return {
           settings: {
             ...newSettings,
+            aiProvider: globalSettings.aiProvider || newSettings.aiProvider || 'gemini',
             hasApifyToken: !!newSettings.hasApifyToken,
-            hasGeminiKey: !!newSettings.hasGeminiKey,
-            hasClaudeKey: !!newSettings.hasClaudeKey,
+            hasGeminiKey: !!(globalSettings.geminiApiKey || newSettings.hasGeminiKey),
+            hasClaudeKey: !!(globalSettings.claudeApiKey || newSettings.hasClaudeKey),
             geminiPrompt: newSettings.geminiPrompt ?? defaultPrompt,
           },
         };
@@ -109,9 +113,10 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         settings: {
           ...settings,
+          aiProvider: globalSettings.aiProvider || settings.aiProvider || 'gemini',
           hasApifyToken: !!settings.hasApifyToken,
-          hasGeminiKey: !!settings.hasGeminiKey,
-          hasClaudeKey: !!settings.hasClaudeKey,
+          hasGeminiKey: !!(globalSettings.geminiApiKey || settings.hasGeminiKey),
+          hasClaudeKey: !!(globalSettings.claudeApiKey || settings.hasClaudeKey),
           geminiPrompt: settings.geminiPrompt ?? defaultPrompt,
         },
       };
@@ -145,10 +150,19 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
       if (data.defaultScraperType !== undefined) updateData.defaultScraperType = data.defaultScraperType;
       if (data.allowPerAccountOverride !== undefined) updateData.allowPerAccountOverride = data.allowPerAccountOverride;
 
+      // Apply any global AI updates first
+      const globalUpdates: any = {};
+      if (data.aiProvider !== undefined) globalUpdates.aiProvider = data.aiProvider;
+      if (data.geminiApiKey !== undefined) globalUpdates.geminiApiKey = data.geminiApiKey;
+      if (data.claudeApiKey !== undefined) globalUpdates.claudeApiKey = data.claudeApiKey;
+      if (Object.keys(globalUpdates).length > 0) {
+        await updateSystemSettings(globalUpdates);
+      }
+
       const [updated] = await db
         .update(instagramSettings)
         .set(updateData)
-        .where(eq(instagramSettings.id, SETTINGS_ID))
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID))
         .returning({
           id: instagramSettings.id,
           apifyActorId: instagramSettings.apifyActorId,
@@ -169,13 +183,15 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         });
 
       const defaultPrompt = await getDefaultGeminiPrompt();
+      const globalSettings = await ensureSystemSettings();
 
       return {
         settings: {
           ...updated,
+          aiProvider: globalSettings.aiProvider || updated.aiProvider || 'gemini',
           hasApifyToken: !!updated.hasApifyToken,
-          hasGeminiKey: !!updated.hasGeminiKey,
-          hasClaudeKey: !!updated.hasClaudeKey,
+          hasGeminiKey: !!(globalSettings.geminiApiKey || updated.hasGeminiKey),
+          hasClaudeKey: !!(globalSettings.claudeApiKey || updated.hasClaudeKey),
           geminiPrompt: updated.geminiPrompt ?? defaultPrompt,
         },
       };
@@ -210,10 +226,11 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/instagram-settings/gemini-key - Remove Gemini key
   fastify.delete('/gemini-key', async (request, reply) => {
     try {
+      await updateSystemSettings({ geminiApiKey: null as any });
       await db
         .update(instagramSettings)
         .set({ geminiApiKey: null, updatedAt: new Date() })
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID));
 
       return { message: 'Gemini API key removed successfully' };
     } catch (error: any) {
@@ -226,10 +243,11 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/instagram-settings/claude-key - Remove Claude key
   fastify.delete('/claude-key', async (request, reply) => {
     try {
+      await updateSystemSettings({ claudeApiKey: null as any });
       await db
         .update(instagramSettings)
         .set({ claudeApiKey: null, updatedAt: new Date() })
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID));
 
       return { message: 'Claude API key removed successfully' };
     } catch (error: any) {
@@ -242,7 +260,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/instagram-settings/keys - Get API keys for worker (internal use)
   fastify.get('/keys', async (request, reply) => {
     try {
-      const [settings] = await db
+      const [igSettings] = await db
         .select({
           apifyApiToken: instagramSettings.apifyApiToken,
           geminiApiKey: instagramSettings.geminiApiKey,
@@ -251,19 +269,36 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
           claudePrompt: instagramSettings.claudePrompt,
         })
         .from(instagramSettings)
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID));
 
-      if (!settings) {
+      const globalSettings = await db
+        .select({
+          geminiApiKey: systemSettings.geminiApiKey,
+          claudeApiKey: systemSettings.claudeApiKey,
+        })
+        .from(systemSettings)
+        .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID))
+        .limit(1);
+
+      const global = globalSettings[0];
+
+      if (!igSettings && !global) {
         return {
           apifyApiToken: null,
           geminiApiKey: null,
           claudeApiKey: null,
           geminiPrompt: null,
-          claudePrompt: null
+          claudePrompt: null,
         };
       }
 
-      return settings;
+      return {
+        apifyApiToken: igSettings?.apifyApiToken ?? null,
+        geminiApiKey: (global?.geminiApiKey ?? igSettings?.geminiApiKey) ?? null,
+        claudeApiKey: (global?.claudeApiKey ?? igSettings?.claudeApiKey) ?? null,
+        geminiPrompt: igSettings?.geminiPrompt ?? null,
+        claudePrompt: igSettings?.claudePrompt ?? null,
+      };
     } catch (error: any) {
       fastify.log.error('Failed to fetch API keys:', error);
       reply.status(500);

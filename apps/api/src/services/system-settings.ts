@@ -4,7 +4,9 @@ import { systemSettings, type SystemSettings } from '../db/schema.js'
 
 export const SYSTEM_SETTINGS_ID = '00000000-0000-0000-0000-000000000100'
 
-export type SystemSettingsUpdate = Partial<Pick<SystemSettings, 'posterImportEnabled'>>
+export type SystemSettingsUpdate = Partial<
+  Pick<SystemSettings, 'posterImportEnabled' | 'aiProvider' | 'geminiApiKey' | 'claudeApiKey'>
+>
 
 export async function ensureSystemSettings(): Promise<SystemSettings> {
   const [settings] = await db

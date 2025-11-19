@@ -4,12 +4,25 @@ import { ensureSystemSettings, updateSystemSettings } from '../services/system-s
 
 const updateSchema = z.object({
   posterImportEnabled: z.boolean().optional(),
+  aiProvider: z.enum(['gemini', 'claude']).optional(),
+  geminiApiKey: z.string().optional(),
+  claudeApiKey: z.string().optional(),
 })
 
 export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', async () => {
     const settings = await ensureSystemSettings()
-    return { settings }
+
+    const { geminiApiKey, claudeApiKey, ...rest } = settings as any
+
+    return {
+      settings: {
+        ...rest,
+        aiProvider: rest.aiProvider || 'gemini',
+        hasGeminiKey: !!geminiApiKey,
+        hasClaudeKey: !!claudeApiKey,
+      },
+    }
   })
 
   fastify.patch('/', async (request, reply) => {
@@ -21,6 +34,15 @@ export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const settings = await updateSystemSettings(payload)
-    return { settings }
+    const { geminiApiKey, claudeApiKey, ...rest } = settings as any
+
+    return {
+      settings: {
+        ...rest,
+        aiProvider: rest.aiProvider || 'gemini',
+        hasGeminiKey: !!geminiApiKey,
+        hasClaudeKey: !!claudeApiKey,
+      },
+    }
   })
 }
