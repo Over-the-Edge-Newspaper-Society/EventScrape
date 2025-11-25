@@ -299,6 +299,32 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0023 (AI provider selection)
+    try {
+      const sql23 = await readFile(migrationPath('0023_ai_provider_selection.sql'), 'utf-8');
+      await migrationClient.unsafe(sql23);
+      console.log('✅ Applied migration 0023 (AI provider selection)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0023 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0023 not applied');
+      }
+    }
+
+    // Apply incremental migration 0024 (System settings AI provider)
+    try {
+      const sql24 = await readFile(migrationPath('0024_system_settings_ai_provider.sql'), 'utf-8');
+      await migrationClient.unsafe(sql24);
+      console.log('✅ Applied migration 0024 (System settings AI provider)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0024 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0024 not applied');
+      }
+    }
+
     // Ensure instagram_scrape schedule type and constraint exist even if older DB missed migration 0020
     try {
       const result = await migrationClient`
