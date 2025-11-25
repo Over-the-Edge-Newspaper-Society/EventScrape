@@ -213,7 +213,7 @@ export const instagramSettingsRoutes: FastifyPluginAsync = async (fastify) => {
       await db
         .update(instagramSettings)
         .set({ apifyApiToken: null, updatedAt: new Date() })
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+        .where(eq(instagramSettings.id, INSTAGRAM_SETTINGS_ID));
 
       return { message: 'Apify token removed successfully' };
     } catch (error: any) {
