@@ -8,9 +8,52 @@ import { v4 as uuidv4 } from 'uuid'
 import { enqueueScrapeJob } from '../queue/queue.js'
 import { ensureSystemSettings, SYSTEM_SETTINGS_ID } from '../services/system-settings.js'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
+
+type AIProvider = 'gemini' | 'claude'
+
+/**
+ * Extract EXIF date from image buffer (JPEG/TIFF)
+ * Returns ISO date string if found, null otherwise
+ */
+function extractExifDate(buffer: Buffer): string | null {
+  try {
+    // Look for EXIF marker in JPEG (0xFFE1)
+    // EXIF data starts with "Exif\0\0" followed by TIFF header
+    const exifMarker = buffer.indexOf(Buffer.from([0xFF, 0xE1]))
+    if (exifMarker === -1) return null
+
+    // Find DateTimeOriginal (tag 0x9003) or DateTime (tag 0x0132)
+    // These are stored as ASCII strings in format "YYYY:MM:DD HH:MM:SS"
+    const datePatterns = [
+      /(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/g,
+    ]
+
+    // Search in a reasonable portion of the buffer (EXIF is usually at the start)
+    const searchBuffer = buffer.subarray(0, Math.min(buffer.length, 65536))
+    const text = searchBuffer.toString('binary')
+
+    for (const pattern of datePatterns) {
+      const match = pattern.exec(text)
+      if (match) {
+        const [, year, month, day, hour, minute, second] = match
+        const yearNum = parseInt(year, 10)
+        // Sanity check: year should be reasonable (1990-2100)
+        if (yearNum >= 1990 && yearNum <= 2100) {
+          return `${year}-${month}-${day}T${hour}:${minute}:${second}`
+        }
+      }
+    }
+
+    return null
+  } catch (error) {
+    console.warn('[PosterImport] Failed to extract EXIF date:', error)
+    return null
+  }
+}
 
 const bodySchema = z.object({
   content: z.string().min(2, 'JSON content is required'),
@@ -19,38 +62,83 @@ const bodySchema = z.object({
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const POSTER_PROMPT_PATH = path.resolve(__dirname, '../assets/gemini-prompt.md')
-let posterPromptCache: string | null = null
+const GEMINI_PROMPT_PATH = path.resolve(__dirname, '../assets/gemini-prompt.md')
+// In compiled dist/, the worker modules are at ../worker/src/modules/instagram/
+const CLAUDE_PROMPT_PATH = path.resolve(__dirname, '../worker/src/modules/instagram/claude-prompt.md')
+let geminiPromptCache: string | null = null
+let claudePromptCache: string | null = null
 
-async function loadPosterPrompt(): Promise<string> {
-  if (posterPromptCache !== null) return posterPromptCache
+async function loadGeminiPrompt(): Promise<string> {
+  if (geminiPromptCache !== null) return geminiPromptCache
   try {
-    posterPromptCache = await fs.readFile(POSTER_PROMPT_PATH, 'utf-8')
+    geminiPromptCache = await fs.readFile(GEMINI_PROMPT_PATH, 'utf-8')
   } catch (error) {
     console.warn('[PosterImport] Failed to load Gemini poster prompt:', error)
-    posterPromptCache = ''
+    geminiPromptCache = ''
   }
-  return posterPromptCache
+  return geminiPromptCache
 }
 
-async function getGeminiApiKey(): Promise<string> {
+async function loadClaudePrompt(): Promise<string> {
+  if (claudePromptCache !== null) return claudePromptCache
+  try {
+    claudePromptCache = await fs.readFile(CLAUDE_PROMPT_PATH, 'utf-8')
+  } catch (error) {
+    console.warn('[PosterImport] Failed to load Claude poster prompt:', error)
+    claudePromptCache = ''
+  }
+  return claudePromptCache
+}
+
+async function getAISettings(): Promise<{ provider: AIProvider; apiKey: string }> {
   const [global] = await db
-    .select({ geminiApiKey: systemSettings.geminiApiKey })
+    .select({
+      aiProvider: systemSettings.aiProvider,
+      geminiApiKey: systemSettings.geminiApiKey,
+      claudeApiKey: systemSettings.claudeApiKey,
+    })
     .from(systemSettings)
     .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID))
     .limit(1)
 
-  const [settings] = await db
-    .select({ geminiApiKey: instagramSettings.geminiApiKey })
+  const [igSettings] = await db
+    .select({
+      aiProvider: instagramSettings.aiProvider,
+      geminiApiKey: instagramSettings.geminiApiKey,
+      claudeApiKey: instagramSettings.claudeApiKey,
+    })
     .from(instagramSettings)
     .where(eq(instagramSettings.id, '00000000-0000-0000-0000-000000000001'))
     .limit(1)
 
-  const apiKey = global?.geminiApiKey || settings?.geminiApiKey || process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    throw new Error('Gemini API key not configured')
+  console.log('[PosterImport] AI Settings - global:', {
+    aiProvider: global?.aiProvider,
+    hasGeminiKey: !!global?.geminiApiKey,
+    hasClaudeKey: !!global?.claudeApiKey,
+  })
+  console.log('[PosterImport] AI Settings - instagram:', {
+    aiProvider: igSettings?.aiProvider,
+    hasGeminiKey: !!igSettings?.geminiApiKey,
+    hasClaudeKey: !!igSettings?.claudeApiKey,
+  })
+
+  const provider = (global?.aiProvider || igSettings?.aiProvider || 'gemini') as AIProvider
+  console.log('[PosterImport] Selected provider:', provider)
+
+  let apiKey: string | undefined
+  if (provider === 'gemini') {
+    apiKey = global?.geminiApiKey || igSettings?.geminiApiKey || process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      throw new Error('Gemini API key not configured')
+    }
+  } else {
+    apiKey = global?.claudeApiKey || igSettings?.claudeApiKey || process.env.CLAUDE_API_KEY
+    if (!apiKey) {
+      throw new Error('Claude API key not configured. Please add your Claude API key in Settings.')
+    }
   }
-  return apiKey
+
+  return { provider, apiKey }
 }
 
 async function ensureAiPosterImportSource() {
@@ -89,10 +177,10 @@ function cleanResponseText(rawText: string): string {
   return rawText.replace(/```json/gi, '```').replace(/```/g, '').trim()
 }
 
-function parseJsonFromText<T>(rawText: string): T {
+function parseJsonFromText<T>(rawText: string, providerName: string): T {
   const cleaned = cleanResponseText(rawText)
   if (!cleaned) {
-    throw new Error('Gemini response did not include any JSON content')
+    throw new Error(`${providerName} response did not include any JSON content`)
   }
 
   try {
@@ -102,17 +190,17 @@ function parseJsonFromText<T>(rawText: string): T {
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]) as T
     }
-    throw new Error('Failed to parse Gemini response as JSON')
+    throw new Error(`Failed to parse ${providerName} response as JSON`)
   }
 }
 
-async function extractPosterEventsFromImage(
+async function extractWithGemini(
   imageBuffer: Buffer,
   mimeType: string,
+  apiKey: string,
   options: { pictureDateIso?: string } = {},
 ): Promise<{ events: any[]; extractionConfidence?: any }> {
-  const apiKey = await getGeminiApiKey()
-  const prompt = await loadPosterPrompt()
+  const prompt = await loadGeminiPrompt()
 
   const genAI = new GoogleGenerativeAI(apiKey)
   const modelId = process.env.GEMINI_MODEL_ID || 'gemini-2.0-flash-exp'
@@ -150,13 +238,99 @@ async function extractPosterEventsFromImage(
     throw new Error('Gemini response did not include text output')
   }
 
-  const parsed = parseJsonFromText<{ events: any[]; extractionConfidence?: any }>(text)
+  const parsed = parseJsonFromText<{ events: any[]; extractionConfidence?: any }>(text, 'Gemini')
 
   if (!parsed || !Array.isArray(parsed.events)) {
     throw new Error('Gemini response JSON is missing events array')
   }
 
   return parsed
+}
+
+async function extractWithClaude(
+  imageBuffer: Buffer,
+  mimeType: string,
+  apiKey: string,
+  options: { pictureDateIso?: string } = {},
+): Promise<{ events: any[]; extractionConfidence?: any }> {
+  const prompt = await loadClaudePrompt()
+
+  const client = new Anthropic({ apiKey })
+  const modelId = process.env.CLAUDE_MODEL_ID || 'claude-sonnet-4-5'
+
+  const content: Anthropic.MessageParam['content'] = [
+    {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+        data: imageBuffer.toString('base64'),
+      },
+    },
+    {
+      type: 'text',
+      text: prompt,
+    },
+  ]
+
+  const contextSections: string[] = []
+
+  if (options.pictureDateIso) {
+    contextSections.push(
+      `Poster photo capture date:\n` +
+        `- The photo of this poster was taken on ${options.pictureDateIso}.\n` +
+        `- When the poster only shows month/day (no year), infer the year relative to this date, preferring upcoming dates unless the poster clearly indicates an earlier year.`,
+    )
+  }
+
+  if (contextSections.length > 0) {
+    content.push({
+      type: 'text',
+      text: `Additional context:\n${contextSections.join('\n\n')}`,
+    })
+  }
+
+  const message = await client.messages.create({
+    model: modelId,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content,
+      },
+    ],
+  })
+
+  const textContent = message.content.find((block) => block.type === 'text')
+  if (!textContent || textContent.type !== 'text') {
+    throw new Error('Claude response did not include text output')
+  }
+
+  const parsed = parseJsonFromText<{ events: any[]; extractionConfidence?: any }>(textContent.text, 'Claude')
+
+  if (!parsed || !Array.isArray(parsed.events)) {
+    throw new Error('Claude response JSON is missing events array')
+  }
+
+  return parsed
+}
+
+async function extractPosterEventsFromImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+  options: { pictureDateIso?: string } = {},
+): Promise<{ events: any[]; extractionConfidence?: any; aiProvider: AIProvider }> {
+  const { provider, apiKey } = await getAISettings()
+
+  console.log(`[PosterImport] Using ${provider.toUpperCase()} AI provider for extraction`)
+
+  if (provider === 'claude') {
+    const result = await extractWithClaude(imageBuffer, mimeType, apiKey, options)
+    return { ...result, aiProvider: provider }
+  } else {
+    const result = await extractWithGemini(imageBuffer, mimeType, apiKey, options)
+    return { ...result, aiProvider: provider }
+  }
 }
 
 export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
@@ -260,15 +434,29 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'No image file uploaded' }
       }
 
+      // Try to extract date from EXIF if not provided
+      let dateSource: 'user' | 'exif' | 'none' = 'none'
+      if (pictureDateIso) {
+        dateSource = 'user'
+      } else {
+        const exifDate = extractExifDate(imageBuffer)
+        if (exifDate) {
+          pictureDateIso = new Date(exifDate).toISOString()
+          dateSource = 'exif'
+          console.log(`[PosterImport] Extracted date from EXIF: ${pictureDateIso}`)
+        }
+      }
+
       const source = await ensureAiPosterImportSource()
 
-      const { events, extractionConfidence } = await extractPosterEventsFromImage(imageBuffer, mimeType, {
+      const { events, extractionConfidence, aiProvider } = await extractPosterEventsFromImage(imageBuffer, mimeType, {
         pictureDateIso,
       })
 
       const payload = {
         events,
         extractionConfidence,
+        aiProvider,
       }
 
       const runId = uuidv4()
@@ -296,11 +484,14 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
 
       return {
         success: true,
-        message: 'Poster image submitted for AI extraction',
+        message: `Poster image submitted for AI extraction using ${aiProvider.toUpperCase()}`,
         runId,
         jobId: job.id,
         source,
         eventsPreviewCount: events.length,
+        aiProvider,
+        dateSource,
+        pictureDate: pictureDateIso || null,
       }
     } catch (error: any) {
       fastify.log.error('Poster import error:', error)
