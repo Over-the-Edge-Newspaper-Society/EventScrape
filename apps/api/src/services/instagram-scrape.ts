@@ -127,7 +127,7 @@ async function normalizeScrapeOptions(options: TriggerInstagramScrapeOptions = {
   return { postLimit, batchSize, accountLimit };
 }
 
-async function triggerInstagramScrapesForAccounts(
+export async function triggerInstagramScrapesForAccounts(
   accounts: InstagramAccount[],
   options: TriggerInstagramScrapeOptions = {},
   context: InstagramBatchContext = {},

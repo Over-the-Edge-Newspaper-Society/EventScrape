@@ -2,16 +2,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { eq, sql, isNotNull } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { instagramAccounts, instagramSessions, instagramSettings, eventsRaw } from '../db/schema.js';
+import { instagramAccounts, instagramSessions, eventsRaw } from '../db/schema.js';
 import {
   triggerAllActiveInstagramScrapes,
+  triggerInstagramScrapesForAccounts,
   NoActiveInstagramAccountsError,
   getInstagramScrapeJobStatuses,
   cancelInstagramScrapeJobs,
 } from '../services/instagram-scrape.js';
-import { createEnhancedApifyClient } from '../services/instagram-apify-client.js';
-import { importInstagramPostsFromApify } from '../services/instagram-apify-import.js';
-import { SETTINGS_ID } from './instagram-review/constants.js';
 
 const createSourceSchema = z.object({
   name: z.string().min(1),
@@ -42,6 +40,7 @@ const uploadSessionSchema = z.object({
 
 const triggerSingleScrapeSchema = z.object({
   postLimit: z.number().int().min(1).max(100).optional(),
+  batchSize: z.number().int().min(1).max(25).optional(),
 });
 
 export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
@@ -225,12 +224,13 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
-  // POST /api/instagram-sources/:id/trigger - Manually trigger fetch for an account via Apify
+  // POST /api/instagram-sources/:id/trigger - Manually queue a scrape for a single account
   fastify.post('/:id/trigger', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = triggerSingleScrapeSchema.parse(request.body ?? {});
 
     try {
+      const body = triggerSingleScrapeSchema.parse(request.body ?? {});
+
       const [account] = await db
         .select()
         .from(instagramAccounts)
@@ -246,61 +246,35 @@ export const instagramSourcesRoutes: FastifyPluginAsync = async (fastify) => {
         return { error: 'Instagram account is inactive' };
       }
 
-      const [settings] = await db
-        .select()
-        .from(instagramSettings)
-        .where(eq(instagramSettings.id, SETTINGS_ID));
+      const { jobs, postLimit, batchSize, parentRunId, accountsQueued } =
+        await triggerInstagramScrapesForAccounts([account], body, { scope: 'custom' });
 
-      if (!settings?.apifyApiToken) {
-        reply.status(400);
-        return { error: 'Apify API token not configured' };
-      }
+      const primaryJob = jobs[0];
 
-      // Use postLimit from request body, or fall back to settings default
-      const postLimit = body.postLimit ?? settings.apifyResultsLimit ?? 10;
-
-      const client = await createEnhancedApifyClient(
-        settings.apifyApiToken,
-        settings.apifyActorId || undefined
-      );
-
-      const knownPosts = await db
-        .select({ instagramPostId: eventsRaw.instagramPostId })
-        .from(eventsRaw)
-        .where(eq(eventsRaw.instagramAccountId, account.id));
-
-      const knownIdsMap = new Map<string, Set<string>>();
-      knownIdsMap.set(
-        account.instagramUsername,
-        new Set(knownPosts.map((post) => post.instagramPostId).filter((id): id is string => Boolean(id)))
-      );
-
-      const postsByUser = await client.fetchPostsBatch(
-        [account.instagramUsername],
-        postLimit,
-        knownIdsMap,
-        1
-      );
-
-      const posts = postsByUser.get(account.instagramUsername) ?? [];
-
-      const importResult = await importInstagramPostsFromApify(posts, {
-        metadata: {
-          triggerType: 'manual_single_account',
-          instagramAccountId: account.id,
-          requestedPostLimit: postLimit,
-        },
-        sourceLabel: `@${account.instagramUsername}`,
-      });
-
+      reply.status(202);
       return {
-        message: importResult.message,
+        message: `Queued scrape job for @${account.instagramUsername}`,
         accountId: account.id,
         username: account.instagramUsername,
-        stats: importResult.stats,
-        runId: importResult.runId,
+        runId: primaryJob?.runId ?? parentRunId,
+        parentRunId,
+        jobId: primaryJob?.jobId ?? null,
+        postLimit,
+        batchSize,
+        accountsQueued,
+        jobs,
       };
     } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        reply.status(400);
+        return { error: 'Validation error', details: error.errors };
+      }
+
+      if (error instanceof NoActiveInstagramAccountsError) {
+        reply.status(400);
+        return { error: error.message };
+      }
+
       fastify.log.error(`Failed to trigger scrape for Instagram account ${id}:`, error);
       reply.status(500);
       return { error: 'Failed to trigger Instagram scrape' };

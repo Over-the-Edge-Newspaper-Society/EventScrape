@@ -330,8 +330,8 @@ export const instagramApi = {
     body: JSON.stringify(data),
   }),
   delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
-  trigger: (id: string, data?: { postLimit?: number }) =>
-    fetchApi<{ message: string; accountId: string; username: string; runId: string; stats: InstagramImportStats }>(
+  trigger: (id: string, data?: { postLimit?: number; batchSize?: number }) =>
+    fetchApi<InstagramTriggerResponse>(
       `/instagram-sources/${id}/trigger`,
       {
         method: 'POST',
@@ -345,7 +345,7 @@ export const instagramApi = {
       postLimit?: number
       batchSize?: number | null
       parentRunId?: string
-      jobs: Array<{ accountId: string; username: string; jobId: string; runId: string }>
+      jobs: InstagramScrapeJob[]
     }>('/instagram-sources/trigger-all-active', {
       method: 'POST',
       body: JSON.stringify(options || {}),
@@ -793,6 +793,27 @@ export interface InstagramImportStats {
   updated: number
   skippedExisting: number
   missingAccounts: number
+}
+
+export interface InstagramScrapeJob {
+  accountId: string
+  username: string
+  jobId: string
+  runId: string
+}
+
+export interface InstagramTriggerResponse {
+  message: string
+  accountId: string
+  username: string
+  runId?: string
+  parentRunId?: string
+  jobId?: string | null
+  postLimit?: number
+  batchSize?: number | null
+  accountsQueued?: number
+  jobs?: InstagramScrapeJob[]
+  stats?: InstagramImportStats
 }
 
 export interface InstagramEventRaw extends EventRaw {

@@ -168,8 +168,33 @@ export function InstagramSources() {
             .filter(Boolean)
             .join(', ')
         : ''
-      const suffix = statsSummary ? ` (${statsSummary})` : ''
-      toast.success(`${data.message || 'Scrape completed'} for @${data.username}${suffix}`)
+      const jobCount = data.jobs?.length ?? (data.jobId ? 1 : 0)
+      const suffix = statsSummary
+        ? ` (${statsSummary})`
+        : jobCount > 0
+          ? ` (${jobCount} job${jobCount === 1 ? '' : 's'} queued)`
+          : ''
+      const message = data.message || (jobCount > 0 ? 'Scrape job queued' : 'Scrape completed')
+      toast.success(`${message} for @${data.username}${suffix}`)
+
+      const jobsToTrack =
+        data.jobs && data.jobs.length
+          ? data.jobs
+          : data.jobId && data.accountId
+            ? [{ jobId: data.jobId, accountId: data.accountId, username: data.username, runId: data.runId }]
+            : []
+
+      if (jobsToTrack.length) {
+        startScrapeProgressTracking(
+          jobsToTrack.map((job) => ({
+            jobId: job.jobId,
+            accountId: job.accountId,
+            username: job.username,
+            runId: job.runId,
+          })),
+        )
+      }
+
       queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
     },
     onError: (error) => {
