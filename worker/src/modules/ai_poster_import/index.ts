@@ -218,9 +218,16 @@ function normalizeUploadPayload(data: any, logger: any): {
   if (!data) return []
 
   if (Array.isArray(data.events)) {
+    // If posterImagePath is provided at the top level, add it to each event
+    const posterImagePath = data.posterImagePath
     return data.events.map((event: any) => ({
-      event,
+      event: {
+        ...event,
+        // Use poster image path if no imageUrl specified on the event
+        imageUrl: event.imageUrl || (posterImagePath ? `/api/poster-images/${posterImagePath}` : undefined),
+      },
       extractionConfidence: data.extractionConfidence,
+      posterImagePath,
     }))
   }
 

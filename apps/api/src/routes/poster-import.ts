@@ -65,8 +65,41 @@ const __dirname = path.dirname(__filename)
 const GEMINI_PROMPT_PATH = path.resolve(__dirname, '../assets/gemini-prompt.md')
 // In compiled dist/, the worker modules are at ../worker/src/modules/instagram/
 const CLAUDE_PROMPT_PATH = path.resolve(__dirname, '../worker/src/modules/instagram/claude-prompt.md')
+const POSTER_IMAGES_DIR = process.env.POSTER_IMAGES_DIR || './data/poster_images'
 let geminiPromptCache: string | null = null
 let claudePromptCache: string | null = null
+
+/**
+ * Save uploaded poster image to disk
+ * Returns the relative path for storage in the database
+ */
+async function savePosterImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+  runId: string,
+): Promise<string> {
+  // Ensure directory exists
+  await fs.mkdir(POSTER_IMAGES_DIR, { recursive: true })
+
+  // Determine file extension from mime type
+  const extMap: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+  }
+  const ext = extMap[mimeType] || '.jpg'
+
+  // Create unique filename using runId and timestamp
+  const filename = `poster_${runId}${ext}`
+  const filepath = path.join(POSTER_IMAGES_DIR, filename)
+
+  await fs.writeFile(filepath, imageBuffer)
+  console.log(`[PosterImport] Saved poster image to: ${filepath}`)
+
+  // Return relative path for storage
+  return filename
+}
 
 async function loadGeminiPrompt(): Promise<string> {
   if (geminiPromptCache !== null) return geminiPromptCache
@@ -453,13 +486,18 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
         pictureDateIso,
       })
 
+      const runId = uuidv4()
+
+      // Save the poster image to disk
+      const posterImagePath = await savePosterImage(imageBuffer, mimeType, runId)
+
       const payload = {
         events,
         extractionConfidence,
         aiProvider,
+        posterImagePath, // Include the image path so events can reference it
       }
 
-      const runId = uuidv4()
       await db.insert(runs).values({
         id: runId,
         sourceId: source.id,
@@ -497,6 +535,51 @@ export const posterImportRoutes: FastifyPluginAsync = async (fastify) => {
       fastify.log.error('Poster import error:', error)
       reply.status(400)
       return { error: error?.message || 'Invalid request' }
+    }
+  })
+}
+
+// Separate route plugin for serving poster images
+export const posterImagesRoutes: FastifyPluginAsync = async (fastify) => {
+  // GET /api/poster-images/:filename - Serve poster images
+  fastify.get<{ Params: { filename: string } }>('/:filename', async (request, reply) => {
+    const { filename } = request.params
+
+    // Sanitize filename to prevent directory traversal
+    const sanitizedFilename = path.basename(filename)
+    if (sanitizedFilename !== filename || filename.includes('..')) {
+      reply.status(400)
+      return { error: 'Invalid filename' }
+    }
+
+    const filepath = path.join(POSTER_IMAGES_DIR, sanitizedFilename)
+
+    try {
+      const fileBuffer = await fs.readFile(filepath)
+
+      // Determine content type from extension
+      const ext = path.extname(filename).toLowerCase()
+      const contentTypeMap: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+      }
+      const contentType = contentTypeMap[ext] || 'application/octet-stream'
+
+      reply
+        .header('Content-Type', contentType)
+        .header('Cache-Control', 'public, max-age=31536000') // Cache for 1 year
+        .send(fileBuffer)
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        reply.status(404)
+        return { error: 'Image not found' }
+      }
+      fastify.log.error('Error serving poster image:', error)
+      reply.status(500)
+      return { error: 'Failed to serve image' }
     }
   })
 }
