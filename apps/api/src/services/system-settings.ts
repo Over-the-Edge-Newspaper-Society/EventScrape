@@ -5,7 +5,7 @@ import { systemSettings, eventsRaw, eventSeries, sources, type SystemSettings } 
 export const SYSTEM_SETTINGS_ID = '00000000-0000-0000-0000-000000000100'
 
 export type SystemSettingsUpdate = Partial<
-  Pick<SystemSettings, 'posterImportEnabled' | 'aiProvider' | 'geminiApiKey' | 'claudeApiKey'>
+  Pick<SystemSettings, 'posterImportEnabled' | 'aiProvider' | 'geminiApiKey' | 'claudeApiKey' | 'openrouterApiKey' | 'openrouterModel'>
 >
 
 export async function ensureSystemSettings(): Promise<SystemSettings> {

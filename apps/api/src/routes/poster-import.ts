@@ -9,11 +9,12 @@ import { enqueueScrapeJob } from '../queue/queue.js'
 import { ensureSystemSettings, SYSTEM_SETTINGS_ID } from '../services/system-settings.js'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-type AIProvider = 'gemini' | 'claude'
+type AIProvider = 'gemini' | 'claude' | 'openrouter'
 
 /**
  * Extract EXIF date from image buffer (JPEG/TIFF)
@@ -123,12 +124,14 @@ async function loadClaudePrompt(): Promise<string> {
   return claudePromptCache
 }
 
-async function getAISettings(): Promise<{ provider: AIProvider; apiKey: string }> {
+async function getAISettings(): Promise<{ provider: AIProvider; apiKey: string; model?: string }> {
   const [global] = await db
     .select({
       aiProvider: systemSettings.aiProvider,
       geminiApiKey: systemSettings.geminiApiKey,
       claudeApiKey: systemSettings.claudeApiKey,
+      openrouterApiKey: systemSettings.openrouterApiKey,
+      openrouterModel: systemSettings.openrouterModel,
     })
     .from(systemSettings)
     .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID))
@@ -148,6 +151,7 @@ async function getAISettings(): Promise<{ provider: AIProvider; apiKey: string }
     aiProvider: global?.aiProvider,
     hasGeminiKey: !!global?.geminiApiKey,
     hasClaudeKey: !!global?.claudeApiKey,
+    hasOpenrouterKey: !!global?.openrouterApiKey,
   })
   console.log('[PosterImport] AI Settings - instagram:', {
     aiProvider: igSettings?.aiProvider,
@@ -159,19 +163,28 @@ async function getAISettings(): Promise<{ provider: AIProvider; apiKey: string }
   console.log('[PosterImport] Selected provider:', provider)
 
   let apiKey: string | undefined
+  let model: string | undefined
+
   if (provider === 'gemini') {
     apiKey = global?.geminiApiKey || igSettings?.geminiApiKey || process.env.GEMINI_API_KEY
     if (!apiKey) {
       throw new Error('Gemini API key not configured')
     }
-  } else {
+  } else if (provider === 'claude') {
     apiKey = global?.claudeApiKey || igSettings?.claudeApiKey || process.env.CLAUDE_API_KEY
     if (!apiKey) {
       throw new Error('Claude API key not configured. Please add your Claude API key in Settings.')
     }
+  } else {
+    // OpenRouter
+    apiKey = global?.openrouterApiKey || process.env.OPENROUTER_API_KEY
+    model = global?.openrouterModel || 'google/gemini-2.0-flash-exp'
+    if (!apiKey) {
+      throw new Error('OpenRouter API key not configured. Please add your OpenRouter API key in Settings.')
+    }
   }
 
-  return { provider, apiKey }
+  return { provider, apiKey, model }
 }
 
 async function ensureAiPosterImportSource() {
@@ -348,17 +361,85 @@ async function extractWithClaude(
   return parsed
 }
 
+async function extractWithOpenRouter(
+  imageBuffer: Buffer,
+  mimeType: string,
+  apiKey: string,
+  model: string,
+  options: { pictureDateIso?: string } = {},
+): Promise<{ events: any[]; extractionConfidence?: any }> {
+  const prompt = await loadGeminiPrompt() // Reuse gemini prompt as it's model-agnostic
+
+  const client = new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey,
+    defaultHeaders: {
+      'HTTP-Referer': 'https://eventscrape.local',
+      'X-Title': 'EventScrape',
+    },
+  })
+
+  const base64Data = imageBuffer.toString('base64')
+  const imageUrl = `data:${mimeType};base64,${base64Data}`
+
+  const textParts: string[] = [prompt]
+
+  if (options.pictureDateIso) {
+    textParts.push(
+      `\n\nPoster photo capture date:\n` +
+        `- The photo of this poster was taken on ${options.pictureDateIso}.\n` +
+        `- When the poster only shows month/day (no year), infer the year relative to this date, preferring upcoming dates unless the poster clearly indicates an earlier year.`,
+    )
+  }
+
+  const completion = await client.chat.completions.create({
+    model,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: imageUrl },
+          },
+          {
+            type: 'text',
+            text: textParts.join(''),
+          },
+        ],
+      },
+    ],
+  })
+
+  const responseText = completion.choices[0]?.message?.content
+  if (!responseText) {
+    throw new Error('OpenRouter response did not include text output')
+  }
+
+  const parsed = parseJsonFromText<{ events: any[]; extractionConfidence?: any }>(responseText, 'OpenRouter')
+
+  if (!parsed || !Array.isArray(parsed.events)) {
+    throw new Error('OpenRouter response JSON is missing events array')
+  }
+
+  return parsed
+}
+
 async function extractPosterEventsFromImage(
   imageBuffer: Buffer,
   mimeType: string,
   options: { pictureDateIso?: string } = {},
 ): Promise<{ events: any[]; extractionConfidence?: any; aiProvider: AIProvider }> {
-  const { provider, apiKey } = await getAISettings()
+  const { provider, apiKey, model } = await getAISettings()
 
   console.log(`[PosterImport] Using ${provider.toUpperCase()} AI provider for extraction`)
 
   if (provider === 'claude') {
     const result = await extractWithClaude(imageBuffer, mimeType, apiKey, options)
+    return { ...result, aiProvider: provider }
+  } else if (provider === 'openrouter') {
+    const result = await extractWithOpenRouter(imageBuffer, mimeType, apiKey, model || 'google/gemini-2.0-flash-exp', options)
     return { ...result, aiProvider: provider }
   } else {
     const result = await extractWithGemini(imageBuffer, mimeType, apiKey, options)

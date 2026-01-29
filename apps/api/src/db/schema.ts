@@ -97,6 +97,7 @@ export const instagramScraperTypeEnum = pgEnum('instagram_scraper_type', [
 export const aiProviderEnum = pgEnum('ai_provider', [
   'gemini',
   'claude',
+  'openrouter',
 ]);
 
 // Tables
@@ -305,6 +306,8 @@ export const systemSettings = pgTable('system_settings', {
   aiProvider: aiProviderEnum('ai_provider').default('gemini'),
   geminiApiKey: text('gemini_api_key'),
   claudeApiKey: text('claude_api_key'),
+  openrouterApiKey: text('openrouter_api_key'),
+  openrouterModel: text('openrouter_model').default('google/gemini-2.0-flash-exp'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

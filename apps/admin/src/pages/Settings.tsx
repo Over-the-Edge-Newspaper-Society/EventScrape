@@ -44,9 +44,11 @@ export function Settings() {
   const [applyInstagramData, setApplyInstagramData] = useState(false)
   const [applyImages, setApplyImages] = useState(false)
 
-  const [aiProvider, setAiProvider] = useState<'gemini' | 'claude'>('gemini')
+  const [aiProvider, setAiProvider] = useState<'gemini' | 'claude' | 'openrouter'>('gemini')
   const [geminiKey, setGeminiKey] = useState('')
   const [claudeKey, setClaudeKey] = useState('')
+  const [openrouterKey, setOpenrouterKey] = useState('')
+  const [openrouterModel, setOpenrouterModel] = useState('google/gemini-2.0-flash-exp')
 
   const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
     queryKey: ['system-settings'],
@@ -239,6 +241,7 @@ export function Settings() {
   useEffect(() => {
     if (systemSettings) {
       setAiProvider(systemSettings.aiProvider || 'gemini')
+      setOpenrouterModel(systemSettings.openrouterModel || 'google/gemini-2.0-flash-exp')
     }
   }, [systemSettings])
 
@@ -360,7 +363,7 @@ export function Settings() {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>AI Extraction Provider</Label>
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-wrap">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="radio"
@@ -382,6 +385,17 @@ export function Settings() {
                   className="h-4 w-4"
                 />
                 <span>Claude (Anthropic)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="aiProvider"
+                  value="openrouter"
+                  checked={aiProvider === 'openrouter'}
+                  onChange={() => aiSettingsMutation.mutate({ aiProvider: 'openrouter' })}
+                  className="h-4 w-4"
+                />
+                <span>OpenRouter</span>
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -467,6 +481,78 @@ export function Settings() {
                 >
                   Anthropic Console → API Keys
                 </a>
+              </p>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="openrouter-key-global">OpenRouter API Key</Label>
+                {systemSettings?.hasOpenrouterKey && <Badge variant="secondary">Key saved</Badge>}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  id="openrouter-key-global"
+                  type="password"
+                  placeholder="sk-or-..."
+                  value={openrouterKey}
+                  onChange={(e) => setOpenrouterKey(e.target.value)}
+                />
+                <Button
+                  onClick={() => {
+                    if (!openrouterKey) {
+                      toast.error('Please enter an OpenRouter API key')
+                      return
+                    }
+                    aiSettingsMutation.mutate({ openrouterApiKey: openrouterKey })
+                  }}
+                  disabled={aiSettingsMutation.isPending}
+                >
+                  Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get your key from{' '}
+                <a
+                  href="https://openrouter.ai/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  OpenRouter → API Keys
+                </a>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="openrouter-model">OpenRouter Model</Label>
+              <div className="flex gap-2">
+                <select
+                  id="openrouter-model"
+                  value={openrouterModel}
+                  onChange={(e) => setOpenrouterModel(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="google/gemini-2.0-flash-exp">Google Gemini 2.0 Flash (Recommended)</option>
+                  <option value="anthropic/claude-sonnet-4">Anthropic Claude Sonnet 4</option>
+                  <option value="openai/gpt-4o">OpenAI GPT-4o</option>
+                  <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                  <option value="google/gemini-pro-vision">Google Gemini Pro Vision</option>
+                </select>
+                <Button
+                  onClick={() => {
+                    aiSettingsMutation.mutate({ openrouterModel })
+                  }}
+                  disabled={aiSettingsMutation.isPending}
+                >
+                  Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select the vision-capable model to use for image extraction via OpenRouter.
               </p>
             </div>
           </div>

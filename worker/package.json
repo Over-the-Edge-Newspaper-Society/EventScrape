@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@google/generative-ai": "^0.21.0",
+    "openai": "^4.76.0",
     "apify-client": "^2.9.3",
     "axios": "^1.7.7",
     "bullmq": "^4.15.4",

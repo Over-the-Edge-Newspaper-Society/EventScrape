@@ -4,9 +4,11 @@ import { ensureSystemSettings, updateSystemSettings, cleanupDuplicateEvents } fr
 
 const updateSchema = z.object({
   posterImportEnabled: z.boolean().optional(),
-  aiProvider: z.enum(['gemini', 'claude']).optional(),
+  aiProvider: z.enum(['gemini', 'claude', 'openrouter']).optional(),
   geminiApiKey: z.string().optional(),
   claudeApiKey: z.string().optional(),
+  openrouterApiKey: z.string().optional(),
+  openrouterModel: z.string().optional(),
 })
 
 const cleanupDuplicatesSchema = z.object({
@@ -17,7 +19,7 @@ export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', async () => {
     const settings = await ensureSystemSettings()
 
-    const { geminiApiKey, claudeApiKey, ...rest } = settings as any
+    const { geminiApiKey, claudeApiKey, openrouterApiKey, ...rest } = settings as any
 
     return {
       settings: {
@@ -25,6 +27,8 @@ export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         aiProvider: rest.aiProvider || 'gemini',
         hasGeminiKey: !!geminiApiKey,
         hasClaudeKey: !!claudeApiKey,
+        hasOpenrouterKey: !!openrouterApiKey,
+        openrouterModel: rest.openrouterModel || 'google/gemini-2.0-flash-exp',
       },
     }
   })
@@ -38,7 +42,7 @@ export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const settings = await updateSystemSettings(payload)
-    const { geminiApiKey, claudeApiKey, ...rest } = settings as any
+    const { geminiApiKey, claudeApiKey, openrouterApiKey, ...rest } = settings as any
 
     return {
       settings: {
@@ -46,6 +50,8 @@ export const systemSettingsRoutes: FastifyPluginAsync = async (fastify) => {
         aiProvider: rest.aiProvider || 'gemini',
         hasGeminiKey: !!geminiApiKey,
         hasClaudeKey: !!claudeApiKey,
+        hasOpenrouterKey: !!openrouterApiKey,
+        openrouterModel: rest.openrouterModel || 'google/gemini-2.0-flash-exp',
       },
     }
   })

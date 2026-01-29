@@ -53,15 +53,17 @@ type AIExtractorModule = {
     options?: {
       caption?: string;
       postTimestamp?: Date | string;
+      model?: string;
     }
   ) => Promise<any>;
 };
 
-type AIProvider = 'gemini' | 'claude';
+type AIProvider = 'gemini' | 'claude' | 'openrouter';
 
 export const createExtractionService = (log: FastifyBaseLogger) => {
   let geminiExtractorModule: AIExtractorModule | null = null;
   let claudeExtractorModule: AIExtractorModule | null = null;
+  let openrouterExtractorModule: AIExtractorModule | null = null;
   let aiEventCoreModule: AiEventCoreModule | null = null;
 
   const getExtractor = async (provider: AIProvider): Promise<AIExtractorModule> => {
@@ -77,8 +79,7 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
       geminiExtractorModule = (await import(importPath)) as AIExtractorModule;
       return geminiExtractorModule;
-    } else {
-      // Claude
+    } else if (provider === 'claude') {
       if (claudeExtractorModule) {
         return claudeExtractorModule;
       }
@@ -90,6 +91,19 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
       claudeExtractorModule = (await import(importPath)) as AIExtractorModule;
       return claudeExtractorModule;
+    } else {
+      // OpenRouter
+      if (openrouterExtractorModule) {
+        return openrouterExtractorModule;
+      }
+
+      const importPath = new URL(
+        '../../worker/src/modules/instagram/openrouter-extractor.js',
+        import.meta.url
+      ).href;
+
+      openrouterExtractorModule = (await import(importPath)) as AIExtractorModule;
+      return openrouterExtractorModule;
     }
   };
 
@@ -107,12 +121,14 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     return aiEventCoreModule;
   };
 
-  const getAISettings = async (): Promise<{ provider: AIProvider; apiKey: string }> => {
+  const getAISettings = async (): Promise<{ provider: AIProvider; apiKey: string; model?: string }> => {
     const [global] = await db
       .select({
         aiProvider: systemSettings.aiProvider,
         geminiApiKey: systemSettings.geminiApiKey,
         claudeApiKey: systemSettings.claudeApiKey,
+        openrouterApiKey: systemSettings.openrouterApiKey,
+        openrouterModel: systemSettings.openrouterModel,
       })
       .from(systemSettings)
       .where(eq(systemSettings.id, SYSTEM_SETTINGS_ID));
@@ -129,19 +145,28 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     const provider = (global?.aiProvider || igSettings?.aiProvider || 'gemini') as AIProvider;
 
     let apiKey: string | undefined;
+    let model: string | undefined;
+
     if (provider === 'gemini') {
       apiKey = global?.geminiApiKey || igSettings?.geminiApiKey || process.env.GEMINI_API_KEY;
       if (!apiKey) {
         throw new InstagramExtractionError('Gemini API key not configured', 400);
       }
-    } else {
+    } else if (provider === 'claude') {
       apiKey = global?.claudeApiKey || igSettings?.claudeApiKey || process.env.CLAUDE_API_KEY;
       if (!apiKey) {
         throw new InstagramExtractionError('Claude API key not configured', 400);
       }
+    } else {
+      // OpenRouter
+      apiKey = global?.openrouterApiKey || process.env.OPENROUTER_API_KEY;
+      model = global?.openrouterModel || 'google/gemini-2.0-flash-exp';
+      if (!apiKey) {
+        throw new InstagramExtractionError('OpenRouter API key not configured', 400);
+      }
     }
 
-    return { provider, apiKey };
+    return { provider, apiKey, model };
   };
 
   // Keep legacy method for backwards compatibility
@@ -172,10 +197,10 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
 
   const performExtraction = async (
     postWithSource: InstagramPostWithSource,
-    options: { provider: AIProvider; apiKey: string; overwrite?: boolean; createEvents?: boolean }
+    options: { provider: AIProvider; apiKey: string; model?: string; overwrite?: boolean; createEvents?: boolean }
   ): Promise<ExtractionResult> => {
     const { event: post, source } = postWithSource;
-    const { provider, apiKey, overwrite = false, createEvents = true } = options;
+    const { provider, apiKey, model, overwrite = false, createEvents = true } = options;
 
     if (!post.localImagePath) {
       throw new InstagramExtractionError(
@@ -228,6 +253,7 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     const extractionResult = await extractEventFromImageFile(fullImagePath, apiKey, {
       caption: post.instagramCaption || undefined,
       postTimestamp: instagramTimestamp || undefined,
+      model: model || undefined,
     });
 
     const rawData = {
@@ -338,9 +364,9 @@ export const createExtractionService = (log: FastifyBaseLogger) => {
     id: string,
     options: { overwrite?: boolean; createEvents?: boolean } = {}
   ): Promise<ExtractionResult> => {
-    const { provider, apiKey } = await getAISettings();
+    const { provider, apiKey, model } = await getAISettings();
     const postWithSource = await fetchPostWithSource(id);
-    return performExtraction(postWithSource, { provider, apiKey, ...options });
+    return performExtraction(postWithSource, { provider, apiKey, model, ...options });
   };
 
   return {

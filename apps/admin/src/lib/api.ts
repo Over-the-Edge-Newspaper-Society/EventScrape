@@ -178,7 +178,7 @@ export interface CleanupDuplicatesResult {
 export const systemSettingsApi = {
   get: () =>
     fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
-  update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude'; geminiApiKey?: string; claudeApiKey?: string }>) =>
+  update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string }>) =>
     fetchApi<{ settings: SystemSettings }>('/system-settings', {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -734,9 +734,11 @@ export interface CreateExportData {
 export interface SystemSettings {
   id: string
   posterImportEnabled: boolean
-  aiProvider?: 'gemini' | 'claude'
+  aiProvider?: 'gemini' | 'claude' | 'openrouter'
   hasGeminiKey?: boolean
   hasClaudeKey?: boolean
+  hasOpenrouterKey?: boolean
+  openrouterModel?: string
   createdAt: string
   updatedAt: string
 }
