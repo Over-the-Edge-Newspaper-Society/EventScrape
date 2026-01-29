@@ -364,8 +364,9 @@ const unbcModule: ScraperModule = {
           }
 
           // Create base event
-          // Note: sourceEventId will be updated if this is a series event (after visiting detail page)
-          const sourceEventId = `${eventLink.url}#${eventLink.date || new Date(eventStart).toDateString()}`;
+          // Use just the URL as sourceEventId since each UNBC event has a unique URL
+          // This ensures consistent deduplication regardless of when the scrape runs
+          const sourceEventId = eventLink.url;
 
           const baseEvent: RawEvent = {
             sourceEventId: sourceEventId,
@@ -487,10 +488,6 @@ const unbcModule: ScraperModule = {
                 // Multiple occurrences - create ONE event with series metadata
                 logger.info(`Found ${enhancementData.dateInstances.length} date instances for event series: ${eventLink.title}`);
 
-                // Update sourceEventId to use just the URL (not date-specific) for series events
-                // This ensures all occurrences from the listing page map to the same series
-                baseEvent.sourceEventId = eventLink.url;
-
                 // Update base event with series information
                 baseEvent.title = enhancementData.title || baseEvent.title;
                 baseEvent.start = enhancementData.dateInstances[0].start!; // First occurrence
@@ -528,7 +525,7 @@ const unbcModule: ScraperModule = {
                   detailPageRegistrationUrl: enhancementData.registrationUrl,
                   enhancedFromDetailPage: true,
                   // Series dates in the format expected by occurrence-db.ts
-                  seriesDates: enhancementData.dateInstances.map((d) => ({
+                  seriesDates: enhancementData.dateInstances.map((d: { start: string | null; end: string | null }) => ({
                     start: d.start!,
                     end: d.end || undefined,
                   })),
@@ -651,7 +648,7 @@ const unbcModule: ScraperModule = {
           }
           
           const fallbackEvent: RawEvent = {
-            sourceEventId: `${eventLink.url}#${eventLink.date || new Date(fallbackStart).toDateString()}`,
+            sourceEventId: eventLink.url,
             title: eventLink.title || 'Untitled Event',
             start: fallbackStart,
             city: 'Prince George',

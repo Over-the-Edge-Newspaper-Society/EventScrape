@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Download, Upload, Trash2, HardDrive, Database, Image, Sliders } from 'lucide-react'
+import { Download, Upload, Trash2, HardDrive, Database, Image, Sliders, Eraser } from 'lucide-react'
 import { API_BASE_URL, systemSettingsApi } from '@/lib/api'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -214,6 +214,22 @@ export function Settings() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update AI settings')
+    },
+  })
+
+  const cleanupDuplicatesMutation = useMutation({
+    mutationFn: (sourceKey?: string) => systemSettingsApi.cleanupDuplicates(sourceKey),
+    onSuccess: (result) => {
+      toast.success(result.message)
+      if (result.duplicatesFound.length > 0) {
+        toast.message('Duplicates cleaned', {
+          description: `Found ${result.duplicatesFound.length} duplicate groups. Deleted ${result.eventsRawDeleted} raw events and ${result.eventSeriesDeleted} series.`,
+        })
+      }
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to cleanup duplicates')
     },
   })
 
@@ -453,6 +469,53 @@ export function Settings() {
                 </a>
               </p>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Eraser className="h-6 w-6 text-primary" />
+          <div>
+            <h2 className="text-xl font-semibold">Data Maintenance</h2>
+            <p className="text-sm text-muted-foreground">
+              Clean up duplicate events and maintain data integrity.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border p-4 space-y-4">
+          <div>
+            <Label className="text-sm">Cleanup Duplicate Events</Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              Find and remove duplicate events based on URL. Keeps the most recently created event and deletes older duplicates.
+              This is useful after fixing scraper deduplication issues or importing data multiple times.
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              onClick={() => {
+                if (confirm('This will delete duplicate events, keeping only the most recent version. Continue?')) {
+                  cleanupDuplicatesMutation.mutate(undefined)
+                }
+              }}
+              disabled={cleanupDuplicatesMutation.isPending}
+              variant="outline"
+            >
+              {cleanupDuplicatesMutation.isPending ? 'Cleaning up…' : 'Cleanup All Sources'}
+            </Button>
+            <Button
+              onClick={() => {
+                if (confirm('This will delete duplicate UNBC events, keeping only the most recent version. Continue?')) {
+                  cleanupDuplicatesMutation.mutate('unbc_ca')
+                }
+              }}
+              disabled={cleanupDuplicatesMutation.isPending}
+              variant="outline"
+            >
+              {cleanupDuplicatesMutation.isPending ? 'Cleaning up…' : 'Cleanup UNBC Only'}
+            </Button>
           </div>
         </div>
       </Card>

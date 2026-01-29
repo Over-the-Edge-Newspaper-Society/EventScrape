@@ -163,6 +163,18 @@ export const posterImportApi = {
     ),
 }
 
+export interface CleanupDuplicatesResult {
+  success: boolean
+  message: string
+  eventsRawDeleted: number
+  eventSeriesDeleted: number
+  duplicatesFound: Array<{
+    url: string
+    title: string
+    count: number
+  }>
+}
+
 export const systemSettingsApi = {
   get: () =>
     fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
@@ -171,6 +183,11 @@ export const systemSettingsApi = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }).then((response) => response.settings),
+  cleanupDuplicates: (sourceKey?: string) =>
+    fetchApi<CleanupDuplicatesResult>('/system-settings/cleanup-duplicates', {
+      method: 'POST',
+      body: JSON.stringify({ sourceKey }),
+    }),
 }
 
 // Matches API
