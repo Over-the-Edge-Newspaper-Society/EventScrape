@@ -55,6 +55,12 @@ export function Settings() {
     queryFn: () => systemSettingsApi.get(),
   })
 
+  const { data: openrouterModels, isLoading: isLoadingOpenrouterModels } = useQuery({
+    queryKey: ['openrouter-models'],
+    queryFn: () => systemSettingsApi.getOpenRouterModels(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
   const { data: backupsData, isLoading: isLoadingBackups } = useQuery({
     queryKey: ['backupBundles'],
     queryFn: async () => {
@@ -206,13 +212,14 @@ export function Settings() {
   })
 
   const aiSettingsMutation = useMutation({
-    mutationFn: (payload: { aiProvider?: 'gemini' | 'claude'; geminiApiKey?: string; claudeApiKey?: string }) =>
+    mutationFn: (payload: { aiProvider?: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string }) =>
       systemSettingsApi.update(payload),
     onSuccess: (updatedSettings) => {
       queryClient.setQueryData(['system-settings'], updatedSettings)
       toast.success('AI settings updated')
       setGeminiKey('')
       setClaudeKey('')
+      setOpenrouterKey('')
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update AI settings')
@@ -532,15 +539,27 @@ export function Settings() {
               <div className="flex gap-2">
                 <select
                   id="openrouter-model"
-                  value={openrouterModel}
-                  onChange={(e) => setOpenrouterModel(e.target.value)}
+                  value={openrouterModels?.find((m) => m.id === openrouterModel) ? openrouterModel : '__custom__'}
+                  onChange={(e) => {
+                    if (e.target.value !== '__custom__') {
+                      setOpenrouterModel(e.target.value)
+                    }
+                  }}
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  disabled={isLoadingOpenrouterModels}
                 >
-                  <option value="google/gemini-2.0-flash-exp">Google Gemini 2.0 Flash (Recommended)</option>
-                  <option value="anthropic/claude-sonnet-4">Anthropic Claude Sonnet 4</option>
-                  <option value="openai/gpt-4o">OpenAI GPT-4o</option>
-                  <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
-                  <option value="google/gemini-pro-vision">Google Gemini Pro Vision</option>
+                  {isLoadingOpenrouterModels ? (
+                    <option>Loading models...</option>
+                  ) : (
+                    <>
+                      {openrouterModels?.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                      <option value="__custom__">Custom model ID...</option>
+                    </>
+                  )}
                 </select>
                 <Button
                   onClick={() => {
@@ -551,8 +570,31 @@ export function Settings() {
                   Save
                 </Button>
               </div>
+              {/* Show custom input if model not in list */}
+              {(!openrouterModels?.find((m) => m.id === openrouterModel) || openrouterModel === '__custom__') && (
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    placeholder="e.g., openai/gpt-4o-2024-11-20"
+                    value={openrouterModel === '__custom__' ? '' : openrouterModel}
+                    onChange={(e) => setOpenrouterModel(e.target.value)}
+                  />
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
-                Select the vision-capable model to use for image extraction via OpenRouter.
+                Select a vision-capable model for image extraction.{' '}
+                {openrouterModels && (
+                  <span className="text-muted-foreground/70">
+                    ({openrouterModels.length} vision models available)
+                  </span>
+                )}{' '}
+                <a
+                  href="https://openrouter.ai/models?modality=image-%3Etext"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  Browse all models
+                </a>
               </p>
             </div>
           </div>

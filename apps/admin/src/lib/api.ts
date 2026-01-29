@@ -175,6 +175,17 @@ export interface CleanupDuplicatesResult {
   }>
 }
 
+export interface OpenRouterModel {
+  id: string
+  name: string
+  description?: string
+  contextLength?: number
+  pricing?: {
+    prompt?: string
+    completion?: string
+  }
+}
+
 export const systemSettingsApi = {
   get: () =>
     fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
@@ -188,6 +199,8 @@ export const systemSettingsApi = {
       method: 'POST',
       body: JSON.stringify({ sourceKey }),
     }),
+  getOpenRouterModels: () =>
+    fetchApi<{ models: OpenRouterModel[] }>('/system-settings/openrouter-models').then((response) => response.models),
 }
 
 // Matches API
