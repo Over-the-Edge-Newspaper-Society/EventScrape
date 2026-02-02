@@ -1,4 +1,5 @@
 import { Browser, Page } from 'playwright';
+import type { FirecrawlScraper } from './lib/firecrawl.js';
 
 export interface RawEvent {
   sourceEventId?: string;
@@ -34,8 +35,11 @@ export interface RunContext {
     moduleKey: string;
     defaultTimezone: string;
     rateLimitPerMin: number;
+    scrapingEngine?: 'playwright' | 'firecrawl';
   };
   logger: any; // pino logger
+  /** Firecrawl client - available when source.scrapingEngine === 'firecrawl' */
+  firecrawl?: FirecrawlScraper;
   jobData?: {
     testMode?: boolean;
     uploadedFile?: {

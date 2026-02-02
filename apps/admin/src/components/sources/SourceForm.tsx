@@ -31,6 +31,7 @@ function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'c
     defaultTimezone: source?.defaultTimezone || 'America/Vancouver',
     notes: source?.notes || '',
     rateLimitPerMin: source?.rateLimitPerMin || 60,
+    scrapingEngine: source?.scrapingEngine || 'playwright',
   })
 
   // Update form data when source prop changes
@@ -44,6 +45,7 @@ function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'c
         defaultTimezone: source.defaultTimezone || 'America/Vancouver',
         notes: source.notes || '',
         rateLimitPerMin: source.rateLimitPerMin || 60,
+        scrapingEngine: source.scrapingEngine || 'playwright',
       })
     }
   }, [source])
@@ -118,6 +120,23 @@ function SourceFormContent({ source, onClose, onSave }: Omit<SourceFormProps, 'c
               onChange={(e) => setFormData(prev => ({ ...prev, rateLimitPerMin: parseInt(e.target.value) }))}
             />
           </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Scraping Engine</label>
+          <select
+            value={formData.scrapingEngine || 'playwright'}
+            onChange={(e) => setFormData(prev => ({ ...prev, scrapingEngine: e.target.value as 'playwright' | 'firecrawl' }))}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="playwright">Playwright (Browser)</option>
+            <option value="firecrawl">Firecrawl (API)</option>
+          </select>
+          <p className="text-xs text-muted-foreground mt-1">
+            {formData.scrapingEngine === 'firecrawl'
+              ? 'Uses Firecrawl API to fetch page content. Requires a Firecrawl API key in Settings.'
+              : 'Uses Playwright browser automation for scraping. Default engine.'}
+          </p>
         </div>
 
         <div>

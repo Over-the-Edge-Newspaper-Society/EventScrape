@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { DialogTrigger } from '@/components/ui/dialog'
 import { sourcesApi, runsApi, Source, CreateSourceData } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
-import { Plus, RefreshCw, CheckCircle, Pause, AlertTriangle, Globe, Clock, Settings, Zap } from 'lucide-react'
+import { Plus, RefreshCw, CheckCircle, Pause, AlertTriangle, Globe, Clock, Settings, Zap, Flame } from 'lucide-react'
 import { SourceForm } from '@/components/sources/SourceForm'
 import { toast } from 'sonner'
 export function Sources() {
@@ -229,6 +229,13 @@ export function Sources() {
                           <Clock className="h-3 w-3" />
                           {source.rateLimitPerMin}/min
                         </div>
+                        <Badge variant="outline" className="text-xs">
+                          {source.scrapingEngine === 'firecrawl' ? (
+                            <><Flame className="h-3 w-3 mr-1" />Firecrawl</>
+                          ) : (
+                            <>Playwright</>
+                          )}
+                        </Badge>
                         <p className="text-xs text-muted-foreground">
                           Added {formatRelativeTime(source.createdAt)}
                         </p>

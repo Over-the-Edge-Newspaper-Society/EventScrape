@@ -118,6 +118,9 @@ export const sources = pgTable('sources', {
   instagramScraperType: instagramScraperTypeEnum('instagram_scraper_type').default('instagram-private-api'),
   lastChecked: timestamp('last_checked'),
 
+  // Scraping engine: 'playwright' (default browser automation) or 'firecrawl' (Firecrawl API)
+  scrapingEngine: text('scraping_engine').notNull().default('playwright'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => ({
@@ -308,6 +311,8 @@ export const systemSettings = pgTable('system_settings', {
   claudeApiKey: text('claude_api_key'),
   openrouterApiKey: text('openrouter_api_key'),
   openrouterModel: text('openrouter_model').default('google/gemini-2.0-flash-exp'),
+  // Firecrawl API key for alternative scraping engine
+  firecrawlApiKey: text('firecrawl_api_key'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

@@ -14,6 +14,7 @@ const createSourceSchema = z.object({
   defaultTimezone: z.string().default('UTC'),
   notes: z.string().optional(),
   rateLimitPerMin: z.number().int().positive().default(60),
+  scrapingEngine: z.enum(['playwright', 'firecrawl']).default('playwright'),
 });
 
 const updateSourceSchema = createSourceSchema.partial();

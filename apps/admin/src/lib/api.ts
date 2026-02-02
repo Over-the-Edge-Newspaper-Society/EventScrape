@@ -189,7 +189,7 @@ export interface OpenRouterModel {
 export const systemSettingsApi = {
   get: () =>
     fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
-  update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string }>) =>
+  update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string; firecrawlApiKey?: string }>) =>
     fetchApi<{ settings: SystemSettings }>('/system-settings', {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -471,6 +471,7 @@ export interface Source {
   defaultTimezone: string
   notes?: string
   rateLimitPerMin: number
+  scrapingEngine?: 'playwright' | 'firecrawl'
   createdAt: string
   updatedAt: string
 }
@@ -483,6 +484,7 @@ export interface CreateSourceData {
   defaultTimezone?: string
   notes?: string
   rateLimitPerMin?: number
+  scrapingEngine?: 'playwright' | 'firecrawl'
 }
 
 export type UpdateSourceData = Partial<CreateSourceData>
@@ -751,6 +753,7 @@ export interface SystemSettings {
   hasGeminiKey?: boolean
   hasClaudeKey?: boolean
   hasOpenrouterKey?: boolean
+  hasFirecrawlKey?: boolean
   openrouterModel?: string
   createdAt: string
   updatedAt: string

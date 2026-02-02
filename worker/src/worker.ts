@@ -9,6 +9,7 @@ import { normalizeEvent, RateLimiter } from './lib/utils.js';
 import { saveEventWithOccurrences, saveToEventsRaw } from './lib/occurrence-db.js';
 import type { ScrapeJobData, MatchJobData, RunContext } from './types.js';
 import { handleInstagramScrapeJob } from './modules/instagram/instagram-job.js';
+import { FirecrawlScraper, getFirecrawlApiKey } from './lib/firecrawl.js';
 import 'dotenv/config';
 
 
@@ -138,8 +139,8 @@ class EventScraperWorker {
     try {
       // Get source details from database
       const result = await db`
-        SELECT id, name, base_url, module_key, default_timezone, rate_limit_per_min
-        FROM sources 
+        SELECT id, name, base_url, module_key, default_timezone, rate_limit_per_min, scraping_engine
+        FROM sources
         WHERE id = ${jobData.sourceId} AND active = true
       `;
       const source = result[0];
@@ -164,7 +165,10 @@ class EventScraperWorker {
       // Set up rate limiter
       const rateLimiter = new RateLimiter(source.rate_limit_per_min);
 
-      // Get browser and page
+      // Determine scraping engine
+      const scrapingEngine: 'playwright' | 'firecrawl' = source.scraping_engine === 'firecrawl' ? 'firecrawl' : 'playwright';
+
+      // Get browser and page (always acquired — modules may still need Playwright even in firecrawl mode)
       const { browser, page, release } = await this.browserPool.getPage();
 
       try {
@@ -172,8 +176,8 @@ class EventScraperWorker {
         const streamKey = `logs:${jobData.runId}`;
         const writeToRedisStream = (level: number, msg: string, source: string = 'worker') => {
           this.redis.xadd(
-            streamKey, 
-            '*', 
+            streamKey,
+            '*',
             'timestamp', Date.now().toString(),
             'level', level.toString(),
             'msg', msg,
@@ -191,10 +195,10 @@ class EventScraperWorker {
         const runLogger = pino({
           level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
         });
-        
-        const baseContextLogger = runLogger.child({ 
-          source: source.module_key, 
-          runId: jobData.runId 
+
+        const baseContextLogger = runLogger.child({
+          source: source.module_key,
+          runId: jobData.runId
         });
 
         // Create wrapper logger that also writes to Redis
@@ -217,6 +221,17 @@ class EventScraperWorker {
           }
         };
 
+        // Initialize Firecrawl client if source uses firecrawl engine
+        let firecrawlClient: FirecrawlScraper | undefined;
+        if (scrapingEngine === 'firecrawl') {
+          const firecrawlApiKey = await getFirecrawlApiKey(db);
+          if (!firecrawlApiKey) {
+            throw new Error('Firecrawl API key not configured. Set it in Settings before using Firecrawl scraping engine.');
+          }
+          firecrawlClient = new FirecrawlScraper(firecrawlApiKey, contextLogger);
+          contextLogger.info('🔥 Firecrawl scraping engine initialized');
+        }
+
         // Create run context
         const ctx: RunContext = {
           browser,
@@ -230,8 +245,10 @@ class EventScraperWorker {
             moduleKey: source.module_key,
             defaultTimezone: source.default_timezone,
             rateLimitPerMin: source.rate_limit_per_min,
+            scrapingEngine,
           },
           logger: contextLogger,
+          firecrawl: firecrawlClient,
           jobData: {
             testMode: jobData.testMode,
             scrapeMode: jobData.scrapeMode,
@@ -247,7 +264,7 @@ class EventScraperWorker {
           },
         };
 
-        contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name}`);
+        contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name} (engine: ${scrapingEngine})`);
 
         // Run the scraper
         await rateLimiter.waitForToken();

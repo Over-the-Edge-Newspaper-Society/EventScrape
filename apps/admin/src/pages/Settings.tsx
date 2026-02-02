@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Download, Upload, Trash2, HardDrive, Database, Image, Sliders, Eraser } from 'lucide-react'
+import { Download, Upload, Trash2, HardDrive, Database, Image, Sliders, Eraser, Flame } from 'lucide-react'
 import { API_BASE_URL, systemSettingsApi } from '@/lib/api'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -49,6 +49,7 @@ export function Settings() {
   const [claudeKey, setClaudeKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [openrouterModel, setOpenrouterModel] = useState('google/gemini-2.0-flash-exp')
+  const [firecrawlKey, setFirecrawlKey] = useState('')
 
   const { data: systemSettings, isLoading: isLoadingSystemSettings } = useQuery({
     queryKey: ['system-settings'],
@@ -212,17 +213,18 @@ export function Settings() {
   })
 
   const aiSettingsMutation = useMutation({
-    mutationFn: (payload: { aiProvider?: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string }) =>
+    mutationFn: (payload: { aiProvider?: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string; firecrawlApiKey?: string }) =>
       systemSettingsApi.update(payload),
     onSuccess: (updatedSettings) => {
       queryClient.setQueryData(['system-settings'], updatedSettings)
-      toast.success('AI settings updated')
+      toast.success('Settings updated')
       setGeminiKey('')
       setClaudeKey('')
       setOpenrouterKey('')
+      setFirecrawlKey('')
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update AI settings')
+      toast.error(error.message || 'Failed to update settings')
     },
   })
 
@@ -597,6 +599,60 @@ export function Settings() {
                 </a>
               </p>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Flame className="h-6 w-6 text-primary" />
+          <div>
+            <h2 className="text-xl font-semibold">Firecrawl Scraping Engine</h2>
+            <p className="text-sm text-muted-foreground">
+              Configure Firecrawl as an alternative scraping backend. Sources can be individually switched between Playwright (browser) and Firecrawl (API).
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="firecrawl-key">Firecrawl API Key</Label>
+              {systemSettings?.hasFirecrawlKey && <Badge variant="secondary">Key saved</Badge>}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                id="firecrawl-key"
+                type="password"
+                placeholder="fc-..."
+                value={firecrawlKey}
+                onChange={(e) => setFirecrawlKey(e.target.value)}
+              />
+              <Button
+                onClick={() => {
+                  if (!firecrawlKey) {
+                    toast.error('Please enter a Firecrawl API key')
+                    return
+                  }
+                  aiSettingsMutation.mutate({ firecrawlApiKey: firecrawlKey })
+                }}
+                disabled={aiSettingsMutation.isPending}
+              >
+                Save
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Get your key from{' '}
+              <a
+                href="https://www.firecrawl.dev/app/api-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                Firecrawl Dashboard
+              </a>
+              . After saving the key, switch individual sources to use Firecrawl in the Sources page.
+            </p>
           </div>
         </div>
       </Card>
