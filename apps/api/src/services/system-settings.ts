@@ -81,8 +81,8 @@ export async function cleanupDuplicateEvents(sourceKey?: string): Promise<Cleanu
     LIMIT 100
   `
 
-  const duplicatesResult = await db.execute(duplicatesQuery)
-  const duplicatesFound = (duplicatesResult.rows as any[]).map(row => ({
+  const duplicatesResult = await db.execute<{ url: string; title: string; count: number }>(duplicatesQuery)
+  const duplicatesFound = duplicatesResult.map(row => ({
     url: row.url,
     title: row.title,
     count: row.count,
@@ -108,7 +108,7 @@ export async function cleanupDuplicateEvents(sourceKey?: string): Promise<Cleanu
   `
 
   const eventsRawResult = await db.execute(deleteEventsRawQuery)
-  const eventsRawDeleted = eventsRawResult.rowCount ?? 0
+  const eventsRawDeleted = eventsRawResult.count ?? 0
 
   // Delete older duplicates from event_series, keeping the most recent
   const deleteEventSeriesQuery = sql`
@@ -130,7 +130,7 @@ export async function cleanupDuplicateEvents(sourceKey?: string): Promise<Cleanu
   `
 
   const eventSeriesResult = await db.execute(deleteEventSeriesQuery)
-  const eventSeriesDeleted = eventSeriesResult.rowCount ?? 0
+  const eventSeriesDeleted = eventSeriesResult.count ?? 0
 
   return {
     eventsRawDeleted,
