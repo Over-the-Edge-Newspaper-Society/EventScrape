@@ -325,6 +325,19 @@ export async function runMigrations() {
       }
     }
 
+    // Apply incremental migration 0025 (OpenRouter provider)
+    try {
+      const sql25 = await readFile(migrationPath('0025_openrouter_provider.sql'), 'utf-8');
+      await migrationClient.unsafe(sql25);
+      console.log('✅ Applied migration 0025 (OpenRouter provider)');
+    } catch (e: any) {
+      if (e?.code) {
+        console.log('ℹ️ Migration 0025 not applied:', e.code, e.message);
+      } else {
+        console.log('ℹ️ Migration 0025 not applied');
+      }
+    }
+
     // Ensure instagram_scrape schedule type and constraint exist even if older DB missed migration 0020
     try {
       const result = await migrationClient`
