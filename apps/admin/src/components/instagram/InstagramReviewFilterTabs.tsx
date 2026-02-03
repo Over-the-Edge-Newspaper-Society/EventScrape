@@ -1,4 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CheckCircle, Clock, Layers, Sparkles, XCircle } from 'lucide-react'
 import type { InstagramReviewStats } from '@/lib/api'
 import type { InstagramReviewFilter } from './types'
 
@@ -18,26 +19,41 @@ export function InstagramReviewFilterTabs({
   }
 
   const tabs = [
-    { value: 'pending', label: 'Pending Review', count: stats?.unclassified },
-    { value: 'event', label: 'Marked as Event', count: stats?.markedAsEvent },
-    { value: 'not-event', label: 'Not Event', count: stats?.markedAsNotEvent },
-    { value: 'needs-extraction', label: 'Needs Extraction', count: stats?.needsExtraction },
-    { value: 'all', label: 'All', count: stats?.total },
+    { value: 'pending', label: 'Pending Review', count: stats?.unclassified, icon: Clock },
+    { value: 'event', label: 'Marked as Event', count: stats?.markedAsEvent, icon: CheckCircle },
+    { value: 'not-event', label: 'Not Event', count: stats?.markedAsNotEvent, icon: XCircle },
+    { value: 'needs-extraction', label: 'Needs Extraction', count: stats?.needsExtraction, icon: Sparkles },
+    { value: 'all', label: 'All', count: stats?.total, icon: Layers },
   ] as const
 
   return (
     <Tabs value={value} onValueChange={handleValueChange}>
       <TabsList className="flex h-auto w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:grid lg:grid-cols-5">
-        {tabs.map((tab) => (
-          <TabsTrigger
-            key={tab.value}
-            value={tab.value}
-            className="w-full text-center"
-          >
-            {tab.label}
-            {typeof tab.count === 'number' && ` (${tab.count})`}
-          </TabsTrigger>
-        ))}
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          const label = `${tab.label}${typeof tab.count === 'number' ? ` (${tab.count})` : ''}`
+
+          return (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              aria-label={label}
+              className="w-full text-center"
+            >
+              <span className="flex w-full items-center justify-center gap-2 sm:hidden">
+                <Icon className="h-4 w-4" />
+                {typeof tab.count === 'number' && (
+                  <span className="text-xs font-semibold">{tab.count}</span>
+                )}
+                <span className="sr-only">{tab.label}</span>
+              </span>
+              <span className="hidden sm:inline">
+                {tab.label}
+                {typeof tab.count === 'number' && ` (${tab.count})`}
+              </span>
+            </TabsTrigger>
+          )
+        })}
       </TabsList>
     </Tabs>
   )

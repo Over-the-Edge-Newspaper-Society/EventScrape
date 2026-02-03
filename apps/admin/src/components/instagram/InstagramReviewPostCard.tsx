@@ -1,9 +1,10 @@
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { InstagramEventWithSource } from '@/lib/api'
 import { API_BASE_URL } from '@/lib/api'
-import { formatRelativeTime } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import { InstagramExtractedEventDialog } from './InstagramExtractedEventDialog'
 import { getExtractedEvents, parseEventRaw } from './InstagramReviewUtils'
 import type { InstagramReviewFilter } from './types'
@@ -55,6 +56,17 @@ export function InstagramReviewPostCard({
   const parsedRaw = parseEventRaw(event.raw)
   const extractedEvents = getExtractedEvents(event)
   const hasExtraction = extractedEvents.length > 0
+  const swipeEnabled = (filter === 'pending' || filter === 'all') && event.isEventPoster === null
+
+  const cardRef = useRef<HTMLDivElement>(null)
+  const pointerIdRef = useRef<number | null>(null)
+  const startRef = useRef<{ x: number; y: number } | null>(null)
+  const dragXRef = useRef(0)
+  const resetTimerRef = useRef<number | null>(null)
+
+  const [dragX, setDragX] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null)
 
   const instagramTimestamp =
     parsedRaw?.instagram?.timestamp || parsedRaw?.timestamp || parsedRaw?.post?.timestamp
@@ -62,8 +74,168 @@ export function InstagramReviewPostCard({
   const handleExtract = () => onExtract(event.id)
   const handleReextract = () => onExtract(event.id, true)
 
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current)
+      }
+    }
+  }, [])
+
+  const resetDrag = () => {
+    dragXRef.current = 0
+    setDragX(0)
+    setIsDragging(false)
+    setSwipeDirection(null)
+  }
+
+  const scheduleReset = () => {
+    if (resetTimerRef.current) {
+      window.clearTimeout(resetTimerRef.current)
+    }
+    resetTimerRef.current = window.setTimeout(() => {
+      resetDrag()
+    }, 420)
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!swipeEnabled || isClassifyPending || isAiClassifyPending) return
+    if (event.pointerType !== 'touch') return
+
+    const target = event.target as HTMLElement
+    if (target.closest('button, a, input, textarea, select')) return
+
+    pointerIdRef.current = event.pointerId
+    startRef.current = { x: event.clientX, y: event.clientY }
+    dragXRef.current = 0
+    setSwipeDirection(null)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!swipeEnabled || pointerIdRef.current !== event.pointerId || !startRef.current) return
+
+    const dx = event.clientX - startRef.current.x
+    const dy = event.clientY - startRef.current.y
+
+    if (!isDragging) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+      if (Math.abs(dx) < Math.abs(dy)) {
+        pointerIdRef.current = null
+        startRef.current = null
+        return
+      }
+      event.currentTarget.setPointerCapture(event.pointerId)
+      setIsDragging(true)
+    }
+
+    event.preventDefault()
+    dragXRef.current = dx
+    setDragX(dx)
+    if (dx > 0) {
+      setSwipeDirection('right')
+    } else if (dx < 0) {
+      setSwipeDirection('left')
+    } else {
+      setSwipeDirection(null)
+    }
+  }
+
+  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!swipeEnabled || pointerIdRef.current !== event.pointerId) return
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    pointerIdRef.current = null
+    startRef.current = null
+
+    const dx = dragXRef.current
+    const width = cardRef.current?.offsetWidth ?? 1
+    const threshold = Math.min(140, width * 0.35)
+
+    if (Math.abs(dx) >= threshold) {
+      const direction = dx > 0 ? 'right' : 'left'
+      const travel = (dx > 0 ? 1 : -1) * Math.max(width, threshold)
+      setSwipeDirection(direction)
+      setIsDragging(false)
+      setDragX(travel)
+      scheduleReset()
+
+      if (direction === 'right') {
+        onMarkAsEvent(event.id)
+      } else {
+        onMarkAsNotEvent(event.id)
+      }
+      return
+    }
+
+    resetDrag()
+  }
+
+  const handlePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    if (pointerIdRef.current === event.pointerId) {
+      pointerIdRef.current = null
+    }
+    startRef.current = null
+    resetDrag()
+  }
+
+  const showSwipeOverlay = swipeEnabled && (isDragging || Math.abs(dragX) > 0)
+  const rotate = swipeEnabled ? dragX / 24 : 0
+  const cardStyle = swipeEnabled
+    ? {
+        transform: `translateX(${dragX}px) rotate(${rotate}deg)`,
+        transition: isDragging ? 'none' : 'transform 160ms ease',
+      }
+    : undefined
+
   return (
-    <Card className="transition-shadow hover:shadow-lg">
+    <Card
+      ref={cardRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      style={cardStyle}
+      className={cn(
+        'relative transition-shadow hover:shadow-lg',
+        swipeEnabled && 'touch-pan-y select-none'
+      )}
+    >
+      {swipeEnabled && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-10 flex items-center justify-between px-6 transition-opacity sm:hidden',
+            showSwipeOverlay ? 'opacity-100' : 'opacity-0'
+          )}
+        >
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition',
+              swipeDirection === 'right'
+                ? 'bg-green-100 text-green-700'
+                : 'bg-muted/60 text-muted-foreground'
+            )}
+          >
+            <CheckCircle className="h-4 w-4" />
+            <span>Event</span>
+          </div>
+          <div
+            className={cn(
+              'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition',
+              swipeDirection === 'left'
+                ? 'bg-red-100 text-red-600'
+                : 'bg-muted/60 text-muted-foreground'
+            )}
+          >
+            <XCircle className="h-4 w-4" />
+            <span>Not Event</span>
+          </div>
+        </div>
+      )}
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">

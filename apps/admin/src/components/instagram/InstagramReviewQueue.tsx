@@ -109,6 +109,11 @@ export function InstagramReviewQueue({
     })
   }, [posts])
 
+  const hasPendingReview = useMemo(() => {
+    if (!posts?.length) return false
+    return posts.some((item) => item.event.isEventPoster === null)
+  }, [posts])
+
   if (isLoading) {
     return (
       <Card>
@@ -136,6 +141,11 @@ export function InstagramReviewQueue({
   return (
     <>
       <div className="space-y-8">
+        {hasPendingReview && (filter === 'pending' || filter === 'all') && (
+          <div className="rounded-lg border bg-muted/40 px-4 py-2 text-xs text-muted-foreground sm:hidden">
+            Swipe right to mark an Event, left for Not Event.
+          </div>
+        )}
         {groupedPosts.map(({ groupKey, posts: grouped, accountDisplayName, accountUsername, postCount }) => (
           <InstagramReviewGroup
             key={groupKey}
