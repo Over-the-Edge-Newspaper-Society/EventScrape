@@ -435,7 +435,7 @@ export function InstagramSources() {
 
       <InstagramAccountsActionsCard
         activeSources={activeSources}
-        settingsHref="/instagram/settings"
+        settingsHref="/settings"
         onUploadSession={() => setShowSessionForm(true)}
         onTriggerAll={handleTriggerAllActive}
         onAddSource={handleAdd}

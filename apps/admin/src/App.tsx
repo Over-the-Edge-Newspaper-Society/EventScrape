@@ -7,7 +7,6 @@ import { Layout } from '@/components/Layout'
 import { Dashboard } from '@/pages/Dashboard'
 import { Sources } from '@/pages/Sources'
 import { InstagramSources } from '@/pages/InstagramSources'
-import { InstagramSettings } from '@/pages/InstagramSettings'
 import { Events } from '@/pages/Events'
 import { InstagramReview } from '@/pages/InstagramReview'
 import { RawEvents } from '@/pages/RawEvents'
@@ -40,7 +39,7 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/sources" element={<Sources />} />
                 <Route path="/instagram" element={<InstagramSources />} />
-                <Route path="/instagram/settings" element={<InstagramSettings />} />
+                <Route path="/instagram/settings" element={<Navigate to="/settings" replace />} />
                 <Route path="/events" element={<Events />}>
                   <Route index element={<Navigate to="/events/raw" replace />} />
                   <Route path="raw" element={<RawEvents />} />

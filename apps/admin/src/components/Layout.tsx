@@ -49,7 +49,6 @@ const navigation: NavigationItem[] = [
     icon: Instagram,
     children: [
       { name: 'Review', href: '/review', icon: CheckSquare },
-      { name: 'Instagram Settings', href: '/instagram/settings', icon: Settings },
     ],
   },
   { name: 'Events', href: '/events', icon: List },
