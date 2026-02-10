@@ -140,11 +140,11 @@ export function InstagramReviewPostCard({
     }
   }
 
-  const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!swipeEnabled || pointerIdRef.current !== event.pointerId) return
+  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!swipeEnabled || pointerIdRef.current !== e.pointerId) return
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
     }
     pointerIdRef.current = null
     startRef.current = null
