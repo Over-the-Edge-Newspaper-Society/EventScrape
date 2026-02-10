@@ -28,7 +28,7 @@ export function InstagramReviewFilterTabs({
 
   return (
     <Tabs value={value} onValueChange={handleValueChange}>
-      <TabsList className="flex h-auto w-full flex-col gap-2 sm:flex-row sm:flex-wrap lg:grid lg:grid-cols-5">
+      <TabsList className="flex h-auto w-full flex-row gap-1 sm:flex-wrap sm:gap-2 lg:grid lg:grid-cols-5">
         {tabs.map((tab) => {
           const Icon = tab.icon
           const label = `${tab.label}${typeof tab.count === 'number' ? ` (${tab.count})` : ''}`
@@ -40,11 +40,8 @@ export function InstagramReviewFilterTabs({
               aria-label={label}
               className="w-full text-center"
             >
-              <span className="flex w-full items-center justify-center gap-2 sm:hidden">
+              <span className="flex w-full items-center justify-center sm:hidden">
                 <Icon className="h-4 w-4" />
-                {typeof tab.count === 'number' && (
-                  <span className="text-xs font-semibold">{tab.count}</span>
-                )}
                 <span className="sr-only">{tab.label}</span>
               </span>
               <span className="hidden sm:inline">

@@ -1,11 +1,28 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CheckCircle } from 'lucide-react'
 import type { InstagramEventWithSource, InstagramReviewQueueResponse } from '@/lib/api'
 import type { InstagramReviewFilter } from './types'
 import { InstagramReviewGroup } from './InstagramReviewGroup'
+import { InstagramReviewStack } from './InstagramReviewStack'
 import { deriveAccountDetails } from './InstagramReviewUtils'
+
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  )
+
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mql.addEventListener('change', handler)
+    setIsMobile(mql.matches)
+    return () => mql.removeEventListener('change', handler)
+  }, [breakpoint])
+
+  return isMobile
+}
 
 type InstagramReviewQueueProps = {
   posts?: InstagramEventWithSource[]
@@ -42,6 +59,8 @@ export function InstagramReviewQueue({
   onPrevPage,
   onNextPage,
 }: InstagramReviewQueueProps) {
+  const isMobile = useIsMobile()
+
   const groupedPosts = useMemo(() => {
     if (!posts?.length) return []
 
@@ -135,6 +154,49 @@ export function InstagramReviewQueue({
           </div>
         </CardContent>
       </Card>
+    )
+  }
+
+  // Mobile stack view for pending posts
+  const showStack = isMobile && hasPendingReview && (filter === 'pending' || filter === 'all')
+
+  if (showStack && posts) {
+    return (
+      <>
+        <InstagramReviewStack
+          posts={posts}
+          filter={filter}
+          isClassifyPending={isClassifyPending}
+          isAiClassifyPending={isAiClassifyPending}
+          isExtractPending={isExtractPending}
+          isDeletePending={isDeletePending}
+          onMarkAsEvent={onMarkAsEvent}
+          onMarkAsNotEvent={onMarkAsNotEvent}
+          onAiClassify={onAiClassify}
+          onExtract={onExtract}
+          onDelete={onDelete}
+        />
+
+        {pagination && pagination.totalPages > 1 && (
+          <Card className="mt-4">
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={!pagination.hasPrev} onClick={onPrevPage}>
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={!pagination.hasNext} onClick={onNextPage}>
+                    Next
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Page {pagination.page}/{pagination.totalPages}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </>
     )
   }
 
