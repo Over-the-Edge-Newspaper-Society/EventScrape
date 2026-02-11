@@ -8,7 +8,8 @@ import { instagramReviewApi, eventsApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Bot, Loader2, Sparkles } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Bot, Loader2, SlidersHorizontal, Sparkles } from 'lucide-react'
 
 export function InstagramReview() {
   const [page, setPage] = useState(1)
@@ -210,17 +211,78 @@ export function InstagramReview() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Review Queue</h1>
-        <p className="text-muted-foreground">
-          Classify Instagram posts as events or non-events, then extract event data with AI
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Review Queue</h1>
+          <p className="text-muted-foreground hidden sm:block">
+            Classify Instagram posts as events or non-events, then extract event data with AI
+          </p>
+        </div>
+
+        {/* Mobile options popover */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="icon" className="lg:hidden shrink-0">
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Filter by Account</label>
+              <Select value={accountId} onValueChange={handleAccountChange}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All accounts" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All accounts</SelectItem>
+                  {accountsData?.accounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name} {account.instagramUsername && `(@${account.instagramUsername})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {filter === 'pending' && (
+              <Button
+                onClick={() => bulkAiClassifyMutation.mutate()}
+                disabled={disableBulkAiClassifyButton}
+                variant="secondary"
+                className="w-full bg-gradient-to-r from-amber-500 to-pink-500 text-white hover:from-amber-600 hover:to-pink-600"
+              >
+                {bulkAiClassifyMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Bot className="mr-2 h-4 w-4" />
+                )}
+                Let AI Decide Pending Posts
+              </Button>
+            )}
+
+            {filter === 'needs-extraction' && (
+              <Button
+                onClick={() => bulkExtractMutation.mutate()}
+                disabled={disableBulkExtractButton}
+                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+              >
+                {bulkExtractMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                Extract Event Data with AI
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
 
       {stats && <InstagramReviewStatsCard stats={stats} />}
 
+      {/* Desktop: AI action buttons */}
       {filter === 'pending' && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="hidden lg:flex flex-wrap items-center gap-3">
           <Button
             onClick={() => bulkAiClassifyMutation.mutate()}
             disabled={disableBulkAiClassifyButton}
@@ -243,7 +305,7 @@ export function InstagramReview() {
       )}
 
       {filter === 'needs-extraction' && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="hidden lg:flex flex-wrap items-center gap-3">
           <Button
             onClick={() => bulkExtractMutation.mutate()}
             disabled={disableBulkExtractButton}
@@ -266,7 +328,8 @@ export function InstagramReview() {
 
       <InstagramReviewFilterTabs value={filter} onChange={handleFilterChange} stats={stats} />
 
-      <div className="flex items-center gap-4">
+      {/* Desktop: account filter */}
+      <div className="hidden lg:flex items-center gap-4">
         <label htmlFor="account-filter" className="text-sm font-medium text-foreground">
           Filter by Account:
         </label>
