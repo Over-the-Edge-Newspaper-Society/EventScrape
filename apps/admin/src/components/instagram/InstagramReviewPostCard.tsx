@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { InstagramEventWithSource } from '@/lib/api'
@@ -70,6 +70,9 @@ export function InstagramReviewPostCard({
 
   const instagramTimestamp =
     parsedRaw?.instagram?.timestamp || parsedRaw?.timestamp || parsedRaw?.post?.timestamp
+
+  const caption = event.instagramCaption || event.title
+  const postDate = instagramTimestamp ?? event.scrapedAt
 
   const handleExtract = () => onExtract(event.id)
   const handleReextract = () => onExtract(event.id, true)
@@ -192,6 +195,10 @@ export function InstagramReviewPostCard({
       }
     : undefined
 
+  const imageUrl = event.localImagePath
+    ? `${API_BASE_URL.replace('/api', '')}/api/instagram-backup/instagram-images/${event.localImagePath}`
+    : null
+
   return (
     <Card
       ref={cardRef}
@@ -201,258 +208,456 @@ export function InstagramReviewPostCard({
       onPointerCancel={handlePointerCancel}
       style={cardStyle}
       className={cn(
-        'relative transition-shadow hover:shadow-lg',
+        'relative overflow-hidden transition-shadow hover:shadow-lg',
         swipeEnabled && 'touch-pan-y select-none'
       )}
     >
-      {swipeEnabled && (
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-0 z-10 flex items-center justify-between px-6 transition-opacity sm:hidden',
-            showSwipeOverlay ? 'opacity-100' : 'opacity-0'
-          )}
-        >
-          <div
-            className={cn(
-              'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition',
-              swipeDirection === 'right'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-muted/60 text-muted-foreground'
+      {/* ===== MOBILE LAYOUT (below md) ===== */}
+      <div className="md:hidden">
+        {/* Image hero with gradient overlay */}
+        {imageUrl && (
+          <div className="relative">
+            <img
+              src={imageUrl}
+              alt={caption}
+              className="w-full object-cover"
+              style={{ maxHeight: '70vh' }}
+            />
+
+            {/* Swipe direction indicators */}
+            {swipeEnabled && (
+              <div
+                className={cn(
+                  'pointer-events-none absolute inset-0 z-10 flex items-center justify-between px-6 transition-opacity',
+                  showSwipeOverlay ? 'opacity-100' : 'opacity-0'
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition shadow-lg',
+                    swipeDirection === 'right'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-black/40 text-white/60'
+                  )}
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Event</span>
+                </div>
+                <div
+                  className={cn(
+                    'flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold uppercase tracking-wide transition shadow-lg',
+                    swipeDirection === 'left'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-black/40 text-white/60'
+                  )}
+                >
+                  <XCircle className="h-4 w-4" />
+                  <span>Skip</span>
+                </div>
+              </div>
             )}
-          >
-            <CheckCircle className="h-4 w-4" />
-            <span>Event</span>
+
+            {/* Top bar: account + delete */}
+            <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between p-3 bg-gradient-to-b from-black/60 to-transparent">
+              {accountLabel ? (
+                <div className="flex items-center gap-1.5 text-white/90 text-sm font-medium">
+                  <Instagram className="h-4 w-4" />
+                  <span>{accountLabel}</span>
+                </div>
+              ) : (
+                <div />
+              )}
+              <Button
+                onClick={() => onDelete(event.id)}
+                disabled={isDeletePending}
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/20"
+                title="Delete post"
+              >
+                {isDeletePending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+
+            {/* Bottom gradient with caption + date */}
+            <div className="absolute bottom-0 inset-x-0 z-10 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-4 pt-16">
+              <p className="text-white text-sm font-medium line-clamp-3 leading-snug">
+                {caption}
+              </p>
+              <div className="mt-2 flex items-center gap-3 text-white/70 text-xs">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>
+                    {new Date(postDate).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </div>
+                {event.instagramPostId && (
+                  <span className="opacity-60">#{event.instagramPostId}</span>
+                )}
+              </div>
+            </div>
           </div>
-          <div
-            className={cn(
-              'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition',
-              swipeDirection === 'left'
-                ? 'bg-red-100 text-red-600'
-                : 'bg-muted/60 text-muted-foreground'
-            )}
-          >
-            <XCircle className="h-4 w-4" />
-            <span>Not Event</span>
-          </div>
-        </div>
-      )}
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
+        )}
+
+        {/* No image fallback */}
+        {!imageUrl && (
+          <div className="p-4 space-y-2">
             {accountLabel && (
-              <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Instagram className="h-3 w-3" />
                 <span>{accountLabel}</span>
               </div>
             )}
-            <CardTitle className="text-xl">{event.title}</CardTitle>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-4 w-4" />
-                <span>
-                  {new Date(event.scrapedAt).toLocaleString(undefined, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </span>
-              </div>
-              {event.instagramPostId && (
-                <Badge variant="outline" className="text-xs">
-                  #{event.instagramPostId}
-                </Badge>
-              )}
+            <p className="text-sm font-medium line-clamp-3">{caption}</p>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Calendar className="h-3 w-3" />
+              <span>
+                {new Date(postDate).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+              </span>
             </div>
           </div>
-          <Button
-            onClick={() => onDelete(event.id)}
-            disabled={isDeletePending}
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-destructive"
-            title="Delete post and image"
-          >
-            {isDeletePending ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Trash2 className="h-5 w-5" />
-            )}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          {event.localImagePath && (
-            <div className="w-full">
-              <div className="overflow-hidden rounded-md bg-muted">
-                <img
-                  src={`${API_BASE_URL.replace('/api', '')}/api/instagram-backup/instagram-images/${event.localImagePath}`}
-                  alt={event.title}
-                  className="h-auto max-h-96 w-full object-contain"
-                />
+        )}
+
+        {/* Mobile action buttons */}
+        <div className="p-3 space-y-2">
+          {event.url && (
+            <a
+              href={event.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-primary hover:underline mb-1"
+            >
+              View original post
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+
+          {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
+            <div className="space-y-2">
+              <Button
+                onClick={() => onAiClassify(event.id)}
+                disabled={isAiClassifyPending}
+                variant="secondary"
+                size="lg"
+                className="w-full"
+              >
+                {isAiClassifyPending ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Bot className="mr-2 h-5 w-5" />
+                )}
+                Let AI Decide
+              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => onMarkAsEvent(event.id)}
+                  disabled={isClassifyPending || isAiClassifyPending}
+                  className="flex-1"
+                  size="lg"
+                >
+                  <CheckCircle className="mr-2 h-5 w-5" />
+                  Event
+                </Button>
+                <Button
+                  onClick={() => onMarkAsNotEvent(event.id)}
+                  disabled={isClassifyPending || isAiClassifyPending}
+                  variant="outline"
+                  className="flex-1"
+                  size="lg"
+                >
+                  <XCircle className="mr-2 h-5 w-5" />
+                  Not Event
+                </Button>
               </div>
             </div>
           )}
 
-          <div className="space-y-3">
-            {event.instagramCaption && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">Caption</p>
-                <p className="text-sm whitespace-pre-wrap line-clamp-6">{event.instagramCaption}</p>
-              </div>
-            )}
-
-            {event.scrapedAt && (
-              <div className="flex items-start gap-2">
-                <Calendar className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Instagram Post Date</p>
-                  <p className="text-sm">
-                    {new Date(instagramTimestamp ?? event.scrapedAt).toLocaleDateString(undefined, {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </p>
-                  {!instagramTimestamp && (
-                    <p className="text-xs italic text-muted-foreground">
-                      (Showing scraped date - post date not available)
-                    </p>
+          {event.isEventPoster !== null && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {event.isEventPoster ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium text-green-600">Event</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-500">Not Event</span>
+                    </>
                   )}
                 </div>
+                <Button
+                  onClick={() =>
+                    event.isEventPoster ? onMarkAsNotEvent(event.id) : onMarkAsEvent(event.id)
+                  }
+                  disabled={isClassifyPending}
+                  variant="ghost"
+                  size="sm"
+                >
+                  Change
+                </Button>
               </div>
-            )}
 
-            {event.venueName && (
-              <div className="flex items-start gap-2">
-                <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Venue</p>
-                  <p className="text-sm">{event.venueName}</p>
+              {event.isEventPoster && event.localImagePath && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!hasExtraction ? (
+                    <Button
+                      onClick={handleExtract}
+                      disabled={isExtractPending}
+                      variant="default"
+                      size="sm"
+                      className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    >
+                      {isExtractPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      Extract with AI
+                    </Button>
+                  ) : (
+                    <InstagramExtractedEventDialog
+                      eventId={event.id}
+                      dialogSubject={dialogSubject}
+                      extractedEvents={extractedEvents}
+                      isExtractPending={isExtractPending}
+                      onReextract={handleReextract}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== DESKTOP LAYOUT (md and above) ===== */}
+      <div className="hidden md:block">
+        <div className="flex flex-col space-y-1.5 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              {accountLabel && (
+                <div className="mb-2 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Instagram className="h-3 w-3" />
+                  <span>{accountLabel}</span>
+                </div>
+              )}
+              <h3 className="font-semibold tracking-tight text-xl">{event.title}</h3>
+              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  <span>
+                    {new Date(event.scrapedAt).toLocaleString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+                {event.instagramPostId && (
+                  <Badge variant="outline" className="text-xs">
+                    #{event.instagramPostId}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <Button
+              onClick={() => onDelete(event.id)}
+              disabled={isDeletePending}
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-destructive"
+              title="Delete post and image"
+            >
+              {isDeletePending ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Trash2 className="h-5 w-5" />
+              )}
+            </Button>
+          </div>
+        </div>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            {imageUrl && (
+              <div className="w-full">
+                <div className="overflow-hidden rounded-md bg-muted">
+                  <img
+                    src={imageUrl}
+                    alt={event.title}
+                    className="h-auto max-h-96 w-full object-contain"
+                  />
                 </div>
               </div>
             )}
 
-            <div className="border-t pt-2 text-xs text-muted-foreground">
-              Scraped {formatRelativeTime(event.scrapedAt)}
-            </div>
-
-            {event.url && (
-              <a
-                href={event.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                View original post
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
-          </div>
-        </div>
-
-        {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
-          <div className="space-y-3 border-t pt-4">
-            <Button
-              onClick={() => onAiClassify(event.id)}
-              disabled={isAiClassifyPending}
-              variant="secondary"
-              size="lg"
-              className="w-full"
-            >
-              {isAiClassifyPending ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <Bot className="mr-2 h-5 w-5" />
-              )}
-              Let AI Decide
-            </Button>
-            <div className="flex gap-3">
-              <Button
-                onClick={() => onMarkAsEvent(event.id)}
-                disabled={isClassifyPending || isAiClassifyPending}
-                className="flex-1"
-                size="lg"
-              >
-                <CheckCircle className="mr-2 h-5 w-5" />
-                Mark Event
-              </Button>
-              <Button
-                onClick={() => onMarkAsNotEvent(event.id)}
-                disabled={isClassifyPending || isAiClassifyPending}
-                variant="outline"
-                className="flex-1"
-                size="lg"
-              >
-                <XCircle className="mr-2 h-5 w-5" />
-                Not Event
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {event.isEventPoster !== null && (
-          <div className="space-y-3 border-t pt-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                {event.isEventPoster ? (
-                  <>
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                    <span className="text-sm font-medium text-green-600">Marked as Event</span>
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="h-5 w-5 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
-                  </>
-                )}
-              </div>
-              <Button
-                onClick={() =>
-                  event.isEventPoster ? onMarkAsNotEvent(event.id) : onMarkAsEvent(event.id)
-                }
-                disabled={isClassifyPending}
-                variant="ghost"
-                size="sm"
-              >
-                Change
-              </Button>
-            </div>
-
-            {event.isEventPoster && event.localImagePath && (
-              <div className="flex flex-wrap items-center gap-2">
-                {!hasExtraction ? (
-                  <Button
-                    onClick={handleExtract}
-                    disabled={isExtractPending}
-                    variant="default"
-                    size="sm"
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-                  >
-                    {isExtractPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="mr-2 h-4 w-4" />
+            <div className="space-y-3">
+              {event.scrapedAt && (
+                <div className="flex items-start gap-2">
+                  <Calendar className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Instagram Post Date</p>
+                    <p className="text-sm">
+                      {new Date(postDate).toLocaleDateString(undefined, {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </p>
+                    {!instagramTimestamp && (
+                      <p className="text-xs italic text-muted-foreground">
+                        (Showing scraped date - post date not available)
+                      </p>
                     )}
-                    Extract Event Data with AI
-                  </Button>
-                ) : (
-                  <InstagramExtractedEventDialog
-                    eventId={event.id}
-                    dialogSubject={dialogSubject}
-                    extractedEvents={extractedEvents}
-                    isExtractPending={isExtractPending}
-                    onReextract={handleReextract}
-                  />
-                )}
+                  </div>
+                </div>
+              )}
+
+              {event.venueName && (
+                <div className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Venue</p>
+                    <p className="text-sm">{event.venueName}</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t pt-2 text-xs text-muted-foreground">
+                Scraped {formatRelativeTime(event.scrapedAt)}
               </div>
-            )}
+
+              {event.url && (
+                <a
+                  href={event.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  View original post
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
           </div>
-        )}
-      </CardContent>
+
+          {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
+            <div className="space-y-3 border-t pt-4">
+              <Button
+                onClick={() => onAiClassify(event.id)}
+                disabled={isAiClassifyPending}
+                variant="secondary"
+                size="lg"
+                className="w-full"
+              >
+                {isAiClassifyPending ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  <Bot className="mr-2 h-5 w-5" />
+                )}
+                Let AI Decide
+              </Button>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => onMarkAsEvent(event.id)}
+                  disabled={isClassifyPending || isAiClassifyPending}
+                  className="flex-1"
+                  size="lg"
+                >
+                  <CheckCircle className="mr-2 h-5 w-5" />
+                  Mark Event
+                </Button>
+                <Button
+                  onClick={() => onMarkAsNotEvent(event.id)}
+                  disabled={isClassifyPending || isAiClassifyPending}
+                  variant="outline"
+                  className="flex-1"
+                  size="lg"
+                >
+                  <XCircle className="mr-2 h-5 w-5" />
+                  Not Event
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {event.isEventPoster !== null && (
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {event.isEventPoster ? (
+                    <>
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <span className="text-sm font-medium text-green-600">Marked as Event</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
+                    </>
+                  )}
+                </div>
+                <Button
+                  onClick={() =>
+                    event.isEventPoster ? onMarkAsNotEvent(event.id) : onMarkAsEvent(event.id)
+                  }
+                  disabled={isClassifyPending}
+                  variant="ghost"
+                  size="sm"
+                >
+                  Change
+                </Button>
+              </div>
+
+              {event.isEventPoster && event.localImagePath && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!hasExtraction ? (
+                    <Button
+                      onClick={handleExtract}
+                      disabled={isExtractPending}
+                      variant="default"
+                      size="sm"
+                      className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    >
+                      {isExtractPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-4 w-4" />
+                      )}
+                      Extract Event Data with AI
+                    </Button>
+                  ) : (
+                    <InstagramExtractedEventDialog
+                      eventId={event.id}
+                      dialogSubject={dialogSubject}
+                      extractedEvents={extractedEvents}
+                      isExtractPending={isExtractPending}
+                      onReextract={handleReextract}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </div>
     </Card>
   )
 }
