@@ -51,7 +51,7 @@ export const registerExtractionRoutes = (
     try {
       const { accountId, limit, overwrite } = bulkExtractSchema.parse(request.body ?? {});
 
-      const { provider, apiKey } = await extractionService.getAISettings();
+      const { provider, apiKey, model } = await extractionService.getAISettings();
 
       const whereConditions = [
         eq(sources.sourceType, 'instagram'),
@@ -98,6 +98,7 @@ export const registerExtractionRoutes = (
           const extractionResult = await extractionService.performExtraction(post, {
             provider,
             apiKey,
+            model,
             overwrite,
             createEvents: true,
           });
