@@ -12,6 +12,8 @@ const querySchema = z.object({
   sourceId: z.string().uuid().optional(),
   sourceType: z.enum(['website', 'instagram']).optional(),
   city: z.string().optional(),
+  category: z.string().optional(),
+  status: z.enum(['new', 'ready', 'exported', 'ignored']).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   search: z.string().optional(),
@@ -237,6 +239,14 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       
       if (query.city) {
         conditions.push(ilike(eventsCanonical.city, `%${query.city}%`));
+      }
+
+      if (query.category) {
+        conditions.push(ilike(eventsCanonical.category, `%${query.category}%`));
+      }
+
+      if (query.status) {
+        conditions.push(eq(eventsCanonical.status, query.status));
       }
       
       if (query.startDate) {

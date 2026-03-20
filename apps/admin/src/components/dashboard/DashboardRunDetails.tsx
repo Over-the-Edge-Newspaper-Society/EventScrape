@@ -23,13 +23,13 @@ export function DashboardRunDetails({ runId, onClose, children }: RunDetailsProp
 }
 
 function RunDetailsContent({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
-  if (!runId) return null
-
   const { data, isLoading } = useQuery({
     queryKey: ['run', runId],
-    queryFn: () => runsApi.getById(runId),
+    queryFn: () => runsApi.getById(runId!),
     enabled: !!runId,
   })
+
+  if (!runId) return null
 
   if (isLoading || !data) {
     return (

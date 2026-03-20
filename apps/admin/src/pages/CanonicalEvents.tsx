@@ -52,12 +52,15 @@ export function CanonicalEvents() {
       setSelectedEvents(new Set())
       queryClient.invalidateQueries({ queryKey: ['events', 'canonical'] })
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(`WordPress upload failed: ${error.message}`)
     },
   })
 
-  const handleFilterChange = (key: keyof EventsQueryParams, value: any) => {
+  const handleFilterChange = <K extends keyof EventsQueryParams>(
+    key: K,
+    value: EventsQueryParams[K]
+  ) => {
     setFilters(prev => ({
       ...prev,
       [key]: value,
@@ -197,7 +200,12 @@ export function CanonicalEvents() {
                     </div>
                     <div className="space-y-2">
                       <Label>Post Status</Label>
-                      <Select value={wpPostStatus} onValueChange={(v: any) => setWpPostStatus(v)}>
+                      <Select
+                        value={wpPostStatus}
+                        onValueChange={(value: 'publish' | 'draft' | 'pending') =>
+                          setWpPostStatus(value)
+                        }
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -266,7 +274,6 @@ export function CanonicalEvents() {
             {/* Status Filter */}
             <Select onValueChange={(value) => {
               const statusValue = value === 'all' ? undefined : value as 'new' | 'ready' | 'exported' | 'ignored'
-              // @ts-ignore - temporary for status filter
               handleFilterChange('status', statusValue)
             }}>
               <SelectTrigger>
@@ -291,10 +298,8 @@ export function CanonicalEvents() {
             {/* Category Filter */}
             <Input
               placeholder="Filter by category"
-              // @ts-ignore - temporary for category filter
               value={filters.category || ''}
               onChange={(e) => {
-                // @ts-ignore - temporary for category filter
                 handleFilterChange('category', e.target.value || undefined)
               }}
             />

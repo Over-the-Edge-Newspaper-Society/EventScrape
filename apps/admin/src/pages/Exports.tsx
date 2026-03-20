@@ -10,6 +10,7 @@ import { exportsApi, eventsApi, CreateExportData, API_BASE_URL, EventWithSource 
 import { formatRelativeTime } from '@/lib/utils'
 import { Download, Plus, FileSpreadsheet, FileJson, Calendar as CalendarIcon, Globe, AlertCircle, ExternalLink, Clock, Database, Loader2 } from 'lucide-react'
 import { ExportWizard } from '@/components/exports/ExportWizard'
+import { RawEventDetailsDialog } from '@/components/exports/RawEventDetailsDialog'
 export function Exports() {
   const queryClient = useQueryClient()
   const [showWizard, setShowWizard] = useState(false)
@@ -576,8 +577,7 @@ export function Exports() {
         </DialogContent>
       </Dialog>
 
-      {/* Raw Event Details Dialog */}
-      <Dialog
+      <RawEventDetailsDialog
         open={rawEventDialogOpen}
         onOpenChange={(open) => {
           setRawEventDialogOpen(open)
@@ -588,114 +588,10 @@ export function Exports() {
             setRawEventLoadingId(null)
           }
         }}
-      >
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Raw Event Details</DialogTitle>
-            <DialogDescription>
-              View the original event record that was sent to WordPress.
-            </DialogDescription>
-          </DialogHeader>
-          {rawEventLoading ? (
-            <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading raw event...
-            </div>
-          ) : rawEventError ? (
-            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {rawEventError}
-            </div>
-          ) : rawEventDetails ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-lg font-semibold">{rawEventDetails.event.title}</p>
-                <p className="text-sm text-muted-foreground">
-                  Source: {rawEventDetails.source?.name ?? 'Unknown'}
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">Start</p>
-                  <p className="font-medium">
-                    {new Date(rawEventDetails.event.startDatetime).toLocaleString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">End</p>
-                  <p className="font-medium">
-                    {rawEventDetails.event.endDatetime
-                      ? new Date(rawEventDetails.event.endDatetime).toLocaleString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })
-                      : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">Venue</p>
-                  <p className="font-medium">{rawEventDetails.event.venueName || '—'}</p>
-                  {rawEventDetails.event.venueAddress && (
-                    <p className="text-muted-foreground">{rawEventDetails.event.venueAddress}</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">City</p>
-                  <p className="font-medium">{rawEventDetails.event.city || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">Organizer</p>
-                  <p className="font-medium">{rawEventDetails.event.organizer || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">Category</p>
-                  <p className="font-medium">{rawEventDetails.event.category || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground">URL</p>
-                  {rawEventDetails.event.url ? (
-                    <a
-                      href={rawEventDetails.event.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline break-all"
-                    >
-                      {rawEventDetails.event.url}
-                    </a>
-                  ) : (
-                    <p className="font-medium">—</p>
-                  )}
-                </div>
-              </div>
-              {rawEventDetails.event.descriptionHtml && (
-                <div>
-                  <p className="text-xs uppercase text-muted-foreground mb-2">Description</p>
-                  <div
-                    className="prose prose-sm max-w-none rounded-md border p-3"
-                    dangerouslySetInnerHTML={{ __html: rawEventDetails.event.descriptionHtml }}
-                  />
-                </div>
-              )}
-              <div>
-                <p className="text-xs uppercase text-muted-foreground mb-2">Raw Payload</p>
-                <pre className="max-h-64 overflow-y-auto rounded-md bg-muted p-3 text-xs">
-                  {JSON.stringify(rawEventDetails.event.raw, null, 2)}
-                </pre>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">Select an event to see its raw record.</p>
-          )}
-        </DialogContent>
-      </Dialog>
+        isLoading={rawEventLoading}
+        error={rawEventError}
+        rawEvent={rawEventDetails}
+      />
     </div>
   )
 }

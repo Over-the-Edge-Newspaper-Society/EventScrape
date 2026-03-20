@@ -114,11 +114,13 @@ export function ExportWizard({ onClose, onExport, selectedEventIds }: ExportWiza
               {formatOptions.map((option) => {
                 const Icon = option.icon
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={option.value}
                     className={`p-4 border rounded-lg cursor-pointer transition-colors ${
                       exportData.format === option.value ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'
                     }`}
+                    aria-pressed={exportData.format === option.value}
                     onClick={() => setExportData(prev => ({ ...prev, format: option.value as any }))}
                   >
                     <div className="flex items-start gap-3">
@@ -128,7 +130,7 @@ export function ExportWizard({ onClose, onExport, selectedEventIds }: ExportWiza
                         <p className="text-sm text-muted-foreground">{option.description}</p>
                       </div>
                     </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>

@@ -9,6 +9,7 @@ import { EventFilters } from '@/components/events/EventFilters'
 import { sourcesApi } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { SanitizedHtml } from '@/components/SanitizedHtml'
 
 export function Review() {
   const [filters, setFilters] = useState<EventsQueryParams>({
@@ -321,9 +322,9 @@ export function Review() {
                 {selectedEvent.event.descriptionHtml && (
                   <div>
                     <p className="font-medium text-muted-foreground mb-2">Description</p>
-                    <div
+                    <SanitizedHtml
+                      html={selectedEvent.event.descriptionHtml}
                       className="prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: selectedEvent.event.descriptionHtml }}
                     />
                   </div>
                 )}

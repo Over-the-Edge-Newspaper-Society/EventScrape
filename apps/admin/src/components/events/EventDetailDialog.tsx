@@ -2,6 +2,7 @@ import { StructuredFieldList, type StructuredField } from './StructuredFieldList
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { SanitizedHtml } from '@/components/SanitizedHtml'
 import { EventWithSource } from '@/lib/api'
 import { Database, Eye, Code, Repeat, Calendar, Clock, ExternalLink } from 'lucide-react'
 
@@ -57,7 +58,7 @@ export function EventDetailDialog({ event, children }: EventDetailDialogProps) {
     if (fieldName === 'descriptionHtml' && value) {
       return (
         <div className="max-h-40 overflow-y-auto">
-          <div dangerouslySetInnerHTML={{ __html: value }} className="prose prose-sm max-w-none" />
+          <SanitizedHtml html={value} className="prose prose-sm max-w-none" />
         </div>
       )
     }

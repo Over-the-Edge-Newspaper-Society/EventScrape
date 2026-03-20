@@ -260,8 +260,10 @@ export function Dashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto justify-start p-4 transition-colors"
               onClick={() => navigate('/events/raw')}
             >
               <Calendar className="h-8 w-8 text-blue-600 mr-3" />
@@ -269,10 +271,12 @@ export function Dashboard() {
                 <p className="font-medium">View Events</p>
                 <p className="text-sm text-muted-foreground">Browse scraped events</p>
               </div>
-            </div>
+            </Button>
             
-            <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto justify-start p-4 transition-colors"
               onClick={() => navigate('/matches')}
             >
               <GitMerge className="h-8 w-8 text-orange-600 mr-3" />
@@ -280,10 +284,12 @@ export function Dashboard() {
                 <p className="font-medium">Review Matches</p>
                 <p className="text-sm text-muted-foreground">Handle duplicates</p>
               </div>
-            </div>
+            </Button>
             
-            <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto justify-start p-4 transition-colors"
               onClick={() => navigate('/runs')}
             >
               <Play className="h-8 w-8 text-green-600 mr-3" />
@@ -291,10 +297,12 @@ export function Dashboard() {
                 <p className="font-medium">Run Scraper</p>
                 <p className="text-sm text-muted-foreground">Start new scrape</p>
               </div>
-            </div>
+            </Button>
             
-            <div 
-              className="flex items-center p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto justify-start p-4 transition-colors"
               onClick={() => navigate('/runs?status=error')}
             >
               <AlertTriangle className="h-8 w-8 text-red-600 mr-3" />
@@ -302,7 +310,7 @@ export function Dashboard() {
                 <p className="font-medium">View Errors</p>
                 <p className="text-sm text-muted-foreground">Check failed runs</p>
               </div>
-            </div>
+            </Button>
           </div>
         </CardContent>
       </Card>

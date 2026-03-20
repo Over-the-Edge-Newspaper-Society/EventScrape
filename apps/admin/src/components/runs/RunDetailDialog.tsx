@@ -25,13 +25,13 @@ export function RunDetailDialog({ runId, onClose, children }: RunDetailsProps) {
 }
 
 function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
-  if (!runId) return null
-
   const { data, isLoading } = useQuery({
     queryKey: ['run', runId],
-    queryFn: () => runsApi.getById(runId),
+    queryFn: () => runsApi.getById(runId!),
     enabled: !!runId,
   })
+
+  if (!runId) return null
 
   if (isLoading || !data) {
     return (

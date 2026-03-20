@@ -72,6 +72,30 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
   return response.json()
 }
 
+const buildSearchParams = <T extends object>(params?: T) => {
+  const searchParams = new URLSearchParams()
+  if (!params) {
+    return searchParams.toString()
+  }
+
+  for (const [key, value] of Object.entries(params) as Array<[string, unknown]>) {
+    if (value === undefined || value === null) {
+      continue
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        searchParams.append(key, String(item))
+      }
+      continue
+    }
+
+    searchParams.append(key, String(value))
+  }
+
+  return searchParams.toString()
+}
+
 // Sources API
 export const sourcesApi = {
   getAll: () => fetchApi<{ sources: Source[] }>('/sources'),
@@ -94,24 +118,16 @@ export const sourcesApi = {
 
 // Events API
 export const eventsApi = {
-  getRaw: (params?: EventsQueryParams) => {
-    const searchParams = new URLSearchParams()
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, String(value))
-        }
-      })
-    }
-    return fetchApi<EventsResponse>(`/events/raw?${searchParams}`)
-  },
+  getRaw: (params?: EventsQueryParams) =>
+    fetchApi<EventsResponse>(`/events/raw?${buildSearchParams(params)}`),
   getRawById: (id: string) => fetchApi<{ event: EventWithSource }>(`/events/raw/${id}`),
   deleteRaw: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/raw/${id}`, { method: 'DELETE' }),
   deleteRawBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/raw', {
     method: 'DELETE',
     body: JSON.stringify({ ids }),
   }),
-  getCanonical: (params?: EventsQueryParams) => fetchApi<CanonicalEventsResponse>(`/events/canonical?${new URLSearchParams(params as any)}`),
+  getCanonical: (params?: EventsQueryParams) =>
+    fetchApi<CanonicalEventsResponse>(`/events/canonical?${buildSearchParams(params)}`),
   getCanonicalById: (id: string) => fetchApi<{ event: CanonicalEvent, rawEvents: EventWithSource[] }>(`/events/canonical/${id}`),
   deleteCanonical: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/canonical/${id}`, { method: 'DELETE' }),
   deleteCanonicalBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/canonical', {
@@ -669,7 +685,9 @@ export interface EventsQueryParams {
   limit?: number
   sourceId?: string
   sourceType?: 'website' | 'instagram'
+  status?: 'new' | 'ready' | 'exported' | 'ignored'
   city?: string
+  category?: string
   startDate?: string
   endDate?: string
   search?: string
