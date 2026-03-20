@@ -270,11 +270,15 @@ export async function processExport(exportId: string, data: any): Promise<void> 
     .orderBy(eventsRaw.startDatetime);
 
   // Filter out Instagram posts that are NOT marked as event posters
-  // For Instagram posts (those with instagramAccountId), only include if isEventPoster is true
+  // or have not been processed by AI extraction yet
   const filteredEvents = events.filter(event => {
-    // If it's an Instagram post (has instagramAccountId), only include if marked as event poster
     if (event.instagramAccountId) {
-      return event.isEventPoster === true;
+      // Must be marked as event poster
+      if (event.isEventPoster !== true) return false;
+      // Must have been AI-extracted (raw.events exists with data)
+      const raw = event.raw as any;
+      if (!raw?.events || !Array.isArray(raw.events) || raw.events.length === 0) return false;
+      return true;
     }
     // For non-Instagram events, include all
     return true;
