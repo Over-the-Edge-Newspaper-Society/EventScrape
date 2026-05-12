@@ -5,8 +5,11 @@ import { Toaster } from 'sonner'
 
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { Layout } from '@/components/Layout'
+import { installDemoApiMock } from '@/lib/demoApi'
+import { isAppRuntimePath, isDemoMode, isDemoRuntimePath } from '@/lib/demoMode'
 
 const Dashboard = lazy(() => import('@/pages/Dashboard').then((module) => ({ default: module.Dashboard })))
+const Landing = lazy(() => import('@/pages/Landing').then((module) => ({ default: module.Landing })))
 const Sources = lazy(() => import('@/pages/Sources').then((module) => ({ default: module.Sources })))
 const InstagramSources = lazy(() =>
   import('@/pages/InstagramSources').then((module) => ({ default: module.InstagramSources }))
@@ -31,6 +34,36 @@ const WordPressSettings = lazy(() =>
 )
 const Settings = lazy(() => import('@/pages/Settings').then((module) => ({ default: module.Settings })))
 
+if (isDemoMode()) {
+  installDemoApiMock()
+}
+
+type RuntimeMode = 'public' | 'app' | 'demo'
+
+const getRuntimeMode = (): RuntimeMode => {
+  if (typeof window === 'undefined') {
+    return 'public'
+  }
+
+  if (isDemoRuntimePath(window.location.pathname)) {
+    return 'demo'
+  }
+
+  if (isAppRuntimePath(window.location.pathname)) {
+    return 'app'
+  }
+
+  return 'public'
+}
+
+const runtimeMode = getRuntimeMode()
+const routerBasename =
+  runtimeMode === 'demo'
+    ? '/demo'
+    : runtimeMode === 'app'
+    ? '/app'
+    : import.meta.env.BASE_URL
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -44,41 +77,61 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <Router>
+        <Router basename={routerBasename}>
           <div className="min-h-screen bg-background">
-            <Layout>
-              <Suspense
-                fallback={
-                  <div className="py-20 text-center">
-                    <p className="text-muted-foreground">Loading page...</p>
-                  </div>
-                }
-              >
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/sources" element={<Sources />} />
-                  <Route path="/instagram" element={<InstagramSources />} />
-                  <Route path="/instagram/settings" element={<Navigate to="/settings" replace />} />
-                  <Route path="/events" element={<Events />}>
-                    <Route index element={<Navigate to="/events/raw" replace />} />
-                    <Route path="raw" element={<RawEvents />} />
-                    <Route path="canonical" element={<CanonicalEvents />} />
-                  </Route>
-                  <Route path="/review" element={<InstagramReview />} />
-                  <Route path="/matches" element={<Matches />} />
-                  <Route path="/runs" element={<Runs />} />
-                  <Route path="/schedules" element={<Schedules />} />
-                  <Route path="/poster-import" element={<PosterImport />} />
-                  <Route path="/exports" element={<Exports />} />
-                  <Route path="/wordpress" element={<WordPressSettings />} />
-                  <Route path="/settings" element={<Settings />} />
-                </Routes>
-              </Suspense>
-            </Layout>
+            {runtimeMode === 'public' ? <PublicRoutes /> : <AdminRoutes />}
             <Toaster richColors />
           </div>
         </Router>
       </ThemeProvider>
     </QueryClientProvider>
+  )
+}
+
+function PageFallback() {
+  return (
+    <div className="py-20 text-center">
+      <p className="text-muted-foreground">Loading page...</p>
+    </div>
+  )
+}
+
+function PublicRoutes() {
+  return (
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
+  )
+}
+
+function AdminRoutes() {
+  return (
+    <Layout>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/sources" element={<Sources />} />
+          <Route path="/instagram" element={<InstagramSources />} />
+          <Route path="/instagram/settings" element={<Navigate to="/settings" replace />} />
+          <Route path="/events" element={<Events />}>
+            <Route index element={<Navigate to="/events/raw" replace />} />
+            <Route path="raw" element={<RawEvents />} />
+            <Route path="canonical" element={<CanonicalEvents />} />
+          </Route>
+          <Route path="/review" element={<InstagramReview />} />
+          <Route path="/matches" element={<Matches />} />
+          <Route path="/runs" element={<Runs />} />
+          <Route path="/schedules" element={<Schedules />} />
+          <Route path="/poster-import" element={<PosterImport />} />
+          <Route path="/exports" element={<Exports />} />
+          <Route path="/wordpress" element={<WordPressSettings />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </Layout>
   )
 }
