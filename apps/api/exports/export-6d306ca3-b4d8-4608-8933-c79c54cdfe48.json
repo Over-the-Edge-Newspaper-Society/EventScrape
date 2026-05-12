@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "id": "9b978448-e3ca-4529-b733-325069d2475d",
+      "sourceEventId": "https://tourismpg.com/events/west-coast-amusements-spring-midway-2/#May 1, 2026",
+      "title": "West Coast Amusements Spring Midway",
+      "description": "<p>We’re rolling into the CN Centre with full Midway Magic! Get ready for lights, laughs, and non-stop action – because Canada’s largest traveling amusement park is taking over!</p><p>RIDES<br>GAMES<br>SWEET TREATS<br>ALL THE MEMORIES</p><p>Unlimited Ride Wristband: $50<br>Single Gold Ticket: $1.50<br>Red 20 Pack of Tickets: $27<br>Blue 40 Pack of Tickets: $40</p><p>Ride everything<br>Win BIG prizes<br>Indulge in all your fair favourites<br>Capture the moments</p><p></p>",
+      "startDatetime": "2026-05-01T22:00:00.000Z",
+      "endDatetime": "2026-05-02T05:00:00.000Z",
+      "timezone": "America/Vancouver",
+      "venueName": "2187 Ospika Blvd S",
+      "venueAddress": "2187 Ospika Blvd S",
+      "city": "Prince George",
+      "organizer": "Tourism Prince George",
+      "category": "Community Event",
+      "url": "https://tourismpg.com/events/west-coast-amusements-spring-midway-2/",
+      "imageUrl": null,
+      "club": null,
+      "post": null
+    }
+  ]
+}

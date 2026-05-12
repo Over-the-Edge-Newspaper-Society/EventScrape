@@ -1,0 +1,14 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//EventScrape//EventScrape//EN
+CALSCALE:GREGORIAN
+BEGIN:VEVENT
+UID:9b978448-e3ca-4529-b733-325069d2475d@eventscrape.com
+DTSTART:20260501T220000Z
+DTEND:20260502T050000Z
+SUMMARY:West Coast Amusements Spring Midway
+DESCRIPTION:We’re rolling into the CN Centre with full Midway Magic! Get ready for lights\, laughs\, and non-stop action – because Canada’s largest traveling amusement park is taking over!RIDESGAMESSWEET TREATSALL THE MEMORIESUnlimited Ride Wristband: $50Single Gold Ticket: $1.50Red 20 Pack of Tickets: $27Blue 40 Pack of Tickets: $40Ride everythingWin BIG prizesIndulge in all your fair favouritesCapture the moments
+LOCATION:2187 Ospika Blvd S
+URL:https://tourismpg.com/events/west-coast-amusements-spring-midway-2/
+END:VEVENT
+END:VCALENDAR

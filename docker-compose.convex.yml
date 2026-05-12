@@ -1,0 +1,48 @@
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_TAG:-latest}
+    container_name: eventscrape-convex-backend
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${CONVEX_PORT:-3210}:3210"
+      - "${CONVEX_SITE_PROXY_PORT:-3211}:3211"
+    volumes:
+      - convex_data:/convex/data
+    environment:
+      APPLICATION_MAX_CONCURRENT_MUTATIONS: ${APPLICATION_MAX_CONCURRENT_MUTATIONS:-16}
+      APPLICATION_MAX_CONCURRENT_NODE_ACTIONS: ${APPLICATION_MAX_CONCURRENT_NODE_ACTIONS:-16}
+      APPLICATION_MAX_CONCURRENT_QUERIES: ${APPLICATION_MAX_CONCURRENT_QUERIES:-16}
+      APPLICATION_MAX_CONCURRENT_V8_ACTIONS: ${APPLICATION_MAX_CONCURRENT_V8_ACTIONS:-16}
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN:-http://127.0.0.1:${CONVEX_PORT:-3210}}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN:-http://127.0.0.1:${CONVEX_SITE_PROXY_PORT:-3211}}
+      DISABLE_BEACON: ${DISABLE_BEACON:-true}
+      DISABLE_METRICS_ENDPOINT: ${DISABLE_METRICS_ENDPOINT:-true}
+      DOCUMENT_RETENTION_DELAY: ${DOCUMENT_RETENTION_DELAY:-172800}
+      DO_NOT_REQUIRE_SSL: ${DO_NOT_REQUIRE_SSL:-true}
+      INSTANCE_NAME: ${INSTANCE_NAME:-eventscrape-local}
+      RUST_BACKTRACE: ${RUST_BACKTRACE:-1}
+      RUST_LOG: ${RUST_LOG:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:${CONVEX_DASHBOARD_TAG:-latest}
+    container_name: eventscrape-convex-dashboard
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${CONVEX_DASHBOARD_PORT:-6791}:6791"
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: ${NEXT_PUBLIC_DEPLOYMENT_URL:-http://127.0.0.1:${CONVEX_PORT:-3210}}
+      NEXT_PUBLIC_LOAD_MONACO_INTERNALLY: ${NEXT_PUBLIC_LOAD_MONACO_INTERNALLY:-true}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  convex_data:

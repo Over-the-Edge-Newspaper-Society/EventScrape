@@ -23,13 +23,23 @@
     "docker:prod:build": "docker-compose -f docker-compose.prod.yml build && docker-compose -f docker-compose.prod.yml up -d",
     "docker:clean": "docker-compose down -v",
     "db:migrate": "cd apps/api && pnpm db:migrate",
-    "db:seed": "cd apps/api && pnpm db:seed"
+    "db:seed": "cd apps/api && pnpm db:seed",
+    "convex:dev": "convex dev",
+    "convex:codegen": "convex codegen",
+    "convex:docker:up": "docker compose -f docker-compose.convex.yml up -d",
+    "convex:docker:down": "docker compose -f docker-compose.convex.yml down",
+    "convex:docker:logs": "docker compose -f docker-compose.convex.yml logs -f",
+    "convex:docker:key": "docker compose -f docker-compose.convex.yml exec backend ./generate_admin_key.sh",
+    "convex:migrate:pg": "tsx scripts/migrate-postgres-to-convex.ts"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "convex": "^1.38.0",
     "eslint": "^8.55.0",
+    "postgres": "^3.4.3",
+    "tsx": "^4.20.3",
     "typescript": "^5.3.0"
   },
   "type": "module",

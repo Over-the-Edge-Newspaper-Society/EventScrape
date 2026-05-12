@@ -51,6 +51,9 @@ services:
       REDIS_URL: redis://redis:6379
       NODE_ENV: development
       PORT: 3001
+      BACKUP_DIR: /data/backups
+      EXPORT_DIR: /data/exports
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +63,10 @@ services:
       - ./:/app
       - /app/node_modules
       - /app/apps/api/node_modules
-    command: sh -c "npm install -g pnpm && pnpm install && cd apps/api && pnpm db:migrate && pnpm dev"
+      - backup_data:/data/backups
+      - export_data:/data/exports
+      - instagram_images:/data/instagram_images
+    command: sh -c "apk add --no-cache postgresql-client && npm install -g pnpm && pnpm install && cd apps/api && pnpm db:migrate && pnpm dev"
     networks:
       eventscrape:
         aliases:
@@ -97,6 +103,7 @@ services:
       NODE_ENV: development
       PLAYWRIGHT_HEADLESS: "true"
       EXPORT_DIR: /data/exports
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +114,7 @@ services:
       - /app/node_modules
       - /app/worker/node_modules
       - export_data:/data/exports
+      - instagram_images:/data/instagram_images
     command: sh -c "npm install -g pnpm && cd /app && pnpm install && cd /app/worker && pnpm dev"
     networks:
       eventscrape:
@@ -120,4 +128,6 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  backup_data:
   export_data:
+  instagram_images:
