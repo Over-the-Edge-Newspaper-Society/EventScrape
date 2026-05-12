@@ -86,6 +86,13 @@ const tourismPgModule: ScraperModule = {
           const dayCells = document.querySelectorAll('.jet-calendar-week__day.has-events');
           
           dayCells.forEach(dayCell => {
+            // JetEngine renders previous/next month days inside the current month grid
+            // with .day-pad. Those cells already belong to another month, so using the
+            // current caption would shift April 26 to May 26, etc.
+            if (dayCell.classList.contains('day-pad')) {
+              return;
+            }
+
             // Get the day number
             const dayNumberEl = dayCell.querySelector('.jet-calendar-week__day-date');
             const dayNumber = dayNumberEl?.textContent?.trim() || '';

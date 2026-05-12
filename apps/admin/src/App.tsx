@@ -9,7 +9,6 @@ import { installDemoApiMock } from '@/lib/demoApi'
 import { isAppRuntimePath, isDemoMode, isDemoRuntimePath } from '@/lib/demoMode'
 
 const Dashboard = lazy(() => import('@/pages/Dashboard').then((module) => ({ default: module.Dashboard })))
-const Landing = lazy(() => import('@/pages/Landing').then((module) => ({ default: module.Landing })))
 const Sources = lazy(() => import('@/pages/Sources').then((module) => ({ default: module.Sources })))
 const InstagramSources = lazy(() =>
   import('@/pages/InstagramSources').then((module) => ({ default: module.InstagramSources }))
@@ -100,7 +99,7 @@ function PublicRoutes() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
