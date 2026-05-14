@@ -13,6 +13,7 @@ import type * as migration from "../migration.js";
 import type * as runLogs from "../runLogs.js";
 import type * as runs from "../runs.js";
 import type * as sources from "../sources.js";
+import type * as storage from "../storage.js";
 
 import type {
   ApiFromModules,
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   runLogs: typeof runLogs;
   runs: typeof runs;
   sources: typeof sources;
+  storage: typeof storage;
 }>;
 
 /**

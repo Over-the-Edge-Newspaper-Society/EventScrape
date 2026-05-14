@@ -37,6 +37,33 @@ pnpm convex:dev
 
 Use `pnpm convex:docker:logs` to inspect the backend/dashboard logs and `pnpm convex:docker:down` to stop the containers. The backend stores data in the `convex_data` Docker volume.
 
+## Postgres and Instagram Photo Import
+
+Run the Postgres import against the local Convex backend:
+
+```bash
+set -a
+source .env.local
+set +a
+pnpm convex:migrate:pg
+```
+
+The importer copies relational rows into Convex tables and uploads Instagram cache files referenced by `events_raw.local_image_path` into Convex file storage. Migrated raw events keep the original `localImagePath` and also get `localImageStorageId`, `localImageContentType`, and `localImageSize` when the file is found.
+
+Set `INSTAGRAM_IMAGES_DIR` if the cache is not in one of the default search locations:
+
+```bash
+INSTAGRAM_IMAGES_DIR=/data/instagram_images pnpm convex:migrate:pg
+```
+
+If local cache files are missing, the importer can try to download `events_raw.image_url` and upload the response directly to Convex storage:
+
+```bash
+CONVEX_MIGRATION_DOWNLOAD_MISSING_IMAGES=true pnpm convex:migrate:pg
+```
+
+Direct Instagram CDN URLs often expire, so the reliable path is to restore or mount the photo cache before running the import. The importer clears existing Convex file storage by default on full imports; set `CONVEX_MIGRATION_CLEAR_STORAGE=false` to preserve existing uploaded files.
+
 ## Migration Order
 
 1. Add Convex schema and primitives for sources, runs, jobs, and logs.

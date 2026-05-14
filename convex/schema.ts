@@ -244,6 +244,9 @@ export default defineSchema({
     instagramPostId: optionalString,
     instagramCaption: optionalString,
     localImagePath: optionalString,
+    localImageStorageId: v.optional(v.id("_storage")),
+    localImageContentType: optionalString,
+    localImageSize: optionalNumber,
     classificationConfidence: optionalNumber,
     isEventPoster: optionalBoolean,
   })

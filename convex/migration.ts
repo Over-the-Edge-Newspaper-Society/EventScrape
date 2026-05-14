@@ -57,6 +57,18 @@ export const clearTable = mutation({
   },
 });
 
+export const clearStorage = mutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const files = await ctx.db.system.query("_storage").take(args.limit ?? 50);
+    await Promise.all(files.map((file) => ctx.storage.delete(file._id)));
+    return files.length;
+  },
+});
+
 export const insertBatch = mutation({
   args: {
     table: tableName,

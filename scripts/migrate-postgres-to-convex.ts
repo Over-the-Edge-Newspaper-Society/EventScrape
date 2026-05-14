@@ -1,6 +1,8 @@
 import postgres from "postgres";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api.js";
+import { access, readFile, stat } from "fs/promises";
+import { join } from "path";
 
 type Row = Record<string, any>;
 type IdMap = Map<string, string>;
@@ -19,6 +21,17 @@ const convex = new ConvexHttpClient(convexUrl);
 
 const BATCH_SIZE = Number(process.env.CONVEX_MIGRATION_BATCH_SIZE ?? 50);
 const CLEAR_BATCH_SIZE = Number(process.env.CONVEX_MIGRATION_CLEAR_BATCH_SIZE ?? 20);
+const CLEAR_STORAGE = process.env.CONVEX_MIGRATION_CLEAR_STORAGE !== "false";
+const DOWNLOAD_MISSING_IMAGES = process.env.CONVEX_MIGRATION_DOWNLOAD_MISSING_IMAGES === "true";
+const IMAGE_LIMIT = process.env.CONVEX_MIGRATION_IMAGE_LIMIT
+  ? Number(process.env.CONVEX_MIGRATION_IMAGE_LIMIT)
+  : undefined;
+const INSTAGRAM_IMAGES_DIR_CANDIDATES = [
+  process.env.INSTAGRAM_IMAGES_DIR,
+  "/data/instagram_images",
+  "data/instagram_images",
+  "apps/api/data/instagram_images",
+].filter(Boolean) as string[];
 const CLEAR_TABLES = [
   "auditLogs",
   "matches",
@@ -91,6 +104,71 @@ function tags(value: unknown): string[] | undefined {
   return undefined;
 }
 
+function contentTypeFor(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".heic")) return "image/heic";
+  return "image/jpeg";
+}
+
+async function firstExistingImagePath(localImagePath: string): Promise<string | undefined> {
+  for (const dir of INSTAGRAM_IMAGES_DIR_CANDIDATES) {
+    const fullPath = join(dir, localImagePath);
+    try {
+      await access(fullPath);
+      return fullPath;
+    } catch {
+      // Try the next configured image directory.
+    }
+  }
+  return undefined;
+}
+
+async function uploadBytesToConvexStorage(
+  data: Buffer | ArrayBuffer,
+  contentType: string,
+  label: string,
+): Promise<string> {
+  const uploadUrl = await convex.mutation(api.storage.generateUploadUrl, {});
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "Content-Type": contentType },
+    body: data,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Convex storage upload failed for ${label}: ${response.status} ${await response.text()}`);
+  }
+
+  const result = (await response.json()) as { storageId?: string };
+  if (!result.storageId) {
+    throw new Error(`Convex storage upload did not return a storageId for ${label}`);
+  }
+  return result.storageId;
+}
+
+async function uploadFileToConvexStorage(filePath: string, contentType: string): Promise<string> {
+  return await uploadBytesToConvexStorage(await readFile(filePath), contentType, filePath);
+}
+
+async function downloadImageBytes(url: string): Promise<{ data: ArrayBuffer; contentType: string; size: number }> {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; EventScrapeMigration/1.0)",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Image download failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.arrayBuffer();
+  const contentType = response.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+  return { data, contentType, size: data.byteLength };
+}
+
 async function rows(table: string): Promise<Row[]> {
   return await sql.unsafe(`select * from ${table} order by id`);
 }
@@ -150,6 +228,17 @@ async function withWriteRetry<T>(operation: () => Promise<T>): Promise<T> {
 
 async function clearConvex() {
   const deleted: Record<string, number> = {};
+  if (CLEAR_STORAGE) {
+    deleted._storage = 0;
+    for (;;) {
+      const count = await convex.mutation(api.migration.clearStorage, {
+        limit: CLEAR_BATCH_SIZE,
+      });
+      deleted._storage += count;
+      if (count === 0) break;
+    }
+  }
+
   for (const table of CLEAR_TABLES) {
     deleted[table] = 0;
     for (;;) {
@@ -212,6 +301,85 @@ async function importUnmapped(
   const ids = await insertBatch(table, pgRows.map(transform));
   console.log(`${pgTable} -> ${table}: ${ids.length}`);
   return ids.length;
+}
+
+async function migrateInstagramImages(eventRawMap: IdMap) {
+  const imageRows = await sql`
+    select id, local_image_path, image_url
+    from events_raw
+    where local_image_path is not null and local_image_path <> ''
+    order by id
+  `;
+
+  let uploaded = 0;
+  let downloaded = 0;
+  let missing = 0;
+  let failed = 0;
+  const patches: Array<{ id: string; patch: Row }> = [];
+
+  const rowsToProcess = IMAGE_LIMIT ? imageRows.slice(0, IMAGE_LIMIT) : imageRows;
+  for (const row of rowsToProcess) {
+    const convexEventId = eventRawMap.get(String(row.id));
+    if (!convexEventId) continue;
+
+    const localImagePath = String(row.local_image_path);
+    const filePath = await firstExistingImagePath(localImagePath);
+
+    try {
+      const contentType = contentTypeFor(localImagePath);
+      let storageId: string;
+      let size: number;
+      let finalContentType = contentType;
+
+      if (filePath) {
+        const [fileStorageId, fileStat] = await Promise.all([
+          uploadFileToConvexStorage(filePath, contentType),
+          stat(filePath),
+        ]);
+        storageId = fileStorageId;
+        size = fileStat.size;
+      } else if (DOWNLOAD_MISSING_IMAGES && row.image_url) {
+        const downloadedImage = await downloadImageBytes(String(row.image_url));
+        storageId = await uploadBytesToConvexStorage(
+          downloadedImage.data,
+          downloadedImage.contentType,
+          String(row.image_url),
+        );
+        finalContentType = downloadedImage.contentType;
+        size = downloadedImage.size;
+        downloaded++;
+      } else {
+        missing++;
+        continue;
+      }
+
+      patches.push({
+        id: convexEventId,
+        patch: {
+          localImageStorageId: storageId,
+          localImageContentType: finalContentType,
+          localImageSize: size,
+        },
+      });
+      uploaded++;
+    } catch (error) {
+      failed++;
+      console.warn(`Failed to migrate Instagram image ${localImagePath}:`, error);
+    }
+  }
+
+  const patched = await patchBatch("eventsRaw", patches);
+  console.log("Instagram image storage migration:", {
+    localImageRows: imageRows.length,
+    processedRows: rowsToProcess.length,
+    uploaded,
+    downloaded,
+    patched,
+    missing,
+    failed,
+    downloadMissingImages: DOWNLOAD_MISSING_IMAGES,
+    searchedDirs: INSTAGRAM_IMAGES_DIR_CANDIDATES,
+  });
 }
 
 async function main() {
@@ -466,6 +634,8 @@ async function main() {
     classificationConfidence: row.classification_confidence,
     isEventPoster: row.is_event_poster,
   }));
+
+  await migrateInstagramImages(eventRawMap);
 
   await importUnmapped("eventsCanonical", "events_canonical", (row) => ({
     legacyId: row.id,
