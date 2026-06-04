@@ -3,7 +3,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { InstagramEventWithSource } from '@/lib/api'
-import { API_BASE_URL } from '@/lib/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { InstagramExtractedEventDialog } from './InstagramExtractedEventDialog'
 import { getExtractedEvents, parseEventRaw } from './InstagramReviewUtils'
@@ -195,9 +194,8 @@ export function InstagramReviewPostCard({
       }
     : undefined
 
-  const imageUrl = event.localImagePath
-    ? `${API_BASE_URL.replace('/api', '')}/api/instagram-backup/instagram-images/${event.localImagePath}`
-    : null
+  // Served from Convex storage (resolved server-side in the queue/event queries).
+  const imageUrl = (event as { localImageUrl?: string | null }).localImageUrl ?? null
 
   return (
     <Card

@@ -3,8 +3,9 @@
  * Orchestrates: fetch posts → classify → extract → store in database
  */
 
-import { workerApi } from '../../lib/convex.js';
+import { workerApi, uploadToConvexStorage } from '../../lib/convex.js';
 import { JobShim } from '../../types.js';
+import { readFile } from 'fs/promises';
 import { InstagramScraper, RateLimitError, InstagramAuthError, createScraperWithSession } from './scraper.js';
 import { ApifyScraper, ApifyRateLimitError, ApifyAuthError, createApifyScraper } from './apify-scraper.js';
 import { createEnhancedApifyClient, ApifyClientError, ApifyRunTimeoutError } from './enhanced-apify-client.js';
@@ -258,8 +259,11 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
       });
 
       try {
-        // 6a. Download image
+        // 6a. Download image (local copy is needed for AI classification/extraction)
         let localImagePath: string | null = null;
+        let localImageStorageId: string | undefined;
+        let localImageContentType: string | undefined;
+        let localImageSize: number | undefined;
         if (post.imageUrl) {
           try {
             localImagePath = await scraper.downloadImage(
@@ -268,6 +272,22 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
               DOWNLOAD_DIR
             );
             job.log(`Downloaded image for post ${post.id}`);
+
+            // Upload to Convex storage so the admin can serve it (the local copy
+            // is ephemeral and only used for AI below).
+            try {
+              const fullPath = path.join(DOWNLOAD_DIR, localImagePath);
+              const bytes = await readFile(fullPath);
+              const ext = (localImagePath.split('.').pop() || 'jpg').toLowerCase();
+              localImageContentType =
+                ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+              const uploaded = await uploadToConvexStorage(bytes, localImageContentType);
+              localImageStorageId = uploaded.storageId;
+              localImageSize = uploaded.size;
+              job.log(`Uploaded image for post ${post.id} to Convex storage`);
+            } catch (uploadErr: any) {
+              job.log(`Failed to upload image for post ${post.id} to storage: ${uploadErr.message}`);
+            }
           } catch (error: any) {
             job.log(`Failed to download image for post ${post.id}: ${error.message}`);
           }
@@ -354,6 +374,9 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
             imageUrl: post.imageUrl ?? undefined,
             caption: post.caption ?? undefined,
             localImagePath: localImagePath ?? undefined,
+            localImageStorageId: localImageStorageId as any,
+            localImageContentType,
+            localImageSize,
             classificationConfidence: confidence ?? undefined,
             isEventPoster: isEventPoster ?? undefined,
             raw: baseRawPayload,
@@ -461,6 +484,9 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
                   imageUrl: post.imageUrl ?? undefined,
                   caption: post.caption ?? undefined,
                   localImagePath: localImagePath ?? undefined,
+                  localImageStorageId: localImageStorageId as any,
+                  localImageContentType,
+                  localImageSize,
                   classificationConfidence: confidence ?? undefined,
                   isEventPoster: isEventPoster ?? undefined,
                   raw: rawData,

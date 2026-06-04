@@ -521,6 +521,9 @@ export interface EventRaw {
   instagramPostId?: string
   instagramCaption?: string
   localImagePath?: string
+  localImageStorageId?: string
+  // Resolved Convex storage URL for the local image (added server-side).
+  localImageUrl?: string | null
   isEventPoster?: boolean | null
   classificationConfidence?: number
 }
@@ -795,6 +798,9 @@ export interface InstagramEventRaw extends EventRaw {
   instagramPostId?: string
   instagramCaption?: string
   localImagePath?: string
+  localImageStorageId?: string
+  // Resolved Convex storage URL for the local image (added server-side).
+  localImageUrl?: string | null
   isEventPoster?: boolean | null
   classificationConfidence?: number
 }

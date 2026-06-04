@@ -146,8 +146,18 @@ export const queue = query({
     const offset = (page - 1) * limit;
     const slice = posts.slice(offset, offset + limit);
 
+    // Resolve Convex storage URLs for each post's local image (only `limit` items).
+    const sliceWithUrls = await Promise.all(
+      slice.map(async (p) => {
+        const localImageUrl = p.event.localImageStorageId
+          ? await ctx.storage.getUrl(p.event.localImageStorageId)
+          : null;
+        return { ...p, event: { ...p.event, localImageUrl } };
+      }),
+    );
+
     return {
-      posts: slice,
+      posts: sliceWithUrls,
       pagination: {
         page,
         limit,

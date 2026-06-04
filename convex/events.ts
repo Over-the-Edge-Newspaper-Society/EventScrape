@@ -149,20 +149,25 @@ export const listRaw = query({
     });
 
     const { slice, pagination } = paginate(filtered, page, limit);
-    const events = slice.map((event) => {
-      const src = sourceById.get(event.sourceId);
-      const ig = event.instagramAccountId ? igById.get(event.instagramAccountId) : undefined;
-      return {
-        event,
-        source: {
-          id: src?._id,
-          name: ig?.name ?? src?.name ?? "Unknown",
-          moduleKey: src?.moduleKey,
-          baseUrl: src?.baseUrl,
-          sourceType: src?.sourceType,
-        },
-      };
-    });
+    const events = await Promise.all(
+      slice.map(async (event) => {
+        const src = sourceById.get(event.sourceId);
+        const ig = event.instagramAccountId ? igById.get(event.instagramAccountId) : undefined;
+        const localImageUrl = event.localImageStorageId
+          ? await ctx.storage.getUrl(event.localImageStorageId)
+          : null;
+        return {
+          event: { ...event, localImageUrl },
+          source: {
+            id: src?._id,
+            name: ig?.name ?? src?.name ?? "Unknown",
+            moduleKey: src?.moduleKey,
+            baseUrl: src?.baseUrl,
+            sourceType: src?.sourceType,
+          },
+        };
+      }),
+    );
 
     return { events, pagination };
   },
@@ -176,9 +181,12 @@ export const getRaw = query({
     if (!event) return null;
     const src = await ctx.db.get(event.sourceId);
     const ig = event.instagramAccountId ? await ctx.db.get(event.instagramAccountId) : null;
+    const localImageUrl = event.localImageStorageId
+      ? await ctx.storage.getUrl(event.localImageStorageId)
+      : null;
     return {
       event: {
-        event,
+        event: { ...event, localImageUrl },
         source: {
           id: src?._id,
           name: ig?.name ?? src?.name ?? "Unknown",

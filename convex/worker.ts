@@ -545,6 +545,9 @@ export const upsertInstagramPost = mutation({
     imageUrl: v.optional(v.string()),
     caption: v.optional(v.string()),
     localImagePath: v.optional(v.string()),
+    localImageStorageId: v.optional(v.id("_storage")),
+    localImageContentType: v.optional(v.string()),
+    localImageSize: v.optional(v.number()),
     classificationConfidence: v.optional(v.number()),
     isEventPoster: v.optional(v.boolean()),
     raw: v.any(),
@@ -581,6 +584,9 @@ export const upsertInstagramPost = mutation({
       instagramPostId: args.postId,
       instagramCaption: args.caption,
       localImagePath: args.localImagePath,
+      localImageStorageId: args.localImageStorageId,
+      localImageContentType: args.localImageContentType,
+      localImageSize: args.localImageSize,
       classificationConfidence: args.classificationConfidence,
       isEventPoster: args.isEventPoster,
       lastUpdatedByRunId: args.runId,
@@ -588,6 +594,11 @@ export const upsertInstagramPost = mutation({
 
     if (existing) {
       // COALESCE semantics: keep existing image/path/classification when new is null.
+      // Replace storage file if a new one was uploaded (delete the stale blob).
+      if (args.localImageStorageId && existing.localImageStorageId &&
+          args.localImageStorageId !== existing.localImageStorageId) {
+        await ctx.storage.delete(existing.localImageStorageId).catch(() => undefined);
+      }
       await ctx.db.patch(existing._id, {
         runId: args.runId,
         descriptionHtml: args.descriptionHtml,
@@ -595,6 +606,9 @@ export const upsertInstagramPost = mutation({
         imageUrl: args.imageUrl ?? existing.imageUrl,
         instagramCaption: args.caption,
         localImagePath: args.localImagePath ?? existing.localImagePath,
+        localImageStorageId: args.localImageStorageId ?? existing.localImageStorageId,
+        localImageContentType: args.localImageContentType ?? existing.localImageContentType,
+        localImageSize: args.localImageSize ?? existing.localImageSize,
         classificationConfidence:
           args.classificationConfidence ?? existing.classificationConfidence,
         isEventPoster: args.isEventPoster ?? existing.isEventPoster,
@@ -634,6 +648,9 @@ export const insertExtractedEvent = mutation({
     imageUrl: v.optional(v.string()),
     caption: v.optional(v.string()),
     localImagePath: v.optional(v.string()),
+    localImageStorageId: v.optional(v.id("_storage")),
+    localImageContentType: v.optional(v.string()),
+    localImageSize: v.optional(v.number()),
     classificationConfidence: v.optional(v.number()),
     isEventPoster: v.optional(v.boolean()),
     raw: v.any(),
@@ -675,6 +692,9 @@ export const insertExtractedEvent = mutation({
       instagramPostId: args.postId,
       instagramCaption: args.caption,
       localImagePath: args.localImagePath,
+      localImageStorageId: args.localImageStorageId,
+      localImageContentType: args.localImageContentType,
+      localImageSize: args.localImageSize,
       classificationConfidence: args.classificationConfidence,
       isEventPoster: args.isEventPoster ?? true,
       scrapedAt: now,

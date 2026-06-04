@@ -79,6 +79,27 @@ export const workerApi = {
   refreshInstagramBatchRun: m('worker:refreshInstagramBatchRun'),
 };
 
+// Upload bytes to Convex file storage and return the storage id. Used to store
+// Instagram poster images so the admin can serve them from Convex (Rust-backed
+// file storage on the self-hosted backend) instead of the retired API.
+const generateUploadUrlRef = makeFunctionReference<'mutation'>('storage:generateUploadUrl');
+export async function uploadToConvexStorage(
+  bytes: Uint8Array | Buffer,
+  contentType: string,
+): Promise<{ storageId: string; size: number }> {
+  const uploadUrl = (await convex.mutation(generateUploadUrlRef, {})) as string;
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body: bytes as any,
+  });
+  if (!res.ok) {
+    throw new Error(`Convex storage upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
+  const json = (await res.json()) as { storageId: string };
+  return { storageId: json.storageId, size: bytes.byteLength ?? (bytes as Buffer).length };
+}
+
 // Helper to append a log line with auto-sequencing handled server-side.
 export async function appendRunLog(
   runId: string,
