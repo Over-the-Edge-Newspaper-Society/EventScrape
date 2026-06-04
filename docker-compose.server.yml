@@ -1,0 +1,108 @@
+# Single-host production stack for a Proxmox LXC (Docker-in-LXC).
+# Brings up the WHOLE app: self-hosted Convex backend + dashboard + admin SPA +
+# worker. Postgres/Redis are gone. File storage (Instagram images, exports) is
+# offloaded to MinIO (S3) so it survives independently of this container's disk;
+# the Convex *database* still lives in the convex_data volume (back it up).
+#
+# Driven by an .env file written by install/eventscrape-install.sh. Key vars:
+#   CONVEX_CLOUD_ORIGIN  - PUBLIC url of the Convex backend via NPM
+#                          (e.g. https://convex-eventscrape.overtheedgepaper.ca).
+#                          This is baked into the admin bundle AND used to mint
+#                          image URLs, so it must be what the BROWSER reaches.
+#   CONVEX_INSTANCE_SECRET - stable 64-hex secret -> stable admin key across restarts
+#   S3_ENDPOINT_URL / MINIO_ACCESS_KEY / MINIO_SECRET_KEY - MinIO at 10.70.20.168:9000
+#
+# TLS is terminated at NPM; the backend speaks plain HTTP internally
+# (DO_NOT_REQUIRE_SSL=true) while CONVEX_CLOUD_ORIGIN advertises the https URL.
+
+services:
+  backend:
+    image: ghcr.io/get-convex/convex-backend:${CONVEX_BACKEND_TAG:-latest}
+    container_name: eventscrape-convex-backend
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${CONVEX_PORT:-3210}:3210"        # API (proxied by NPM -> convex-eventscrape.*)
+      - "${CONVEX_SITE_PROXY_PORT:-3211}:3211"  # HTTP actions (unused by this app)
+    volumes:
+      - convex_data:/convex/data            # the database lives here — BACK THIS UP
+    environment:
+      INSTANCE_NAME: ${CONVEX_INSTANCE_NAME:-eventscrape}
+      INSTANCE_SECRET: ${CONVEX_INSTANCE_SECRET:?set CONVEX_INSTANCE_SECRET (64 hex)}
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN:?set CONVEX_CLOUD_ORIGIN to the public backend URL}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN:-${CONVEX_CLOUD_ORIGIN}}
+      DISABLE_BEACON: "true"
+      DO_NOT_REQUIRE_SSL: "true"
+      REDACT_LOGS_TO_CLIENT: "true"
+      # --- MinIO / S3 file storage (durable, off-box) ---
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-}
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_S3_DISABLE_SSE: "true"
+      S3_STORAGE_FILES_BUCKET: ${S3_FILES_BUCKET:-}
+      S3_STORAGE_EXPORTS_BUCKET: ${S3_EXPORTS_BUCKET:-}
+      S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET: ${S3_SNAPSHOT_BUCKET:-}
+      S3_STORAGE_MODULES_BUCKET: ${S3_MODULES_BUCKET:-}
+      S3_STORAGE_SEARCH_BUCKET: ${S3_SEARCH_BUCKET:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:${CONVEX_DASHBOARD_TAG:-latest}
+    container_name: eventscrape-convex-dashboard
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    ports:
+      - "${CONVEX_DASHBOARD_PORT:-6791}:6791"
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: ${CONVEX_CLOUD_ORIGIN}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+      args:
+        # Baked into the SPA at build time — must equal the browser-facing Convex URL.
+        VITE_CONVEX_URL: ${CONVEX_CLOUD_ORIGIN:?set CONVEX_CLOUD_ORIGIN}
+    container_name: eventscrape-admin
+    ports:
+      - "${ADMIN_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: eventscrape-worker
+    environment:
+      # Worker reaches the backend directly over the compose network (no proxy/TLS).
+      CONVEX_URL: http://backend:3210
+      NODE_ENV: production
+      PLAYWRIGHT_HEADLESS: "true"
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
+    volumes:
+      - worker_tmp:/data/instagram_images   # transient AI scratch; durable copies live in MinIO
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  convex_data:
+  worker_tmp:
