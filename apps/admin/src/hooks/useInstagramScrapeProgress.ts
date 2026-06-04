@@ -4,6 +4,48 @@ import { instagramApi, InstagramScrapeJobStatus } from '@/lib/api'
 
 const STORAGE_KEY = 'instagramScrapeActiveJobs'
 
+// Convex `jobs` rows returned by instagramAccounts:jobStatuses use a different
+// shape than the legacy BullMQ status. Map them onto InstagramScrapeJobStatus
+// so the rest of this hook's terminal-state detection keeps working.
+type ConvexJobRow = {
+  _id?: string
+  id?: string
+  status?: 'queued' | 'running' | 'success' | 'error' | 'cancelled'
+  runId?: string
+  lastError?: string | null
+  result?: unknown
+  attempts?: number
+  cancelRequested?: boolean
+}
+
+// Convex status -> the hook's expected `state` values.
+const CONVEX_STATUS_TO_STATE: Record<string, string> = {
+  success: 'completed',
+  error: 'failed',
+  cancelled: 'cancelled',
+  queued: 'waiting',
+  running: 'active',
+}
+
+function mapConvexJob(row: ConvexJobRow): InstagramScrapeJobStatus {
+  const jobId = (row.id ?? row._id ?? '') as string
+  const state = (row.status && CONVEX_STATUS_TO_STATE[row.status]) ?? 'waiting'
+  const cancelState: InstagramScrapeJobStatus['cancelState'] =
+    row.status === 'cancelled'
+      ? 'cancelled'
+      : row.cancelRequested
+        ? 'requested'
+        : null
+  return {
+    jobId,
+    state,
+    cancelState,
+    failedReason: row.lastError ?? null,
+    attemptsMade: row.attempts,
+    returnvalue: row.result,
+  }
+}
+
 export interface InstagramScrapeJobSummary {
   jobId: string
   accountId: string
@@ -93,7 +135,11 @@ export function useInstagramScrapeProgress() {
 
   const jobStatusesQuery = useQuery({
     queryKey: ['instagram-scrape-job-statuses', trackedJobIds],
-    queryFn: () => instagramApi.getJobStatuses(trackedJobIds),
+    queryFn: async () => {
+      const res = await instagramApi.getJobStatuses(trackedJobIds)
+      const jobs = (res.jobs as unknown as ConvexJobRow[]).map(mapConvexJob)
+      return { jobs }
+    },
     enabled: trackedJobIds.length > 0,
     refetchInterval: (query) => {
       if (trackedJobIds.length === 0) return false

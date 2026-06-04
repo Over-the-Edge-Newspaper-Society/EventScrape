@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { scheduleType } from "./schema";
+import { cronMatches } from "./cronMatch";
 
 // Ports apps/api/src/routes/schedules.ts. The schedule rows are the source of
 // truth; a Convex cron (task #4) reads them. create/update/delete simply persist
@@ -9,20 +10,6 @@ import { scheduleType } from "./schema";
 // jobs (see jobs.enqueue) instead of calling the BullMQ scheduler.
 
 const DEFAULT_TIMEZONE = "America/Vancouver";
-
-// Maps a scheduleType to the job queue used when triggering it.
-function queueForScheduleType(
-  type: Doc<"schedules">["scheduleType"],
-): "scrape" | "instagramScrape" | "schedule" {
-  switch (type) {
-    case "scrape":
-      return "scrape";
-    case "instagram_scrape":
-      return "instagramScrape";
-    case "wordpress_export":
-      return "schedule";
-  }
-}
 
 export const list = query({
   args: {},
@@ -178,21 +165,22 @@ export const remove = mutation({
   },
 });
 
-// Enqueues a job for a single schedule. Mirrors jobs.enqueue shape.
-async function enqueueScheduleTrigger(
+// Enqueues worker-compatible job(s) for a schedule and returns the job ids.
+// Payload shapes MUST match what the worker handlers read:
+//  - scrape: { sourceId, runId, testMode, scrapeMode } (see worker processScrapeJob)
+//  - instagramScrape: { accountId, postLimit, batchSize, parentRunId } (fan-out per account)
+//  - wordpress_export: gated — the WordPress export runs in the worker/actions
+//    phase, not yet wired, so it is skipped with no job.
+async function enqueueScheduleJobs(
   ctx: { db: any },
   schedule: Doc<"schedules">,
-): Promise<Id<"jobs">> {
+): Promise<Id<"jobs">[]> {
   const now = Date.now();
-  const queue = queueForScheduleType(schedule.scheduleType);
+  const config = (schedule.config ?? {}) as Record<string, any>;
 
-  let runId: Id<"runs"> | undefined;
-  // scrape / instagram_scrape execute against a source and produce a run row.
-  // TODO(jobs.enqueue): the worker phase (task #5) defines the exact payload
-  // contract per queue. We persist a run for source-bound scrape triggers so
-  // progress can be tracked; wordpress_export has no source-bound run.
-  if (schedule.scheduleType === "scrape" && schedule.sourceId) {
-    runId = await ctx.db.insert("runs", {
+  if (schedule.scheduleType === "scrape") {
+    if (!schedule.sourceId) return [];
+    const runId = await ctx.db.insert("runs", {
       sourceId: schedule.sourceId,
       startedAt: now,
       status: "queued",
@@ -200,26 +188,88 @@ async function enqueueScheduleTrigger(
       eventsFound: 0,
       metadata: { triggeredBy: "schedule", scheduleId: schedule._id },
     });
+    const jobId = await ctx.db.insert("jobs", {
+      queue: "scrape",
+      name: `schedule:scrape`,
+      status: "queued",
+      payload: {
+        sourceId: schedule.sourceId,
+        runId,
+        testMode: false,
+        scrapeMode: config.scrapeMode,
+      },
+      runId,
+      attempts: 0,
+      maxAttempts: 3,
+      availableAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return [jobId];
   }
 
-  return await ctx.db.insert("jobs", {
-    queue,
-    name: `schedule:${schedule.scheduleType}`,
-    status: "queued",
-    payload: {
-      scheduleId: schedule._id,
-      scheduleType: schedule.scheduleType,
-      sourceId: schedule.sourceId,
-      wordpressSettingsId: schedule.wordpressSettingsId,
-      config: schedule.config,
-    },
-    runId,
-    attempts: 0,
-    maxAttempts: 3,
-    availableAt: now,
-    createdAt: now,
-    updatedAt: now,
-  });
+  if (schedule.scheduleType === "instagram_scrape") {
+    // Resolve target accounts: explicit accountIds, or all active accounts.
+    let accounts: Doc<"instagramAccounts">[];
+    if (config.scope === "custom" && Array.isArray(config.accountIds)) {
+      accounts = [];
+      for (const id of config.accountIds) {
+        const acc = await ctx.db.get(id as Id<"instagramAccounts">);
+        if (acc) accounts.push(acc);
+      }
+    } else {
+      accounts = await ctx.db
+        .query("instagramAccounts")
+        .withIndex("by_active", (q: any) => q.eq("active", config.scope === "all_inactive" ? false : true))
+        .collect();
+    }
+    if (typeof config.accountLimit === "number") {
+      accounts = accounts.slice(0, config.accountLimit);
+    }
+    if (accounts.length === 0) return [];
+
+    // Parent batch run for progress aggregation.
+    const igSource = await ctx.db
+      .query("sources")
+      .withIndex("by_source_type", (q: any) => q.eq("sourceType", "instagram"))
+      .first();
+    let parentRunId: Id<"runs"> | undefined;
+    if (igSource) {
+      parentRunId = await ctx.db.insert("runs", {
+        sourceId: igSource._id,
+        startedAt: now,
+        status: "queued",
+        pagesCrawled: 0,
+        eventsFound: 0,
+        metadata: { triggeredBy: "schedule", scheduleId: schedule._id, batch: { total: accounts.length } },
+      });
+    }
+
+    const jobIds: Id<"jobs">[] = [];
+    for (const acc of accounts) {
+      const jobId = await ctx.db.insert("jobs", {
+        queue: "instagramScrape",
+        name: `schedule:instagram`,
+        status: "queued",
+        payload: {
+          accountId: acc._id,
+          postLimit: config.postLimit ?? 10,
+          batchSize: config.batchSize,
+          parentRunId,
+        },
+        attempts: 0,
+        maxAttempts: 3,
+        availableAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      jobIds.push(jobId);
+    }
+    return jobIds;
+  }
+
+  // wordpress_export: requires the WordPress upload worker/actions phase.
+  return [];
 }
 
 export const trigger = mutation({
@@ -227,19 +277,66 @@ export const trigger = mutation({
   returns: v.object({
     message: v.string(),
     scheduleId: v.id("schedules"),
-    jobId: v.id("jobs"),
+    jobId: v.optional(v.id("jobs")),
+    jobsEnqueued: v.number(),
   }),
   handler: async (ctx, args) => {
     const schedule = await ctx.db.get(args.id);
     if (!schedule) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Schedule not found" });
     }
-    const jobId = await enqueueScheduleTrigger(ctx, schedule);
+    const jobIds = await enqueueScheduleJobs(ctx, schedule);
+    await ctx.db.patch(schedule._id, { lastRunAt: Date.now() });
     return {
-      message: "Schedule triggered successfully",
+      message:
+        jobIds.length > 0
+          ? `Schedule triggered (${jobIds.length} job${jobIds.length === 1 ? "" : "s"})`
+          : schedule.scheduleType === "wordpress_export"
+            ? "WordPress export scheduling requires the actions phase"
+            : "No jobs enqueued (no matching target)",
       scheduleId: schedule._id,
-      jobId,
+      jobId: jobIds[0],
+      jobsEnqueued: jobIds.length,
     };
+  },
+});
+
+// Cron dispatcher — run every minute by convex/crons.ts. Fires each active
+// schedule whose cron expression matches the current minute in its timezone.
+// Deduplicated via lastRunAt so a schedule fires at most once per minute.
+export const runDue = internalMutation({
+  args: {},
+  returns: v.object({ fired: v.number(), jobs: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const currentMinute = Math.floor(now / 60000);
+    const active = await ctx.db
+      .query("schedules")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+
+    let fired = 0;
+    let jobs = 0;
+    for (const schedule of active) {
+      // Skip if already fired this minute.
+      if (schedule.lastRunAt && Math.floor(schedule.lastRunAt / 60000) === currentMinute) continue;
+      const tz = schedule.timezone || DEFAULT_TIMEZONE;
+      let matches = false;
+      try {
+        matches = cronMatches(schedule.cron, now, tz);
+      } catch {
+        matches = false;
+      }
+      if (!matches) continue;
+
+      const jobIds = await enqueueScheduleJobs(ctx, schedule);
+      await ctx.db.patch(schedule._id, { lastRunAt: now });
+      if (jobIds.length > 0) {
+        fired++;
+        jobs += jobIds.length;
+      }
+    }
+    return { fired, jobs };
   },
 });
 
@@ -277,12 +374,13 @@ export const triggerAllActive = mutation({
 
     for (const schedule of activeSchedules) {
       try {
-        const jobId = await enqueueScheduleTrigger(ctx, schedule);
+        const jobIds = await enqueueScheduleJobs(ctx, schedule);
+        await ctx.db.patch(schedule._id, { lastRunAt: Date.now() });
         triggered.push({
           id: schedule._id,
           type: schedule.scheduleType,
-          status: "triggered",
-          jobId,
+          status: jobIds.length > 0 ? "triggered" : "skipped",
+          jobId: jobIds[0],
         });
       } catch (err) {
         triggered.push({

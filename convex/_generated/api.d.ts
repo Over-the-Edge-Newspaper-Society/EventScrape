@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as cronMatch from "../cronMatch.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as events from "../events.js";
 import type * as exports from "../exports.js";
@@ -33,6 +35,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  cronMatch: typeof cronMatch;
+  crons: typeof crons;
   dashboard: typeof dashboard;
   events: typeof events;
   exports: typeof exports;

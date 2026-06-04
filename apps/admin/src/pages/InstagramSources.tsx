@@ -5,8 +5,8 @@ import {
   instagramApifyApi,
   type InstagramSource,
   type CreateInstagramSourceData,
-  API_BASE_URL,
 } from '@/lib/api'
+import { runQuery } from '@/lib/convexClient'
 import { toast } from 'sonner'
 import { useInstagramScrapeProgress } from '@/hooks/useInstagramScrapeProgress'
 import { InstagramSourcesStatsCard } from '@/components/instagram/InstagramSourcesStatsCard'
@@ -78,9 +78,8 @@ export function InstagramSources() {
   const { data: settingsData } = useQuery({
     queryKey: ['instagram-settings'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-settings`)
-      const data = await res.json()
-      return data.settings as InstagramSettings
+      const data = await runQuery<{ settings: InstagramSettings } | null>('instagramSettings:get', {})
+      return (data?.settings ?? null) as InstagramSettings
     },
   })
 

@@ -345,6 +345,7 @@ export default defineSchema({
     active: v.boolean(),
     repeatKey: optionalString,
     config: v.optional(v.any()),
+    lastRunAt: optionalNumber,
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -1,3 +1,9 @@
+import { runQuery, runMutation, normalizeIds } from './convexClient'
+
+// Convert an ISO date string (or undefined) into epoch-ms number for Convex.
+const toMs = (value?: string): number | undefined =>
+  value === undefined || value === null || value === '' ? undefined : new Date(value).getTime()
+
 const resolveApiBaseUrl = () => {
   const configured = import.meta.env.VITE_API_URL?.trim()
 
@@ -31,152 +37,103 @@ const resolveApiBaseUrl = () => {
 
 export const API_BASE_URL = resolveApiBaseUrl()
 
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message)
-    this.name = 'ApiError'
-  }
-}
-
-async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`
-  
-  const headers: Record<string, string> = {
-    ...(options?.headers as Record<string, string> || {}),
-  }
-  
-  // Only set Content-Type if we have a body
-  const hasFormData =
-    typeof FormData !== 'undefined' && options?.body instanceof FormData
-
-  if (options?.body && !hasFormData) {
-    headers['Content-Type'] = 'application/json'
-  }
-  
-  const response = await fetch(url, {
-    headers,
-    ...options,
-  })
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-    console.error('API Error:', response.status, errorData)
-    throw new ApiError(response.status, errorData.error || `HTTP ${response.status}`)
-  }
-
-  // Handle 204 No Content responses
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return response.json()
-}
-
-const buildSearchParams = <T extends object>(params?: T) => {
-  const searchParams = new URLSearchParams()
-  if (!params) {
-    return searchParams.toString()
-  }
-
-  for (const [key, value] of Object.entries(params) as Array<[string, unknown]>) {
-    if (value === undefined || value === null) {
-      continue
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        searchParams.append(key, String(item))
-      }
-      continue
-    }
-
-    searchParams.append(key, String(value))
-  }
-
-  return searchParams.toString()
-}
-
 // Sources API
 export const sourcesApi = {
-  getAll: () => fetchApi<{ sources: Source[] }>('/sources'),
-  getById: (id: string) => fetchApi<{ source: Source }>(`/sources/${id}`),
-  create: (data: CreateSourceData) => fetchApi<{ source: Source }>('/sources', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  update: (id: string, data: UpdateSourceData) => fetchApi<{ source: Source }>(`/sources/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-  delete: (id: string) => fetchApi<void>(`/sources/${id}`, { method: 'DELETE' }),
-  sync: () => fetchApi<{ 
-    message: string; 
-    stats: { availableModules: number; created: number; updated: number; deactivated: number }; 
-    availableModules: Array<{key: string, label: string, baseUrl: string}> 
-  }>('/sources/sync', { method: 'POST' }),
+  getAll: () =>
+    runQuery<{ sources: Source[] }>('sources:listWebsite').then(normalizeIds),
+  getById: (id: string) =>
+    runQuery<{ source: Source }>('sources:get', { id }).then(normalizeIds),
+  create: (data: CreateSourceData) =>
+    runMutation<{ source: Source }>('sources:create', data).then(normalizeIds),
+  update: (id: string, data: UpdateSourceData) =>
+    runMutation<{ source: Source }>('sources:update', { id, ...data }).then(normalizeIds),
+  delete: (id: string) =>
+    runMutation<{ deleted: boolean }>('sources:remove', { id }).then(normalizeIds),
+  sync: (): Promise<{
+    message: string
+    stats: { availableModules: number; created: number; updated: number; deactivated: number }
+    availableModules: Array<{ key: string; label: string; baseUrl: string }>
+  }> => {
+    // Module discovery (reading the worker modules dir) is external I/O done by
+    // the worker, so it isn't available from the browser. The DB-only sync
+    // mutation requires the discovered module list as input.
+    throw new Error('Source sync requires the worker (module discovery is not available in the browser)')
+  },
 }
 
 // Events API
 export const eventsApi = {
   getRaw: (params?: EventsQueryParams) =>
-    fetchApi<EventsResponse>(`/events/raw?${buildSearchParams(params)}`),
-  getRawById: (id: string) => fetchApi<{ event: EventWithSource }>(`/events/raw/${id}`),
-  deleteRaw: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/raw/${id}`, { method: 'DELETE' }),
-  deleteRawBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/raw', {
-    method: 'DELETE',
-    body: JSON.stringify({ ids }),
-  }),
+    runQuery<EventsResponse>('events:listRaw', {
+      ...params,
+      startDate: toMs(params?.startDate),
+      endDate: toMs(params?.endDate),
+    }).then(normalizeIds),
+  getRawById: (id: string) =>
+    runQuery<{ event: EventWithSource }>('events:getRaw', { id }).then(normalizeIds),
+  deleteRaw: (id: string) =>
+    runMutation<{ deletedIds: string[] }>('events:deleteRaw', { ids: [id] }).then((res) =>
+      normalizeIds({ message: 'Event deleted successfully', deletedId: res.deletedIds[0] ?? id }),
+    ),
+  deleteRawBulk: (ids: string[]) =>
+    runMutation<{ deletedIds: string[] }>('events:deleteRaw', { ids }).then((res) =>
+      normalizeIds({ message: 'Events deleted successfully', deletedIds: res.deletedIds }),
+    ),
   getCanonical: (params?: EventsQueryParams) =>
-    fetchApi<CanonicalEventsResponse>(`/events/canonical?${buildSearchParams(params)}`),
-  getCanonicalById: (id: string) => fetchApi<{ event: CanonicalEvent, rawEvents: EventWithSource[] }>(`/events/canonical/${id}`),
-  deleteCanonical: (id: string) => fetchApi<{ message: string; deletedId: string }>(`/events/canonical/${id}`, { method: 'DELETE' }),
-  deleteCanonicalBulk: (ids: string[]) => fetchApi<{ message: string; deletedIds: string[] }>('/events/canonical', {
-    method: 'DELETE',
-    body: JSON.stringify({ ids }),
-  }),
+    runQuery<CanonicalEventsResponse>('events:listCanonical', {
+      ...params,
+      startDate: toMs(params?.startDate),
+      endDate: toMs(params?.endDate),
+    }).then(normalizeIds),
+  getCanonicalById: (id: string) =>
+    runQuery<{ event: CanonicalEvent; rawEvents: EventWithSource[] }>('events:getCanonical', { id }).then(normalizeIds),
+  deleteCanonical: (id: string) =>
+    runMutation<{ deletedIds: string[] }>('events:deleteCanonical', { ids: [id] }).then((res) =>
+      normalizeIds({ message: 'Event deleted successfully', deletedId: res.deletedIds[0] ?? id }),
+    ),
+  deleteCanonicalBulk: (ids: string[]) =>
+    runMutation<{ deletedIds: string[] }>('events:deleteCanonical', { ids }).then((res) =>
+      normalizeIds({ message: 'Events deleted successfully', deletedIds: res.deletedIds }),
+    ),
 }
 
 // Runs API
 export const runsApi = {
-  getAll: (params?: { sourceId?: string; limit?: number; page?: number }) => {
-    const searchParams = new URLSearchParams()
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, String(value))
-        }
-      })
-    }
-    return fetchApi<{ runs: RunListItem[]; pagination: RunsPagination }>(`/runs?${searchParams}`)
-  },
-  getById: (id: string) => fetchApi<{ run: RunWithSourceAndEvents }>(`/runs/${id}`),
-  triggerScrape: (sourceKey: string, options?: any) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/scrape/${sourceKey}`, {
-    method: 'POST',
-    body: options ? JSON.stringify(options) : undefined,
-  }),
-  triggerTest: (sourceKey: string) => fetchApi<{ message: string; run: Run; source: Source }>(`/runs/test/${sourceKey}`, {
-    method: 'POST',
-  }),
-  cancel: (runId: string) => fetchApi<{ message: string }>(`/runs/${runId}/cancel`, {
-    method: 'POST',
-  }),
+  getAll: (params?: { sourceId?: string; limit?: number; page?: number }) =>
+    runQuery<{ runs: RunListItem[]; pagination: RunsPagination }>('runs:listWithChildren', {
+      ...params,
+    }).then(normalizeIds),
+  getById: (id: string) =>
+    runQuery<{ run: RunWithSourceAndEvents }>('runs:getDetail', { id }).then(normalizeIds),
+  triggerScrape: (sourceKey: string, options?: any) =>
+    runMutation<{ message: string; run: Run; source: Source }>('runs:triggerScrape', {
+      sourceKey,
+      testMode: false,
+      ...(options ?? {}),
+    }).then(normalizeIds),
+  triggerTest: (sourceKey: string) =>
+    runMutation<{ message: string; run: Run; source: Source }>('runs:triggerScrape', {
+      sourceKey,
+      testMode: true,
+    }).then(normalizeIds),
+  cancel: (runId: string) =>
+    runMutation<{ message: string }>('runs:cancel', { runId }).then(normalizeIds),
+}
+
+// Run logs API (log viewer)
+export const logsApi = {
+  getHistory: (runId: string, limit?: number) =>
+    runQuery<any[]>('runLogs:history', { runId, limit }).then(normalizeIds),
 }
 
 // Poster Import API
 export const posterImportApi = {
-  upload: (data: { content: string; testMode?: boolean }) =>
-    fetchApi<{ success: boolean; runId: string; jobId: string }>(`/poster-import`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  uploadImage: (formData: FormData) =>
-    fetchApi<{ success: boolean; runId: string; jobId: string; eventsPreviewCount?: number }>(
-      `/poster-import/image-ai`,
-      {
-        method: 'POST',
-        body: formData,
-      },
-    ),
+  upload: (_data: { content: string; testMode?: boolean }): Promise<{ success: boolean; runId: string; jobId: string }> => {
+    throw new Error('Poster import requires the actions phase')
+  },
+  uploadImage: (_formData: FormData): Promise<{ success: boolean; runId: string; jobId: string; eventsPreviewCount?: number }> => {
+    throw new Error('Poster import requires the actions phase')
+  },
 }
 
 export interface CleanupDuplicatesResult {
@@ -204,66 +161,71 @@ export interface OpenRouterModel {
 
 export const systemSettingsApi = {
   get: () =>
-    fetchApi<{ settings: SystemSettings }>('/system-settings').then((response) => response.settings),
+    runQuery<{ settings: SystemSettings } | null>('systemSettings:get').then((response) =>
+      normalizeIds(response?.settings ?? null) as SystemSettings | null,
+    ),
   update: (data: Partial<{ posterImportEnabled: boolean; aiProvider: 'gemini' | 'claude' | 'openrouter'; geminiApiKey?: string; claudeApiKey?: string; openrouterApiKey?: string; openrouterModel?: string }>) =>
-    fetchApi<{ settings: SystemSettings }>('/system-settings', {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((response) => response.settings),
+    runMutation<{ settings: SystemSettings }>('systemSettings:update', data).then((response) =>
+      normalizeIds(response.settings),
+    ),
   cleanupDuplicates: (sourceKey?: string) =>
-    fetchApi<CleanupDuplicatesResult>('/system-settings/cleanup-duplicates', {
-      method: 'POST',
-      body: JSON.stringify({ sourceKey }),
-    }),
-  getOpenRouterModels: () =>
-    fetchApi<{ models: OpenRouterModel[] }>('/system-settings/openrouter-models').then((response) => response.models),
+    runMutation<CleanupDuplicatesResult>('systemSettings:cleanupDuplicates', { sourceKey }).then(normalizeIds),
+  getOpenRouterModels: (): Promise<OpenRouterModel[]> => {
+    throw new Error('OpenRouter model list requires the actions phase')
+  },
 }
 
 // Matches API
 export const matchesApi = {
-  getAll: (params?: { status?: string; minScore?: number; limit?: number }) => {
-    const searchParams = new URLSearchParams()
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, String(value))
-        }
-      })
-    }
-    return fetchApi<{ matches: MatchWithEvents[] }>(`/matches?${searchParams}`)
-  },
-  getById: (id: string) => fetchApi<{ match: Match; eventA: EventWithSource; eventB: EventWithSource }>(`/matches/${id}`),
-  updateStatus: (id: string, status: 'confirmed' | 'rejected') => fetchApi<{ match: Match }>(`/matches/${id}/status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  }),
-  merge: (data: MergeEventsData) => fetchApi<{ message: string; canonicalId: string }>('/matches/merge', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
+  getAll: (params?: { status?: string; minScore?: number; limit?: number }) =>
+    runQuery<{ matches: MatchWithEvents[] }>('matches:list', { ...params }).then(normalizeIds),
+  getById: (id: string) =>
+    runQuery<{ match: Match; eventA: EventWithSource; eventB: EventWithSource }>('matches:get', { id }).then(normalizeIds),
+  updateStatus: (id: string, status: 'confirmed' | 'rejected') =>
+    runMutation<{ match: Match }>('matches:updateStatus', { id, status }).then(normalizeIds),
+  merge: (data: MergeEventsData) =>
+    runMutation<{ message: string; canonicalId: string }>('matches:merge', {
+      ...data,
+      startDatetime: toMs(data.startDatetime),
+      endDatetime: toMs(data.endDatetime),
+    }).then(normalizeIds),
 }
 
 // Exports API
 export const exportsApi = {
-  getAll: () => fetchApi<{ exports: ExportWithSchedule[] }>('/exports'),
-  getById: (id: string) => fetchApi<{ export: Export }>(`/exports/${id}`),
-  create: (data: CreateExportData) => fetchApi<{ message: string; export: Export }>('/exports', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  cancel: (id: string) => fetchApi<{ message: string }>(`/exports/${id}/cancel`, {
-    method: 'POST',
-  }),
-  download: (id: string) => fetchApi<Blob>(`/exports/${id}/download`),
+  getAll: () =>
+    runQuery<{ exports: ExportWithSchedule[] }>('exports:list').then(normalizeIds),
+  getById: (id: string) =>
+    runQuery<{ export: Export }>('exports:get', { id }).then(normalizeIds),
+  create: (data: CreateExportData) =>
+    runMutation<string>('exports:create', {
+      format: data.format,
+      filters: data.filters
+        ? {
+            ...data.filters,
+            startDate: data.filters.startDate,
+            endDate: data.filters.endDate,
+          }
+        : undefined,
+      fieldMap: data.fieldMap,
+      wpSiteId: data.wpSiteId,
+      wpPostStatus: data.wpPostStatus,
+      status: data.status,
+    }).then(async (exportId) => {
+      const res = await runQuery<{ export: Export } | null>('exports:get', { id: exportId })
+      return normalizeIds({ message: 'Export created successfully', export: res?.export as Export })
+    }),
+  cancel: (id: string) =>
+    runMutation<{ message: string }>('exports:cancel', { id }).then(normalizeIds),
+  download: (_id: string): Promise<Blob> => {
+    throw new Error('Export download requires the actions phase')
+  },
 }
 
 // Queue API
 export const queueApi = {
-  triggerMatch: (data?: { startDate?: string; endDate?: string; sourceIds?: string[] }) =>
-    fetchApi<{ message: string; jobId: string }>('/queue/match/trigger', {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
+  triggerMatch: (_data?: { startDate?: string; endDate?: string; sourceIds?: string[] }) =>
+    runMutation<{ message: string; jobId: string }>('matches:recompute', {}).then(normalizeIds),
 }
 
 // Schedules API
@@ -327,153 +289,116 @@ export type CreateInstagramSchedule = {
 }
 
 export const schedulesApi = {
-  getAll: () => fetchApi<{ schedules: ScheduleWithSource[] }>(`/schedules`),
+  getAll: () =>
+    runQuery<{ schedules: ScheduleWithSource[] }>('schedules:list').then(normalizeIds),
   create: (data: CreateScrapeSchedule | CreateWordPressSchedule | CreateInstagramSchedule) =>
-    fetchApi<{ schedule: Schedule }>(`/schedules`, { method: 'POST', body: JSON.stringify(data) }),
+    runMutation<{ schedule: Schedule }>('schedules:create', data).then(normalizeIds),
   update: (id: string, data: Partial<{ cron: string; timezone: string; active: boolean; config: any }>) =>
-    fetchApi<{ schedule: Schedule }>(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<void>(`/schedules/${id}`, { method: 'DELETE' }),
-  trigger: (id: string) => fetchApi<{ message: string; scheduleId: string }>(`/schedules/${id}/trigger`, { method: 'POST' }),
+    runMutation<{ schedule: Schedule }>('schedules:update', { id, ...data }).then(normalizeIds),
+  delete: (id: string) =>
+    runMutation<null>('schedules:remove', { id }).then(normalizeIds),
+  trigger: (id: string) =>
+    runMutation<{ message: string; scheduleId: string }>('schedules:trigger', { id }).then(normalizeIds),
 }
 
 export const wordpressApi = {
-  getSources: () => fetchApi<{ sources: Source[] }>(`/wordpress/sources`),
-  getSettings: () => fetchApi<{ settings: WordPressSettings[] }>(`/wordpress/settings`),
-  getCategories: (id: string) => fetchApi<{ categories: WordPressCategory[] }>(`/wordpress/settings/${id}/categories`),
+  getSources: () =>
+    runQuery<{ sources: Source[] }>('wordpress:listSources').then(normalizeIds),
+  getSettings: () =>
+    runQuery<{ settings: WordPressSettings[] }>('wordpress:listSettings').then(normalizeIds),
+  getCategories: (_id: string): Promise<{ categories: WordPressCategory[] }> => {
+    throw new Error('WordPress category fetch requires the actions phase')
+  },
   createSetting: (data: NewWordPressSettings) =>
-    fetchApi<{ setting: WordPressSettings; message: string }>(`/wordpress/settings`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    runMutation<{ setting: WordPressSettings; message: string }>('wordpress:createSettings', data).then(normalizeIds),
   updateSetting: (id: string, data: Partial<NewWordPressSettings>) =>
-    fetchApi<{ setting: WordPressSettings; message: string }>(`/wordpress/settings/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
+    runMutation<{ setting: WordPressSettings; message: string }>('wordpress:updateSettings', { id, ...data }).then(normalizeIds),
   deleteSetting: (id: string) =>
-    fetchApi<{ message: string }>(`/wordpress/settings/${id}`, { method: 'DELETE' }),
-  testConnection: (id: string) =>
-    fetchApi<{ success: boolean; error?: string }>(`/wordpress/settings/${id}/test`, {
-      method: 'POST',
-    }),
-  uploadEvents: (data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }) =>
-    fetchApi<{ message: string; results: any[] }>(`/wordpress/upload`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    runMutation<{ message: string }>('wordpress:deleteSettings', { id }).then(normalizeIds),
+  testConnection: (_id: string): Promise<{ success: boolean; error?: string }> => {
+    throw new Error('WordPress connection test requires the actions phase')
+  },
+  uploadEvents: (_data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<{ message: string; results: any[] }> => {
+    throw new Error('WordPress upload requires the actions phase')
+  },
 }
 
 // Instagram API
 export const instagramApi = {
-  getAll: () => fetchApi<{ sources: InstagramSource[] }>('/instagram-sources'),
-  getById: (id: string) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`),
-  create: (data: CreateInstagramSourceData) => fetchApi<{ source: InstagramSource }>('/instagram-sources', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  update: (id: string, data: Partial<CreateInstagramSourceData>) => fetchApi<{ source: InstagramSource }>(`/instagram-sources/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  }),
-  delete: (id: string) => fetchApi<{ message: string }>(`/instagram-sources/${id}`, { method: 'DELETE' }),
+  getAll: () =>
+    runQuery<{ sources: InstagramSource[] }>('instagramAccounts:list').then(normalizeIds),
+  getById: (id: string) =>
+    runQuery<{ source: InstagramSource }>('instagramAccounts:get', { id }).then(normalizeIds),
+  create: (data: CreateInstagramSourceData) =>
+    runMutation<{ source: InstagramSource }>('instagramAccounts:create', data).then(normalizeIds),
+  update: (id: string, data: Partial<CreateInstagramSourceData>) =>
+    runMutation<{ source: InstagramSource }>('instagramAccounts:update', { id, ...data }).then(normalizeIds),
+  delete: (id: string) =>
+    runMutation<{ message: string }>('instagramAccounts:remove', { id }).then(normalizeIds),
   trigger: (id: string, data?: { postLimit?: number; batchSize?: number }) =>
-    fetchApi<InstagramTriggerResponse>(
-      `/instagram-sources/${id}/trigger`,
-      {
-        method: 'POST',
-        body: data ? JSON.stringify(data) : undefined,
-      }
-    ),
+    runMutation<InstagramTriggerResponse>('instagramAccounts:trigger', { id, ...(data ?? {}) }).then(normalizeIds),
   triggerAllActive: (options?: { postLimit?: number; accountLimit?: number; batchSize?: number }) =>
-    fetchApi<{
+    runMutation<{
       message: string
       accountsQueued: number
       postLimit?: number
       batchSize?: number | null
       parentRunId?: string
       jobs: InstagramScrapeJob[]
-    }>('/instagram-sources/trigger-all-active', {
-      method: 'POST',
-      body: JSON.stringify(options || {}),
-    }),
+    }>('instagramAccounts:triggerAllActive', { ...(options ?? {}) }).then(normalizeIds),
   getJobStatuses: (jobIds: string[]) =>
-    fetchApi<{ jobs: InstagramScrapeJobStatus[] }>('/instagram-sources/jobs/status', {
-      method: 'POST',
-      body: JSON.stringify({ jobIds }),
-    }),
+    runQuery<{ jobs: InstagramScrapeJobStatus[] }>('instagramAccounts:jobStatuses', { jobIds }).then(normalizeIds),
   cancelJobs: (jobIds: string[]) =>
-    fetchApi<{ results: InstagramScrapeCancelResult[] }>('/instagram-sources/jobs/cancel', {
-      method: 'POST',
-      body: JSON.stringify({ jobIds }),
-    }),
+    runMutation<{ results: InstagramScrapeCancelResult[] }>('instagramAccounts:cancelJobs', { jobIds }).then(normalizeIds),
   uploadSession: (data: { username: string; sessionData: { cookies: string; state?: any } }) =>
-    fetchApi<{ message: string; session: InstagramSession }>('/instagram-sources/sessions', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  getSession: (username: string) => fetchApi<{ session: InstagramSession }>(`/instagram-sources/sessions/${username}`),
-  deleteSession: (username: string) => fetchApi<{ message: string }>(`/instagram-sources/sessions/${username}`, { method: 'DELETE' }),
+    runMutation<{ message: string; session: InstagramSession }>('instagramAccounts:uploadSession', data).then(normalizeIds),
+  getSession: (username: string) =>
+    runQuery<{ session: InstagramSession }>('instagramAccounts:getSession', { username }).then(normalizeIds),
+  deleteSession: (username: string) =>
+    runMutation<{ message: string }>('instagramAccounts:deleteSession', { username }).then(normalizeIds),
 }
 
 // Instagram Apify API
 export const instagramApifyApi = {
-  fetchRunSnapshot: (runId: string, limit?: number) =>
-    fetchApi<{ success: boolean; runId: string; posts: any[]; input: any }>(`/instagram-apify/run-snapshot/${runId}${limit ? `?limit=${limit}` : ''}`),
-  importRun: (runId: string, limit?: number) =>
-    fetchApi<{ success: boolean; runId: string; stats: { attempted: number; created: number; skippedExisting: number; missingAccounts: number }; message: string }>(
-      `/instagram-apify/run/${runId}/import${limit ? `?limit=${limit}` : ''}`,
-      { method: 'POST' }
-    ),
+  fetchRunSnapshot: (_runId: string, _limit?: number): Promise<{ success: boolean; runId: string; posts: any[]; input: any }> => {
+    throw new Error('Apify run import requires the actions phase')
+  },
+  importRun: (_runId: string, _limit?: number): Promise<{ success: boolean; runId: string; stats: { attempted: number; created: number; skippedExisting: number; missingAccounts: number }; message: string }> => {
+    throw new Error('Apify run import requires the actions phase')
+  },
 }
 
 // Instagram Review API
 export const instagramReviewApi = {
-  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'; accountId?: string }) => {
-    const searchParams = new URLSearchParams()
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
-          searchParams.append(key, String(value))
-        }
-      })
-    }
-    return fetchApi<InstagramReviewQueueResponse>(`/instagram-review/queue?${searchParams}`)
-  },
+  getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'; accountId?: string }) =>
+    runQuery<InstagramReviewQueueResponse>('instagramReview:queue', { ...params }).then(normalizeIds),
   classifyPost: (id: string, data: { isEventPoster: boolean; classificationConfidence?: number }) =>
-    fetchApi<{ message: string; post: EventRaw }>(`/instagram-review/${id}/classify`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }) =>
-    fetchApi<{
-      success: boolean;
-      message: string;
-      extraction: any;
-      eventsCreated: number;
-    }>(`/instagram-review/${id}/extract`, {
-      method: 'POST',
-      body: JSON.stringify(options || {}),
-    }),
-  aiClassifyPost: (id: string) =>
-    fetchApi<{
-      message: string
-      classification: InstagramAiClassificationResult
-      post: EventRaw
-    }>(`/instagram-review/${id}/ai-classify`, {
-      method: 'POST',
-    }),
-  aiClassifyPending: (options?: { accountId?: string; limit?: number }) =>
-    fetchApi<InstagramReviewBulkAiClassifyResponse>('/instagram-review/ai-classify/bulk', {
-      method: 'POST',
-      body: JSON.stringify(options || {}),
-    }),
-  getStats: () => fetchApi<InstagramReviewStats>('/instagram-review/stats'),
-  getAccounts: () => fetchApi<{ accounts: InstagramAccount[] }>('/instagram-review/accounts'),
-  extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }) =>
-    fetchApi<InstagramReviewBulkExtractResponse>('/instagram-review/extract-missing', {
-      method: 'POST',
-      body: JSON.stringify(options || {}),
-    }),
+    runMutation<{ message: string; post: EventRaw }>('instagramReview:classify', { id, ...data }).then(normalizeIds),
+  extractEvent: (_id: string, _options?: { overwrite?: boolean; createEvents?: boolean }): Promise<{
+    success: boolean
+    message: string
+    extraction: any
+    eventsCreated: number
+  }> => {
+    throw new Error('Event extraction requires the actions phase (AI extraction runs in the worker)')
+  },
+  aiClassifyPost: (_id: string): Promise<{
+    message: string
+    classification: InstagramAiClassificationResult
+    post: EventRaw
+  }> => {
+    throw new Error('AI classification requires the actions phase (AI extraction runs in the worker)')
+  },
+  aiClassifyPending: (_options?: { accountId?: string; limit?: number }): Promise<InstagramReviewBulkAiClassifyResponse> => {
+    throw new Error('Bulk AI classification requires the actions phase (AI extraction runs in the worker)')
+  },
+  getStats: () =>
+    runQuery<InstagramReviewStats>('instagramReview:getStats').then(normalizeIds),
+  getAccounts: () =>
+    runQuery<{ accounts: InstagramAccount[] }>('instagramReview:getAccounts').then(normalizeIds),
+  extractMissing: (_options?: { accountId?: string; limit?: number; overwrite?: boolean }): Promise<InstagramReviewBulkExtractResponse> => {
+    throw new Error('Bulk event extraction requires the actions phase (AI extraction runs in the worker)')
+  },
 }
 
 // Types

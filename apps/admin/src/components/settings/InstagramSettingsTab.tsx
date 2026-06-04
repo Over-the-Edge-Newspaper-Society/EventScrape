@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { API_BASE_URL } from '@/lib/api'
+import { runQuery, runMutation } from '@/lib/convexClient'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -50,9 +50,8 @@ export function InstagramSettingsTab() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['instagram-settings'],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-settings`)
-      const data = await res.json()
-      return data.settings as InstagramSettingsData
+      const data = await runQuery<{ settings: InstagramSettingsData } | null>('instagramSettings:get', {})
+      return (data?.settings ?? null) as InstagramSettingsData
     },
   })
 
@@ -71,12 +70,7 @@ export function InstagramSettingsTab() {
 
   const updateSettings = useMutation({
     mutationFn: async (data: Partial<InstagramSettingsData> & { apifyApiToken?: string }) => {
-      const res = await fetch(`${API_BASE_URL}/instagram-settings`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      return res.json()
+      return runMutation('instagramSettings:update', data)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instagram-settings'] })
@@ -90,10 +84,7 @@ export function InstagramSettingsTab() {
 
   const removeApifyToken = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-settings/apify-token`, {
-        method: 'DELETE',
-      })
-      return res.json()
+      return runMutation('instagramSettings:clearApifyToken', {})
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instagram-settings'] })
@@ -102,42 +93,22 @@ export function InstagramSettingsTab() {
   })
 
   const importCsv = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch(`${API_BASE_URL}/instagram-sources/bulk-import`, {
-        method: 'POST',
-        body: formData,
-      })
-      return res.json()
+    mutationFn: async (_file: File) => {
+      // CSV bulk import runs in the worker (actions phase). No REST endpoint.
+      throw new Error('Bulk import runs in the worker (actions phase pending)')
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-sources'] })
-      toast.success(`Imported ${data.created} sources, skipped ${data.skipped}`)
-      setCsvFile(null)
-    },
-    onError: () => {
-      toast.error('Failed to import CSV')
+    onError: (error: Error) => {
+      toast.error(error.message)
     },
   })
 
   const classifyBacklog = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/instagram-classify/backlog`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const error = await res.json()
-        throw new Error(error.message || 'Failed to classify backlog')
-      }
-      return res.json()
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['events-raw'] })
-      toast.success(`Classified ${data.processed} posts from backlog`)
+      // AI backlog classification runs in the worker (actions phase). No REST endpoint.
+      throw new Error('Classification runs in the worker (actions phase pending)')
     },
     onError: (error: Error) => {
-      toast.error(`Classification failed: ${error.message}`)
+      toast.error(error.message)
     },
   })
 

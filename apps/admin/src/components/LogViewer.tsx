@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Terminal, Play, Square, Trash2, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { API_BASE_URL } from '@/lib/api'
+import { logsApi } from '@/lib/api'
 
 interface LogEntry {
   id: string
@@ -16,8 +17,21 @@ interface LogEntry {
   raw: string
 }
 
-interface LogViewerProps {
+// Shape of a Convex `runLogs` row (see convex/runLogs.ts history query).
+interface ConvexLogRow {
+  _id: string
+  id?: string
   runId: string
+  sequence: number
+  timestamp: number
+  level: number
+  message: string
+  source: string
+  raw?: unknown
+}
+
+interface LogViewerProps {
+  runId?: string
   className?: string
 }
 
@@ -30,13 +44,37 @@ const LOG_LEVELS = {
   60: { name: 'fatal', color: 'text-destructive', bg: 'bg-destructive/20' },
 }
 
+const POLL_INTERVAL_MS = 2000
+
 export function LogViewer({ runId, className }: LogViewerProps) {
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [isConnected, setIsConnected] = useState(false)
-  const [isStreaming, setIsStreaming] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  // Polling is paused via this toggle (Stop/Start buttons).
+  const [isPolling, setIsPolling] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
+
+  const logsQuery = useQuery({
+    queryKey: ['run-logs', runId],
+    queryFn: async () => {
+      const rows = (await logsApi.getHistory(runId as string)) as ConvexLogRow[]
+      // history() returns newest-first; render oldest-first.
+      const ordered = [...rows].sort((a, b) => a.sequence - b.sequence)
+      return ordered.map<LogEntry>((row) => ({
+        id: row.id ?? row._id,
+        timestamp: row.timestamp,
+        level: row.level,
+        msg: row.message,
+        runId: row.runId,
+        source: row.source,
+        raw: typeof row.raw === 'string' ? row.raw : row.raw ? JSON.stringify(row.raw) : '',
+      }))
+    },
+    enabled: !!runId && isPolling,
+    refetchInterval: isPolling ? POLL_INTERVAL_MS : false,
+  })
+
+  const logs = logsQuery.data ?? []
+  const isConnected = isPolling && logsQuery.isSuccess
+  const isLoading = logsQuery.isLoading
 
   const scrollToBottom = () => {
     if (autoScroll && scrollRef.current) {
@@ -48,70 +86,9 @@ export function LogViewer({ runId, className }: LogViewerProps) {
     scrollToBottom()
   }, [logs, autoScroll])
 
-  const connectToStream = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-    }
-
-    // First, try to load historical logs
-    loadHistoricalLogs()
-
-    const base = API_BASE_URL.replace(/\/$/, '')
-    const eventSource = new EventSource(`${base}/logs/stream/${runId}`)
-    eventSourceRef.current = eventSource
-
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      setIsStreaming(true)
-    }
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        
-        if (data.type === 'connected') {
-          console.log('Connected to log stream for run:', data.runId)
-        } else if (data.type === 'log') {
-          setLogs(prev => [...prev, data])
-        }
-      } catch (error) {
-        console.error('Error parsing log message:', error)
-      }
-    }
-
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error)
-      setIsConnected(false)
-      eventSource.close()
-    }
-  }
-
-  const loadHistoricalLogs = async () => {
-    try {
-      const base = API_BASE_URL.replace(/\/$/, '')
-      const response = await fetch(`${base}/logs/history/${runId}`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data.logs && data.logs.length > 0) {
-          setLogs(data.logs)
-        }
-      }
-    } catch (error) {
-      console.error('Error loading historical logs:', error)
-    }
-  }
-
-  const disconnectFromStream = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
-    }
-    setIsConnected(false)
-    setIsStreaming(false)
-  }
-
   const clearLogs = () => {
-    setLogs([])
+    // Clears the locally cached view; next poll re-populates from Convex.
+    logsQuery.refetch()
   }
 
   const downloadLogs = () => {
@@ -120,7 +97,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
       const level = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS]?.name || 'info'
       return `[${date}] ${level.toUpperCase()}: ${log.msg}`
     }).join('\n')
-    
+
     const blob = new Blob([logText], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -132,17 +109,6 @@ export function LogViewer({ runId, className }: LogViewerProps) {
     URL.revokeObjectURL(url)
   }
 
-  useEffect(() => {
-    // Auto-start streaming when component mounts
-    connectToStream()
-    
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-      }
-    }
-  }, [runId])
-
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
       hour12: false,
@@ -153,6 +119,10 @@ export function LogViewer({ runId, className }: LogViewerProps) {
     })
   }
 
+  if (!runId) {
+    return null
+  }
+
   return (
     <Card className={cn('flex flex-col h-full', className)}>
       <CardHeader className="flex-shrink-0 pb-4">
@@ -160,7 +130,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
           <div className="flex items-center gap-2">
             <Terminal className="h-5 w-5" />
             <CardTitle className="text-lg">Live Logs</CardTitle>
-            <Badge 
+            <Badge
               variant={isConnected ? 'success' : 'secondary'}
               className="flex items-center gap-1"
             >
@@ -168,10 +138,10 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                 'w-2 h-2 rounded-full',
                 isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'
               )} />
-              {isConnected ? 'Connected' : 'Disconnected'}
+              {isPolling ? (isConnected ? 'Live (polling)' : 'Connecting…') : 'Paused'}
             </Badge>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -184,12 +154,12 @@ export function LogViewer({ runId, className }: LogViewerProps) {
             >
               Auto-scroll
             </Button>
-            
-            {isStreaming ? (
+
+            {isPolling ? (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={disconnectFromStream}
+                onClick={() => setIsPolling(false)}
                 className="text-xs"
               >
                 <Square className="h-3 w-3 mr-1" />
@@ -199,14 +169,14 @@ export function LogViewer({ runId, className }: LogViewerProps) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={connectToStream}
+                onClick={() => setIsPolling(true)}
                 className="text-xs"
               >
                 <Play className="h-3 w-3 mr-1" />
                 Start
               </Button>
             )}
-            
+
             <Button
               size="sm"
               variant="outline"
@@ -216,7 +186,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
               <Trash2 className="h-3 w-3 mr-1" />
               Clear
             </Button>
-            
+
             <Button
               size="sm"
               variant="outline"
@@ -230,10 +200,10 @@ export function LogViewer({ runId, className }: LogViewerProps) {
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="flex-1 p-0 min-h-0">
-        <div 
-          className="h-full w-full overflow-y-auto overflow-x-hidden" 
+        <div
+          className="h-full w-full overflow-y-auto overflow-x-hidden"
           ref={scrollRef}
         >
           <div className="p-4 bg-slate-900 dark:bg-slate-950 text-slate-100 dark:text-slate-100 font-mono text-sm min-h-full">
@@ -242,16 +212,18 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                 <Terminal className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No logs available</p>
                 <p className="text-xs mt-1">
-                  {isStreaming 
-                    ? 'Waiting for logs...' 
-                    : 'Logs are automatically streamed for active runs. For completed runs, logs may not be available if they were not captured during execution.'}
+                  {isLoading
+                    ? 'Loading logs…'
+                    : isPolling
+                      ? 'Waiting for logs...'
+                      : 'Logs are polled for active runs. For completed runs, logs may not be available if they were not captured during execution.'}
                 </p>
               </div>
             ) : (
               <div className="space-y-1">
                 {logs.map((log) => {
                   const levelInfo = LOG_LEVELS[log.level as keyof typeof LOG_LEVELS] || LOG_LEVELS[30]
-                  
+
                   return (
                     <div
                       key={log.id}
@@ -260,7 +232,7 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                       <div className="text-slate-400 text-xs font-mono flex-shrink-0 w-[96px] whitespace-nowrap">
                         {formatTimestamp(log.timestamp)}
                       </div>
-                      
+
                       <div className={cn(
                         'text-xs px-2 py-0.5 rounded font-medium uppercase flex-shrink-0 min-w-[60px] text-center',
                         levelInfo.bg,
@@ -268,13 +240,13 @@ export function LogViewer({ runId, className }: LogViewerProps) {
                       )}>
                         {levelInfo.name}
                       </div>
-                      
+
                       {log.source && (
                         <div className="text-blue-400 text-xs flex-shrink-0 min-w-[110px] truncate whitespace-nowrap">
                           {log.source}
                         </div>
                       )}
-                      
+
                       <div className="text-slate-100 flex-1 min-w-[200px] whitespace-pre-wrap break-words">
                         {log.msg}
                       </div>
