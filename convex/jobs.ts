@@ -285,7 +285,10 @@ export const status = query({
 
     for (const job of jobs) {
       const bucket =
-        job.queue === "instagramScrape" ? result.instagram : result[job.queue];
+        job.queue === "instagramScrape"
+          ? result.instagram
+          : (result as Record<string, { waiting: number; active: number; completed: number; failed: number }>)[job.queue];
+      if (!bucket) continue; // new queues (wordpress/review/posterImport/apifyImport) not surfaced here
       if (job.status === "queued") bucket.waiting += 1;
       if (job.status === "running") bucket.active += 1;
       if (job.status === "success") bucket.completed += 1;

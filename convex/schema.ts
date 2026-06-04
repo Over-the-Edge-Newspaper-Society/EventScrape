@@ -23,6 +23,10 @@ export const queueName = v.union(
   v.literal("match"),
   v.literal("instagramScrape"),
   v.literal("schedule"),
+  v.literal("wordpress"),
+  v.literal("review"),
+  v.literal("posterImport"),
+  v.literal("apifyImport"),
 );
 
 export const sourceType = v.union(v.literal("website"), v.literal("instagram"));

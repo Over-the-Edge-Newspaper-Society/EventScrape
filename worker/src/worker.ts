@@ -7,6 +7,9 @@ import { persistScrapedEvent } from './lib/occurrence-db.js';
 import { jobs, workerApi, appendRunLog, type ClaimedJob } from './lib/convex.js';
 import type { ScrapeJobData, MatchJobData, RunContext, JobShim } from './types.js';
 import { handleInstagramScrapeJob } from './modules/instagram/instagram-job.js';
+import { handleReviewAiJob } from './jobs/reviewAi.js';
+import { handlePosterImportJob } from './jobs/posterImport.js';
+import { handleApifyImportJob } from './jobs/apifyImport.js';
 import type { EventRaw } from './lib/database.js';
 import 'dotenv/config';
 
@@ -26,6 +29,9 @@ const QUEUE_CONCURRENCY: Record<string, number> = {
   scrape: 2,
   match: 1,
   instagramScrape: 1,
+  review: 1,
+  posterImport: 1,
+  apifyImport: 1,
 };
 
 class EventScraperWorker {
@@ -103,6 +109,9 @@ class EventScraperWorker {
       if (job.queue === 'scrape') await this.processScrapeJob(job);
       else if (job.queue === 'match') await this.processMatchJob(job);
       else if (job.queue === 'instagramScrape') await this.processInstagramScrapeJob(job);
+      else if (job.queue === 'review') await handleReviewAiJob(this.shim(job));
+      else if (job.queue === 'posterImport') await handlePosterImportJob(this.shim(job));
+      else if (job.queue === 'apifyImport') await handleApifyImportJob(this.shim(job));
       else throw new Error(`Unknown queue ${job.queue}`);
 
       await jobs.complete({ jobId: job._id });
@@ -260,6 +269,21 @@ class EventScraperWorker {
       })),
     });
     logger.info(`✅ Match job completed: cleared ${cleared} open, inserted ${inserted}`);
+  }
+
+  // Build a JobShim for the generic job handlers (wordpress/review/poster/apify).
+  private shim(job: NonNullable<ClaimedJob>): JobShim {
+    const runId = (job.payload as { runId?: string })?.runId || job.runId;
+    return {
+      id: job._id,
+      data: job.payload,
+      runId,
+      log: (msg: string) => {
+        logger.info(`[${job.queue}] ${msg}`);
+        if (runId) void appendRunLog(runId, 30, msg, job.queue);
+      },
+      updateProgress: async () => {},
+    };
   }
 
   private async processInstagramScrapeJob(job: NonNullable<ClaimedJob>): Promise<void> {

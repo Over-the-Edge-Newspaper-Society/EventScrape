@@ -14,12 +14,15 @@ import type * as dashboard from "../dashboard.js";
 import type * as events from "../events.js";
 import type * as exports from "../exports.js";
 import type * as instagramAccounts from "../instagramAccounts.js";
+import type * as instagramApify from "../instagramApify.js";
+import type * as instagramApifyQueue from "../instagramApifyQueue.js";
 import type * as instagramReview from "../instagramReview.js";
 import type * as instagramSettings from "../instagramSettings.js";
 import type * as jobs from "../jobs.js";
 import type * as matches from "../matches.js";
 import type * as migration from "../migration.js";
 import type * as openrouter from "../openrouter.js";
+import type * as posterImport from "../posterImport.js";
 import type * as runLogs from "../runLogs.js";
 import type * as runs from "../runs.js";
 import type * as schedules from "../schedules.js";
@@ -27,6 +30,7 @@ import type * as sources from "../sources.js";
 import type * as storage from "../storage.js";
 import type * as systemSettings from "../systemSettings.js";
 import type * as wordpress from "../wordpress.js";
+import type * as wordpressUpload from "../wordpressUpload.js";
 import type * as worker from "../worker.js";
 
 import type {
@@ -42,12 +46,15 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   exports: typeof exports;
   instagramAccounts: typeof instagramAccounts;
+  instagramApify: typeof instagramApify;
+  instagramApifyQueue: typeof instagramApifyQueue;
   instagramReview: typeof instagramReview;
   instagramSettings: typeof instagramSettings;
   jobs: typeof jobs;
   matches: typeof matches;
   migration: typeof migration;
   openrouter: typeof openrouter;
+  posterImport: typeof posterImport;
   runLogs: typeof runLogs;
   runs: typeof runs;
   schedules: typeof schedules;
@@ -55,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   systemSettings: typeof systemSettings;
   wordpress: typeof wordpress;
+  wordpressUpload: typeof wordpressUpload;
   worker: typeof worker;
 }>;
 

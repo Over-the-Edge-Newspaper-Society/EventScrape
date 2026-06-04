@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { GenericQueryCtx } from "convex/server";
 import { mutation, query } from "./_generated/server";
-import { DataModel, Doc } from "./_generated/dataModel";
+import { DataModel, Doc, Id } from "./_generated/dataModel";
 
 type QueryCtx = GenericQueryCtx<DataModel>;
 
@@ -296,5 +296,228 @@ export const persistExtraction = mutation({
     await ctx.db.patch(args.id, patch);
     const updated = await ctx.db.get(args.id);
     return { post: updated };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Worker-queued AI classification / extraction.
+//
+// The original /:id/ai-classify, /:id/extract, /ai-classify/bulk and
+// /extract-missing endpoints ran the AI inline in the API process. In the
+// full-Convex migration those AI calls move to the worker. These mutations
+// enqueue "review" jobs that the worker (jobs/reviewAi.ts) picks up. The
+// getPostForAi query gives the worker everything it needs (post fields,
+// account classificationMode/timezone, resolved AI provider + keys).
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MAX_ATTEMPTS = 3;
+
+async function enqueueReviewJob(
+  ctx: { db: any },
+  payload: Record<string, unknown>,
+) {
+  const now = Date.now();
+  return await ctx.db.insert("jobs", {
+    queue: "review" as const,
+    name: "reviewAi",
+    status: "queued" as const,
+    payload,
+    attempts: 0,
+    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+    availableAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+// Confirm an eventsRaw row is instagram-sourced (matches the original join).
+async function assertInstagramPost(ctx: QueryCtx, id: Id<"eventsRaw">) {
+  const post = await ctx.db.get(id);
+  if (!post) {
+    throw new ConvexError({ code: "NOT_FOUND", message: "Instagram post not found" });
+  }
+  const src = await ctx.db.get(post.sourceId);
+  if (!src || src.sourceType !== "instagram") {
+    throw new ConvexError({ code: "NOT_FOUND", message: "Instagram post not found" });
+  }
+  return post;
+}
+
+// POST /:id/ai-classify -> enqueue a single classify job.
+export const enqueueClassify = mutation({
+  args: { id: v.id("eventsRaw") },
+  returns: v.object({ jobId: v.id("jobs") }),
+  handler: async (ctx, args) => {
+    await assertInstagramPost(ctx, args.id);
+    const jobId = await enqueueReviewJob(ctx, { eventId: args.id, mode: "classify" });
+    return { jobId };
+  },
+});
+
+// POST /:id/extract -> enqueue a single extract job.
+export const enqueueExtract = mutation({
+  args: {
+    id: v.id("eventsRaw"),
+    overwrite: v.optional(v.boolean()),
+    createEvents: v.optional(v.boolean()),
+  },
+  returns: v.object({ jobId: v.id("jobs") }),
+  handler: async (ctx, args) => {
+    await assertInstagramPost(ctx, args.id);
+    const jobId = await enqueueReviewJob(ctx, {
+      eventId: args.id,
+      mode: "extract",
+      overwrite: args.overwrite ?? false,
+      createEvents: args.createEvents ?? true,
+    });
+    return { jobId };
+  },
+});
+
+// POST /ai-classify/bulk -> enqueue a classify job per pending (unclassified)
+// instagram post, optionally scoped to an account, capped by limit.
+export const enqueueClassifyPending = mutation({
+  args: {
+    accountId: v.optional(v.id("instagramAccounts")),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({ message: v.string(), queued: v.number() }),
+  handler: async (ctx, args) => {
+    let posts = await loadInstagramPosts(ctx);
+    if (args.accountId) {
+      const accountId = String(args.accountId);
+      posts = posts.filter((p) => String(p.event.instagramAccountId) === accountId);
+    }
+    // Pending == isEventPoster null/undefined (mirrors isNull(isEventPoster)).
+    let pending = posts.filter(
+      (p) => p.event.isEventPoster === undefined || p.event.isEventPoster === null,
+    );
+    pending.sort((a, b) => b.event.scrapedAt - a.event.scrapedAt);
+    if (typeof args.limit === "number") {
+      pending = pending.slice(0, Math.max(args.limit, 0));
+    }
+
+    for (const { event } of pending) {
+      await enqueueReviewJob(ctx, { eventId: event._id, mode: "classify" });
+    }
+
+    return {
+      message:
+        pending.length === 0
+          ? "No Instagram posts need AI classification"
+          : `Queued AI classification for ${pending.length} post(s)`,
+      queued: pending.length,
+    };
+  },
+});
+
+// POST /extract-missing -> enqueue an extract job per event poster that still
+// needs extraction (isEventPoster true, has a stored image, no extracted events).
+export const enqueueExtractMissing = mutation({
+  args: {
+    accountId: v.optional(v.id("instagramAccounts")),
+    limit: v.optional(v.number()),
+    overwrite: v.optional(v.boolean()),
+  },
+  returns: v.object({ message: v.string(), queued: v.number() }),
+  handler: async (ctx, args) => {
+    let posts = await loadInstagramPosts(ctx);
+    if (args.accountId) {
+      const accountId = String(args.accountId);
+      posts = posts.filter((p) => String(p.event.instagramAccountId) === accountId);
+    }
+    let needing = posts.filter(
+      (p) =>
+        p.event.isEventPoster === true &&
+        !!p.event.localImageStorageId &&
+        !hasExtractedEvents(p.event.raw),
+    );
+    needing.sort((a, b) => b.event.scrapedAt - a.event.scrapedAt);
+    if (typeof args.limit === "number") {
+      needing = needing.slice(0, Math.max(args.limit, 0));
+    }
+
+    for (const { event } of needing) {
+      await enqueueReviewJob(ctx, {
+        eventId: event._id,
+        mode: "extract",
+        overwrite: args.overwrite ?? false,
+        createEvents: true,
+      });
+    }
+
+    return {
+      message:
+        needing.length === 0
+          ? "No Instagram posts need extraction"
+          : `Queued extraction for ${needing.length} post(s)`,
+      queued: needing.length,
+    };
+  },
+});
+
+// Everything the worker needs to run AI on one post: the eventsRaw doc, its
+// account's classificationMode/defaultTimezone, and the resolved AI provider
+// + unmasked keys (systemSettings wins over instagramSettings, default gemini).
+export const getPostForAi = query({
+  args: { id: v.id("eventsRaw") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    const post = await ctx.db.get(args.id);
+    if (!post) return null;
+    const src = await ctx.db.get(post.sourceId);
+    if (!src || src.sourceType !== "instagram") return null;
+
+    const account = post.instagramAccountId
+      ? await ctx.db.get(post.instagramAccountId)
+      : null;
+
+    const igSettings = await ctx.db.query("instagramSettings").first();
+    const sysSettings = await ctx.db.query("systemSettings").first();
+
+    const provider =
+      sysSettings?.aiProvider || igSettings?.aiProvider || "gemini";
+
+    const settings = {
+      aiProvider: provider,
+      geminiApiKey: sysSettings?.geminiApiKey ?? igSettings?.geminiApiKey ?? null,
+      claudeApiKey: sysSettings?.claudeApiKey ?? igSettings?.claudeApiKey ?? null,
+      openrouterApiKey: sysSettings?.openrouterApiKey ?? null,
+      openrouterModel: sysSettings?.openrouterModel ?? null,
+      apifyApiToken: igSettings?.apifyApiToken ?? null,
+    };
+
+    return {
+      post: {
+        _id: post._id,
+        runId: post.runId,
+        sourceId: post.sourceId,
+        instagramAccountId: post.instagramAccountId,
+        instagramPostId: post.instagramPostId,
+        instagramCaption: post.instagramCaption ?? null,
+        imageUrl: post.imageUrl ?? null,
+        url: post.url,
+        localImagePath: post.localImagePath ?? null,
+        localImageStorageId: post.localImageStorageId ?? null,
+        localImageContentType: post.localImageContentType ?? null,
+        localImageSize: post.localImageSize ?? null,
+        classificationConfidence: post.classificationConfidence ?? null,
+        isEventPoster: post.isEventPoster ?? null,
+        scrapedAt: post.scrapedAt,
+        raw: post.raw ?? null,
+      },
+      account: account
+        ? {
+            id: account._id,
+            classificationMode: account.classificationMode,
+            defaultTimezone: account.defaultTimezone,
+          }
+        : null,
+      source: {
+        id: src._id,
+        defaultTimezone: src.defaultTimezone,
+      },
+      settings,
+    };
   },
 });

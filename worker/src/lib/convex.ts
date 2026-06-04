@@ -29,7 +29,15 @@ function m<R = any>(name: string) {
 // Jobs queue (replaces BullMQ) ----------------------------------------------
 export type ClaimedJob = {
   _id: string;
-  queue: 'scrape' | 'match' | 'instagramScrape' | 'schedule';
+  queue:
+    | 'scrape'
+    | 'match'
+    | 'instagramScrape'
+    | 'schedule'
+    | 'wordpress'
+    | 'review'
+    | 'posterImport'
+    | 'apifyImport';
   name: string;
   payload: any;
   runId?: string;
@@ -98,6 +106,17 @@ export async function uploadToConvexStorage(
   }
   const json = (await res.json()) as { storageId: string };
   return { storageId: json.storageId, size: bytes.byteLength ?? (bytes as Buffer).length };
+}
+
+// Download a file from Convex storage to a Buffer (e.g. a poster image, so the
+// file-based AI extractors can run on it). storageId is the _storage id string.
+const getUrlRef = makeFunctionReference<'query'>('storage:getUrl');
+export async function downloadFromConvexStorage(storageId: string): Promise<Buffer> {
+  const url = (await convex.query(getUrlRef, { storageId })) as string | null;
+  if (!url) throw new Error(`No storage URL for ${storageId}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Storage download failed: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 // Helper to append a log line with auto-sequencing handled server-side.

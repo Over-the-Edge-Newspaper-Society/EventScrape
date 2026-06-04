@@ -29,6 +29,100 @@ export const getSettingWithSecret = internalQuery({
   handler: async (ctx, args) => ctx.db.get(args.id),
 });
 
+// Internal: load the events that wordpressUpload:uploadEvents needs to publish.
+// Accepts a mix of eventsRaw / eventsCanonical ids (the admin selects canonical
+// events; the original Fastify route loaded eventsRaw). For each id we try
+// eventsRaw first, then eventsCanonical. Canonical rows have no sourceId/raw of
+// their own, so we resolve those from the first merged raw event (used for
+// source-category mapping + club-organization matching).
+export const getEventsForUpload = internalQuery({
+  args: { ids: v.array(v.string()) },
+  returns: v.array(v.any()),
+  handler: async (ctx, args) => {
+    const out: any[] = [];
+
+    for (const idStr of args.ids) {
+      // Try eventsRaw.
+      const rawId = ctx.db.normalizeId("eventsRaw", idStr);
+      if (rawId) {
+        const e = await ctx.db.get(rawId);
+        if (e) {
+          out.push({
+            id: e._id,
+            rawEventId: e._id,
+            title: e.title,
+            descriptionHtml: e.descriptionHtml ?? undefined,
+            startDatetime: e.startDatetime, // epoch ms
+            endDatetime: e.endDatetime ?? undefined,
+            timezone: e.timezone ?? undefined,
+            venueName: e.venueName ?? undefined,
+            venueAddress: e.venueAddress ?? undefined,
+            city: e.city ?? undefined,
+            region: e.region ?? undefined,
+            country: e.country ?? undefined,
+            organizer: e.organizer ?? undefined,
+            category: e.category ?? undefined,
+            price: e.price ?? undefined,
+            url: e.url,
+            imageUrl: e.imageUrl ?? undefined,
+            localImageStorageId: e.localImageStorageId ?? undefined,
+            tags: e.tags ?? undefined,
+            raw: e.raw,
+            sourceId: e.sourceId,
+          });
+          continue;
+        }
+      }
+
+      // Try eventsCanonical.
+      const canonId = ctx.db.normalizeId("eventsCanonical", idStr);
+      if (canonId) {
+        const c = await ctx.db.get(canonId);
+        if (c) {
+          // Resolve raw/sourceId/storage from the first merged raw event.
+          let raw: any = undefined;
+          let sourceId: any = undefined;
+          let localImageStorageId: any = undefined;
+          const firstRawId = c.mergedFromRawIds?.[0];
+          if (firstRawId) {
+            const r = await ctx.db.get(firstRawId);
+            if (r) {
+              raw = r.raw;
+              sourceId = r.sourceId;
+              localImageStorageId = r.localImageStorageId ?? undefined;
+            }
+          }
+          out.push({
+            id: c._id,
+            title: c.title,
+            descriptionHtml: c.descriptionHtml ?? undefined,
+            startDatetime: c.startDatetime, // epoch ms
+            endDatetime: c.endDatetime ?? undefined,
+            timezone: c.timezone ?? undefined,
+            venueName: c.venueName ?? undefined,
+            venueAddress: c.venueAddress ?? undefined,
+            city: c.city ?? undefined,
+            region: c.region ?? undefined,
+            country: c.country ?? undefined,
+            organizer: c.organizer ?? undefined,
+            category: c.category ?? undefined,
+            price: c.price ?? undefined,
+            url: c.urlPrimary,
+            imageUrl: c.imageUrl ?? undefined,
+            localImageStorageId,
+            tags: c.tags ?? undefined,
+            raw,
+            sourceId,
+          });
+          continue;
+        }
+      }
+    }
+
+    return out;
+  },
+});
+
 function basicAuth(username: string, appPassword: string) {
   // btoa is available in the Convex runtime.
   return "Basic " + btoa(`${username}:${appPassword}`);

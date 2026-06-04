@@ -12,23 +12,29 @@ the build (`pnpm build` filters to `@eventscrape/admin` + `@eventscrape/worker`)
 
 ## Why the source is kept (not deleted)
 
-This package still contains reference implementations for the **actions-phase**
-features that have not yet been re-homed into Convex actions / worker handlers:
+Nearly everything has been ported. The only feature still living here:
 
-- WordPress REST client + event upload (`services/wordpress-client.ts`, routes/wordpress.ts)
-- Export file generation: CSV / JSON / ICS (`routes/exports.ts`)
-- Poster import + AI extraction triggers (`routes/poster-import.ts`)
-- Database backup/restore bundles (`routes/backups.ts`, `routes/database.ts`)
-- Apify run import/snapshot
+- **Database backup/restore bundles** (`routes/backups.ts`, `routes/database.ts`) —
+  now handled at the platform level by Convex (snapshots via the Convex dashboard
+  / CLI). The admin shows an informational message pointing there. The bundle
+  export format (which saved us during the image restore) is preserved here for
+  reference.
 
 **Done (ported off this package):**
+- WordPress event upload — Convex Node action `wordpressUpload:uploadEvents`
+  (synchronous; resolves images from Convex storage for media upload).
+- WordPress connection test + category fetch — Convex actions in `convex/wordpress.ts`.
 - Export file generation (CSV/JSON/ICS) — Convex action `exports:generateFile`
   writes to Convex storage; download via `exports:getDownloadUrl`.
 - OpenRouter vision-model listing — Convex action `openrouter:listVisionModels`.
-- WordPress connection test + category fetch — Convex actions in `convex/wordpress.ts`.
-- Instagram image serving — now uses Convex storage. The worker uploads poster
-  images at scrape time (`worker/src/lib/convex.ts uploadToConvexStorage`), the
-  review/event queries resolve storage URLs, and existing images were backfilled
+- Instagram manual AI re-classify/extract — Convex `instagramReview:enqueue*`
+  mutations + worker `review` queue handler (`worker/src/jobs/reviewAi.ts`).
+- Poster import — Convex `posterImport:enqueue` + worker `posterImport` queue
+  handler (`worker/src/jobs/posterImport.ts`); image stored in Convex storage.
+- Apify run import/snapshot — `instagramApify:snapshot` action +
+  `instagramApifyQueue:enqueueImport` + worker `apifyImport` handler.
+- Instagram image serving — Convex storage. The worker uploads poster images at
+  scrape time, queries resolve storage URLs, and existing images were backfilled
   from the backup bundle via `scripts/backfill-instagram-images-from-dir.ts`.
 
 These are currently **gated in the admin UI** with clear "requires the actions

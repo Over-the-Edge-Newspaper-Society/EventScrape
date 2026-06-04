@@ -128,11 +128,31 @@ export const logsApi = {
 
 // Poster Import API
 export const posterImportApi = {
-  upload: (_data: { content: string; testMode?: boolean }): Promise<{ success: boolean; runId: string; jobId: string }> => {
-    throw new Error('Poster import requires the actions phase')
-  },
-  uploadImage: (_formData: FormData): Promise<{ success: boolean; runId: string; jobId: string; eventsPreviewCount?: number }> => {
-    throw new Error('Poster import requires the actions phase')
+  upload: (data: { content: string; testMode?: boolean }) =>
+    runMutation<{ runId: string; jobId: string }>('posterImport:enqueue', {
+      content: data.content,
+      testMode: data.testMode,
+    }).then((r) => ({ success: true, ...r })),
+  uploadImage: async (formData: FormData) => {
+    // 1) upload the image bytes to Convex storage, 2) enqueue a poster-import job.
+    const file = formData.get('file') ?? formData.get('image')
+    if (!(file instanceof File)) throw new Error('No image file provided')
+    const pictureDate = formData.get('pictureDate')
+    const testMode = formData.get('testMode') === 'true'
+    const uploadUrl = await runMutation<string>('storage:generateUploadUrl', {})
+    const up = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'image/jpeg' },
+      body: file,
+    })
+    if (!up.ok) throw new Error('Failed to upload image to storage')
+    const { storageId } = (await up.json()) as { storageId: string }
+    const res = await runMutation<{ runId: string; jobId: string }>('posterImport:enqueue', {
+      imageStorageId: storageId,
+      testMode,
+      pictureDateIso: typeof pictureDate === 'string' && pictureDate ? pictureDate : undefined,
+    })
+    return { success: true, ...res }
   },
 }
 
@@ -321,9 +341,12 @@ export const wordpressApi = {
     runMutation<{ message: string }>('wordpress:deleteSettings', { id }).then(normalizeIds),
   testConnection: (id: string): Promise<{ success: boolean; error?: string }> =>
     runAction<{ success: boolean; error?: string }>('wordpress:testConnection', { id }),
-  uploadEvents: (_data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<{ message: string; results: any[] }> => {
-    throw new Error('WordPress upload requires the actions phase')
-  },
+  uploadEvents: (data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<{ message: string; results: any[] }> =>
+    runAction<{ message: string; results: any[] }>('wordpressUpload:uploadEvents', {
+      settingsId: data.settingsId,
+      eventIds: data.eventIds,
+      status: data.status,
+    }),
 }
 
 // Instagram API
@@ -363,12 +386,10 @@ export const instagramApi = {
 
 // Instagram Apify API
 export const instagramApifyApi = {
-  fetchRunSnapshot: (_runId: string, _limit?: number): Promise<{ success: boolean; runId: string; posts: any[]; input: any }> => {
-    throw new Error('Apify run import requires the actions phase')
-  },
-  importRun: (_runId: string, _limit?: number): Promise<{ success: boolean; runId: string; stats: { attempted: number; created: number; skippedExisting: number; missingAccounts: number }; message: string }> => {
-    throw new Error('Apify run import requires the actions phase')
-  },
+  fetchRunSnapshot: (runId: string, limit?: number): Promise<{ success: boolean; runId: string; posts: any[]; input: any }> =>
+    runAction('instagramApify:snapshot', { runId, limit }),
+  importRun: (runId: string, limit?: number): Promise<any> =>
+    runMutation('instagramApifyQueue:enqueueImport', { runId, limit }),
 }
 
 // Instagram Review API
@@ -377,31 +398,20 @@ export const instagramReviewApi = {
     runQuery<InstagramReviewQueueResponse>('instagramReview:queue', { ...params }).then(normalizeIds),
   classifyPost: (id: string, data: { isEventPoster: boolean; classificationConfidence?: number }) =>
     runMutation<{ message: string; post: EventRaw }>('instagramReview:classify', { id, ...data }).then(normalizeIds),
-  extractEvent: (_id: string, _options?: { overwrite?: boolean; createEvents?: boolean }): Promise<{
-    success: boolean
-    message: string
-    extraction: any
-    eventsCreated: number
-  }> => {
-    throw new Error('Event extraction requires the actions phase (AI extraction runs in the worker)')
-  },
-  aiClassifyPost: (_id: string): Promise<{
-    message: string
-    classification: InstagramAiClassificationResult
-    post: EventRaw
-  }> => {
-    throw new Error('AI classification requires the actions phase (AI extraction runs in the worker)')
-  },
-  aiClassifyPending: (_options?: { accountId?: string; limit?: number }): Promise<InstagramReviewBulkAiClassifyResponse> => {
-    throw new Error('Bulk AI classification requires the actions phase (AI extraction runs in the worker)')
-  },
+  // AI extract/classify now run as worker jobs (async). These enqueue the job
+  // and return { jobId }; the Review UI refetches the queue after a moment.
+  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }): Promise<any> =>
+    runMutation('instagramReview:enqueueExtract', { id, ...options }),
+  aiClassifyPost: (id: string): Promise<any> =>
+    runMutation('instagramReview:enqueueClassify', { id }),
+  aiClassifyPending: (options?: { accountId?: string; limit?: number }): Promise<any> =>
+    runMutation('instagramReview:enqueueClassifyPending', { ...options }),
   getStats: () =>
     runQuery<InstagramReviewStats>('instagramReview:getStats').then(normalizeIds),
   getAccounts: () =>
     runQuery<{ accounts: InstagramAccount[] }>('instagramReview:getAccounts').then(normalizeIds),
-  extractMissing: (_options?: { accountId?: string; limit?: number; overwrite?: boolean }): Promise<InstagramReviewBulkExtractResponse> => {
-    throw new Error('Bulk event extraction requires the actions phase (AI extraction runs in the worker)')
-  },
+  extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }): Promise<any> =>
+    runMutation('instagramReview:enqueueExtractMissing', { ...options }),
 }
 
 // Types
