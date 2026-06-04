@@ -314,6 +314,7 @@ export default defineSchema({
     createdAt: v.number(),
     itemCount: v.number(),
     filePath: optionalString,
+    fileStorageId: v.optional(v.id("_storage")),
     params: v.any(),
     status: exportStatus,
     errorMessage: optionalString,

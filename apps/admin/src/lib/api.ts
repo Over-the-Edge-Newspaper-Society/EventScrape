@@ -216,8 +216,14 @@ export const exportsApi = {
     }),
   cancel: (id: string) =>
     runMutation<{ message: string }>('exports:cancel', { id }).then(normalizeIds),
-  download: (_id: string): Promise<Blob> => {
-    throw new Error('Export download requires the actions phase')
+  download: async (id: string): Promise<Blob> => {
+    const res = await runQuery<{ url: string | null; filename: string; format: string } | null>(
+      'exports:getDownloadUrl', { id },
+    )
+    if (!res?.url) throw new Error('Export file not ready')
+    const r = await fetch(res.url)
+    if (!r.ok) throw new Error('Failed to download export file')
+    return await r.blob()
   },
 }
 

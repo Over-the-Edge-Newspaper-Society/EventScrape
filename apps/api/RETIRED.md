@@ -22,6 +22,8 @@ features that have not yet been re-homed into Convex actions / worker handlers:
 - Apify run import/snapshot
 
 **Done (ported off this package):**
+- Export file generation (CSV/JSON/ICS) — Convex action `exports:generateFile`
+  writes to Convex storage; download via `exports:getDownloadUrl`.
 - OpenRouter vision-model listing — Convex action `openrouter:listVisionModels`.
 - WordPress connection test + category fetch — Convex actions in `convex/wordpress.ts`.
 - Instagram image serving — now uses Convex storage. The worker uploads poster
