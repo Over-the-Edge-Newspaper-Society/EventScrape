@@ -1,90 +1,36 @@
-version: '3.8'
+# Production stack on Convex (Postgres/Redis/Fastify API retired).
+#
+# Convex backend: use Convex Cloud OR the self-hosted backend.
+#   - Convex Cloud: set CONVEX_URL + VITE_CONVEX_URL to your cloud deployment URL
+#     and deploy functions with `npx convex deploy`.
+#   - Self-hosted: run `pnpm convex:docker:up` (docker-compose.convex.yml) and
+#     `pnpm convex:deploy`, then point CONVEX_URL/VITE_CONVEX_URL at it.
+#
+# VITE_CONVEX_URL is baked into the admin bundle at build time and must be the
+# URL the BROWSER uses to reach Convex. CONVEX_URL is what the worker uses.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# TLS / reverse proxy: terminate in front of the admin service with your own
+# proxy (the admin is a static SPA; the browser talks to Convex directly).
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: eventscrape-postgres
-    environment:
-      POSTGRES_DB: eventscrape
-      POSTGRES_USER: eventscrape
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventscrape_prod}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventscrape -d eventscrape"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      eventscrape:
-        aliases:
-          - postgres
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: eventscrape-redis
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      eventscrape:
-        aliases:
-          - redis
-    restart: unless-stopped
-
-  api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    container_name: eventscrape-api
-    environment:
-      DATABASE_URL: postgres://eventscrape:${POSTGRES_PASSWORD:-eventscrape_prod}@postgres:5432/eventscrape
-      REDIS_URL: redis://redis:6379
-      NODE_ENV: production
-      PORT: 3001
-      EXPORT_DIR: /data/exports
-      INSTAGRAM_IMAGES_DIR: /data/instagram_images
-      BACKUP_DIR: /data/backups
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      eventscrape:
-        aliases:
-          - api
-    restart: unless-stopped
-    volumes:
-      - export_data:/data/exports
-      - instagram_images:/data/instagram_images
-      - backup_data:/data/backups
-    expose:
-      - "3001"
-
   admin:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
       args:
-        VITE_API_URL: /api
+        VITE_CONVEX_URL: ${VITE_CONVEX_URL:?set VITE_CONVEX_URL to your Convex deployment URL}
     container_name: eventscrape-admin
     environment:
       NODE_ENV: production
-    depends_on:
-      - api
+    ports:
+      - "${EVENTSCRAPE_HTTP_PORT:-3000}:3000"
     networks:
       eventscrape:
         aliases:
           - admin
     restart: unless-stopped
-    expose:
-      - "3000"
 
   worker:
     build:
@@ -92,43 +38,16 @@ services:
       dockerfile: worker/Dockerfile
     container_name: eventscrape-worker
     environment:
-      DATABASE_URL: postgres://eventscrape:${POSTGRES_PASSWORD:-eventscrape_prod}@postgres:5432/eventscrape
-      REDIS_URL: redis://redis:6379
+      CONVEX_URL: ${CONVEX_URL:?set CONVEX_URL to your Convex deployment URL}
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
-      EXPORT_DIR: /data/exports
-      API_URL: http://api:3001
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      INSTAGRAM_IMAGES_DIR: /data/instagram_images
+    volumes:
+      - instagram_images:/data/instagram_images
     networks:
       eventscrape:
         aliases:
           - worker
-    restart: unless-stopped
-    volumes:
-      - export_data:/data/exports
-
-  # Nginx reverse proxy
-  nginx:
-    image: nginx:alpine
-    container_name: eventscrape-nginx
-    ports:
-      - "${EVENTSCRAPE_HTTP_PORT:-80}:80"
-      - "${EVENTSCRAPE_HTTPS_PORT:-443}:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-      - certbot_www:/var/www/certbot:ro
-    depends_on:
-      - admin
-      - api
-    networks:
-      eventscrape:
-        aliases:
-          - nginx
     restart: unless-stopped
 
 networks:
@@ -136,9 +55,4 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
-  redis_data:
-  export_data:
   instagram_images:
-  backup_data:
-  certbot_www:

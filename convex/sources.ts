@@ -72,6 +72,29 @@ export const upsert = mutation({
   },
 });
 
+// Admin "Sync sources" button: enqueue an on-demand module-sync job. The worker
+// (which owns module discovery) picks it up and calls syncFromModules. The worker
+// also syncs automatically on startup, so this is for forcing a refresh.
+export const enqueueSync = mutation({
+  args: {},
+  returns: v.object({ jobId: v.id("jobs"), message: v.string() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const jobId = await ctx.db.insert("jobs", {
+      queue: "moduleSync",
+      name: "moduleSync",
+      status: "queued",
+      payload: {},
+      attempts: 0,
+      maxAttempts: 3,
+      availableAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { jobId, message: "Source sync queued — sources refresh momentarily" };
+  },
+});
+
 export const setActive = mutation({
   args: {
     sourceId: v.id("sources"),

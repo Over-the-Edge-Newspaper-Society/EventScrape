@@ -68,3 +68,6 @@ certbot/*
 !certbot/www/
 certbot/www/*
 !certbot/www/.gitkeep
+
+# Convex snapshot backups (large, local)
+/backups/

@@ -32,6 +32,7 @@ const QUEUE_CONCURRENCY: Record<string, number> = {
   review: 1,
   posterImport: 1,
   apifyImport: 1,
+  moduleSync: 1,
 };
 
 class EventScraperWorker {
@@ -46,6 +47,9 @@ class EventScraperWorker {
     logger.info('🚀 Initializing Event Scraper Worker (Convex mode)...');
     await this.moduleLoader.loadModules();
     logger.info(`✅ Loaded ${this.moduleLoader.getAllModules().length} scraper modules`);
+    // Push discovered modules to Convex so the source rows stay current. The
+    // browser can't read the worker's module dir, so the worker owns discovery.
+    await this.syncModules();
     // Browser-pool init is non-fatal: match jobs and Apify-based Instagram jobs
     // don't need Playwright. Website scrape jobs will fail individually (and be
     // retried) if the browser can't launch, rather than taking down the worker.
@@ -112,6 +116,7 @@ class EventScraperWorker {
       else if (job.queue === 'review') await handleReviewAiJob(this.shim(job));
       else if (job.queue === 'posterImport') await handlePosterImportJob(this.shim(job));
       else if (job.queue === 'apifyImport') await handleApifyImportJob(this.shim(job));
+      else if (job.queue === 'moduleSync') await this.syncModules();
       else throw new Error(`Unknown queue ${job.queue}`);
 
       await jobs.complete({ jobId: job._id });
@@ -269,6 +274,23 @@ class EventScraperWorker {
       })),
     });
     logger.info(`✅ Match job completed: cleared ${cleared} open, inserted ${inserted}`);
+  }
+
+  // Discover scraper modules and sync the Convex source rows.
+  private async syncModules(): Promise<void> {
+    try {
+      const modules = this.moduleLoader.getAllModules().map((m) => ({
+        key: m.key,
+        label: m.label,
+        baseUrl: m.startUrls?.[0] || '',
+      }));
+      const res = await workerApi.syncFromModules({ modules });
+      logger.info(
+        `🔄 Synced ${modules.length} modules to Convex (created ${res.stats?.created ?? 0}, updated ${res.stats?.updated ?? 0}, deactivated ${res.stats?.deactivated ?? 0})`,
+      );
+    } catch (err) {
+      logger.error(`Module sync failed: ${(err as Error).message}`);
+    }
   }
 
   // Build a JobShim for the generic job handlers (wordpress/review/poster/apify).

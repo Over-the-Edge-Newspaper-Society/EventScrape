@@ -31,14 +31,17 @@ WORKDIR /app
 # Install pnpm
 RUN npm install -g pnpm
 
-# Accept build arguments
+# Accept build arguments. VITE_CONVEX_URL is the browser-facing Convex
+# deployment URL (the app talks to Convex directly). VITE_API_URL is legacy.
 ARG VITE_API_URL=/api
+ARG VITE_CONVEX_URL=http://127.0.0.1:3210
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build the application with environment variables
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_CONVEX_URL=$VITE_CONVEX_URL
 RUN pnpm --filter @eventscrape/admin build
 
 # Production image, copy all the files and run next

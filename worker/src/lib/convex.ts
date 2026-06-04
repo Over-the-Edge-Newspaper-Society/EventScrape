@@ -37,7 +37,8 @@ export type ClaimedJob = {
     | 'wordpress'
     | 'review'
     | 'posterImport'
-    | 'apifyImport';
+    | 'apifyImport'
+    | 'moduleSync';
   name: string;
   payload: any;
   runId?: string;
@@ -70,6 +71,8 @@ export const workerApi = {
   getInstagramSession: q('worker:getInstagramSession'),
   getKnownInstagramPostIds: q<string[]>('worker:getKnownInstagramPostIds'),
   getInstagramSourceId: q<string | null>('worker:getInstagramSourceId'),
+  // module sync (worker discovers scraper modules; Convex owns the source rows)
+  syncFromModules: m<{ message: string; stats: any; availableModules: any[] }>('sources:syncFromModules'),
   // run lifecycle
   markRunRunning: m('worker:markRunRunning'),
   finishRun: m('worker:finishRun'),

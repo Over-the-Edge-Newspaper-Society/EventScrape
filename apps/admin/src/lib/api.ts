@@ -53,12 +53,14 @@ export const sourcesApi = {
     message: string
     stats: { availableModules: number; created: number; updated: number; deactivated: number }
     availableModules: Array<{ key: string; label: string; baseUrl: string }>
-  }> => {
-    // Module discovery (reading the worker modules dir) is external I/O done by
-    // the worker, so it isn't available from the browser. The DB-only sync
-    // mutation requires the discovered module list as input.
-    throw new Error('Source sync requires the worker (module discovery is not available in the browser)')
-  },
+  }> =>
+    // Module discovery happens in the worker (it can read the modules dir). This
+    // enqueues an on-demand sync job; the worker also syncs on startup.
+    runMutation<{ jobId: string; message: string }>('sources:enqueueSync', {}).then((r) => ({
+      message: r.message,
+      stats: { availableModules: 0, created: 0, updated: 0, deactivated: 0 },
+      availableModules: [],
+    })),
 }
 
 // Events API

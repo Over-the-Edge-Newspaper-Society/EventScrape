@@ -12,15 +12,17 @@ the build (`pnpm build` filters to `@eventscrape/admin` + `@eventscrape/worker`)
 
 ## Why the source is kept (not deleted)
 
-Nearly everything has been ported. The only feature still living here:
-
-- **Database backup/restore bundles** (`routes/backups.ts`, `routes/database.ts`) —
-  now handled at the platform level by Convex (snapshots via the Convex dashboard
-  / CLI). The admin shows an informational message pointing there. The bundle
-  export format (which saved us during the image restore) is preserved here for
-  reference.
+Every feature has been ported off this package. The source is kept only as
+historical reference for the original implementations; nothing here runs.
 
 **Done (ported off this package):**
+- Source sync — the worker discovers scraper modules and pushes them to Convex
+  (`sources:syncFromModules`) on startup; the admin "Sync" button enqueues an
+  on-demand `moduleSync` job (`sources:enqueueSync` → worker `moduleSync` queue).
+- Database backup/restore — native Convex snapshots (`pnpm backup:export` /
+  `pnpm backup:import`, wrapping `convex export --include-file-storage` /
+  `convex import --replace`). One ZIP holds every table + all stored files. Also
+  available from the Convex dashboard (Settings → Snapshot Export).
 - WordPress event upload — Convex Node action `wordpressUpload:uploadEvents`
   (synchronous; resolves images from Convex storage for media upload).
 - WordPress connection test + category fetch — Convex actions in `convex/wordpress.ts`.

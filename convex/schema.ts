@@ -27,6 +27,7 @@ export const queueName = v.union(
   v.literal("review"),
   v.literal("posterImport"),
   v.literal("apifyImport"),
+  v.literal("moduleSync"),
 );
 
 export const sourceType = v.union(v.literal("website"), v.literal("instagram"));

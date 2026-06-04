@@ -29,7 +29,9 @@
     "convex:docker:down": "docker compose -f docker-compose.convex.yml down",
     "convex:docker:logs": "docker compose -f docker-compose.convex.yml logs -f",
     "convex:docker:key": "docker compose -f docker-compose.convex.yml exec backend ./generate_admin_key.sh",
-    "convex:migrate:pg": "tsx scripts/migrate-postgres-to-convex.ts"
+    "convex:migrate:pg": "tsx scripts/migrate-postgres-to-convex.ts",
+    "backup:export": "convex export --include-file-storage --path ./backups",
+    "backup:import": "convex import --replace"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

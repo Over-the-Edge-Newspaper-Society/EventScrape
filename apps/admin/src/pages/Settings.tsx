@@ -452,15 +452,27 @@ export function Settings() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground space-y-2">
+            <div className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground space-y-3">
               <p>
-                This deployment runs on Convex. Database snapshots and restores are
-                handled at the platform level rather than through the admin app.
+                This deployment runs on Convex. Backups are native Convex snapshots —
+                a single ZIP containing <span className="font-medium text-foreground">every table plus all stored files</span>{' '}
+                (Instagram poster images included). Run these from the project root:
               </p>
+              <div className="space-y-2 font-mono text-xs text-foreground">
+                <div>
+                  <span className="text-muted-foreground"># export a full backup → ./backups/snapshot_*.zip</span>
+                  <div className="rounded bg-muted px-2 py-1">pnpm backup:export</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground"># restore from a backup (replaces existing data)</span>
+                  <div className="rounded bg-muted px-2 py-1">pnpm backup:import backups/snapshot_&lt;id&gt;.zip</div>
+                </div>
+              </div>
               <p>
-                Use the{' '}
+                You can also create / browse / restore snapshots from the{' '}
                 <span className="font-medium text-foreground">Convex dashboard</span>{' '}
-                to create snapshots, browse backup history, and restore data.
+                (Settings → Snapshot Export) at{' '}
+                <span className="font-mono text-xs">http://localhost:6791</span>.
               </p>
             </div>
           </Card>
