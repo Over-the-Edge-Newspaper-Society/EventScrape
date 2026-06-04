@@ -266,19 +266,20 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
         let localImageSize: number | undefined;
         if (post.imageUrl) {
           try {
-            localImagePath = await scraper.downloadImage(
+            const downloadedPath: string = await scraper.downloadImage(
               post.imageUrl,
               post.id,
               DOWNLOAD_DIR
             );
+            localImagePath = downloadedPath;
             job.log(`Downloaded image for post ${post.id}`);
 
             // Upload to Convex storage so the admin can serve it (the local copy
             // is ephemeral and only used for AI below).
             try {
-              const fullPath = path.join(DOWNLOAD_DIR, localImagePath);
+              const fullPath = path.join(DOWNLOAD_DIR, downloadedPath);
               const bytes = await readFile(fullPath);
-              const ext = (localImagePath.split('.').pop() || 'jpg').toLowerCase();
+              const ext = (downloadedPath.split('.').pop() || 'jpg').toLowerCase();
               localImageContentType =
                 ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
               const uploaded = await uploadToConvexStorage(bytes, localImageContentType);

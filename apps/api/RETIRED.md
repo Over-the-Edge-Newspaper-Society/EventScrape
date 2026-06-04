@@ -19,8 +19,15 @@ features that have not yet been re-homed into Convex actions / worker handlers:
 - Export file generation: CSV / JSON / ICS (`routes/exports.ts`)
 - Poster import + AI extraction triggers (`routes/poster-import.ts`)
 - Database backup/restore bundles (`routes/backups.ts`, `routes/database.ts`)
-- Instagram image serving + Apify run import/snapshot
-- OpenRouter vision-model listing
+- Apify run import/snapshot
+
+**Done (ported off this package):**
+- OpenRouter vision-model listing — Convex action `openrouter:listVisionModels`.
+- WordPress connection test + category fetch — Convex actions in `convex/wordpress.ts`.
+- Instagram image serving — now uses Convex storage. The worker uploads poster
+  images at scrape time (`worker/src/lib/convex.ts uploadToConvexStorage`), the
+  review/event queries resolve storage URLs, and existing images were backfilled
+  from the backup bundle via `scripts/backfill-instagram-images-from-dir.ts`.
 
 These are currently **gated in the admin UI** with clear "requires the actions
 phase" messages. When porting them, move the logic into either the worker (for

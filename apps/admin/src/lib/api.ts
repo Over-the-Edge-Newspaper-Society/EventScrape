@@ -1,4 +1,4 @@
-import { runQuery, runMutation, normalizeIds } from './convexClient'
+import { runQuery, runMutation, runAction, normalizeIds } from './convexClient'
 
 // Convert an ISO date string (or undefined) into epoch-ms number for Convex.
 const toMs = (value?: string): number | undefined =>
@@ -170,9 +170,8 @@ export const systemSettingsApi = {
     ),
   cleanupDuplicates: (sourceKey?: string) =>
     runMutation<CleanupDuplicatesResult>('systemSettings:cleanupDuplicates', { sourceKey }).then(normalizeIds),
-  getOpenRouterModels: (): Promise<OpenRouterModel[]> => {
-    throw new Error('OpenRouter model list requires the actions phase')
-  },
+  getOpenRouterModels: (): Promise<OpenRouterModel[]> =>
+    runAction<{ models: OpenRouterModel[] }>('openrouter:listVisionModels', {}).then((r) => r.models),
 }
 
 // Matches API
@@ -306,18 +305,16 @@ export const wordpressApi = {
     runQuery<{ sources: Source[] }>('wordpress:listSources').then(normalizeIds),
   getSettings: () =>
     runQuery<{ settings: WordPressSettings[] }>('wordpress:listSettings').then(normalizeIds),
-  getCategories: (_id: string): Promise<{ categories: WordPressCategory[] }> => {
-    throw new Error('WordPress category fetch requires the actions phase')
-  },
+  getCategories: (id: string): Promise<{ categories: WordPressCategory[] }> =>
+    runAction<{ categories: WordPressCategory[] }>('wordpress:getCategories', { id }).then(normalizeIds),
   createSetting: (data: NewWordPressSettings) =>
     runMutation<{ setting: WordPressSettings; message: string }>('wordpress:createSettings', data).then(normalizeIds),
   updateSetting: (id: string, data: Partial<NewWordPressSettings>) =>
     runMutation<{ setting: WordPressSettings; message: string }>('wordpress:updateSettings', { id, ...data }).then(normalizeIds),
   deleteSetting: (id: string) =>
     runMutation<{ message: string }>('wordpress:deleteSettings', { id }).then(normalizeIds),
-  testConnection: (_id: string): Promise<{ success: boolean; error?: string }> => {
-    throw new Error('WordPress connection test requires the actions phase')
-  },
+  testConnection: (id: string): Promise<{ success: boolean; error?: string }> =>
+    runAction<{ success: boolean; error?: string }>('wordpress:testConnection', { id }),
   uploadEvents: (_data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<{ message: string; results: any[] }> => {
     throw new Error('WordPress upload requires the actions phase')
   },

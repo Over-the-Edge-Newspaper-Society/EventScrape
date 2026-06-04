@@ -19,6 +19,7 @@ import type * as instagramSettings from "../instagramSettings.js";
 import type * as jobs from "../jobs.js";
 import type * as matches from "../matches.js";
 import type * as migration from "../migration.js";
+import type * as openrouter from "../openrouter.js";
 import type * as runLogs from "../runLogs.js";
 import type * as runs from "../runs.js";
 import type * as schedules from "../schedules.js";
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   matches: typeof matches;
   migration: typeof migration;
+  openrouter: typeof openrouter;
   runLogs: typeof runLogs;
   runs: typeof runs;
   schedules: typeof schedules;

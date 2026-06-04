@@ -1,12 +1,11 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, action, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Doc } from "./_generated/dataModel";
 
-// Ports apps/api/src/routes/wordpress.ts DB-backed endpoints. The connection
-// test (POST /settings/:id/test), categories (GET /settings/:id/categories) and
-// upload (POST /upload) endpoints do external HTTP and are NOT implemented here.
-// TODO(actions phase): port test / categories / upload as Convex actions using
-// WordPressClient.
+// Ports apps/api/src/routes/wordpress.ts. DB-backed endpoints are queries/
+// mutations; connection test + categories are Convex actions (short external
+// HTTP). Bulk event upload remains a worker job (heavy/long) — see Task #11.
 
 // Strips the application password from a settings row before returning it.
 function publicSettings(s: Doc<"wordpressSettings">) {
@@ -22,6 +21,60 @@ function publicSettings(s: Doc<"wordpressSettings">) {
     updatedAt: s.updatedAt,
   };
 }
+
+// Internal: returns a settings row WITH the application password (for actions).
+export const getSettingWithSecret = internalQuery({
+  args: { id: v.id("wordpressSettings") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => ctx.db.get(args.id),
+});
+
+function basicAuth(username: string, appPassword: string) {
+  // btoa is available in the Convex runtime.
+  return "Basic " + btoa(`${username}:${appPassword}`);
+}
+
+// POST /settings/:id/test — verify credentials against wp-json users/me.
+export const testConnection = action({
+  args: { id: v.id("wordpressSettings") },
+  returns: v.object({ success: v.boolean(), error: v.optional(v.string()) }),
+  handler: async (ctx, args): Promise<{ success: boolean; error?: string }> => {
+    const s: any = await ctx.runQuery(internal.wordpress.getSettingWithSecret, { id: args.id });
+    if (!s) return { success: false, error: "WordPress setting not found" };
+    try {
+      const res = await fetch(`${s.siteUrl}/wp-json/wp/v2/users/me`, {
+        method: "GET",
+        headers: { Authorization: basicAuth(s.username, s.applicationPassword) },
+      });
+      if (!res.ok) {
+        return { success: false, error: `Connection failed: ${res.status} - ${await res.text()}` };
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: `Connection error: ${(err as Error).message}` };
+    }
+  },
+});
+
+// GET /settings/:id/categories — fetch the WP event_category taxonomy.
+export const getCategories = action({
+  args: { id: v.id("wordpressSettings") },
+  returns: v.object({ categories: v.array(v.any()) }),
+  handler: async (ctx, args): Promise<{ categories: any[] }> => {
+    const s: any = await ctx.runQuery(internal.wordpress.getSettingWithSecret, { id: args.id });
+    if (!s) return { categories: [] };
+    try {
+      const res = await fetch(
+        `${s.siteUrl}/wp-json/wp/v2/event_category?per_page=100&_fields=id,name,slug`,
+        { method: "GET", headers: { Authorization: basicAuth(s.username, s.applicationPassword) } },
+      );
+      if (!res.ok) return { categories: [] };
+      return { categories: (await res.json()) as any[] };
+    } catch {
+      return { categories: [] };
+    }
+  },
+});
 
 // GET /wordpress/sources — website sources for source-category mapping.
 export const listSources = query({
