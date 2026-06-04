@@ -1,111 +1,28 @@
+# EventScrape now runs entirely on Convex — Postgres and Redis have been retired.
+# The self-hosted Convex backend + dashboard live in docker-compose.convex.yml
+# (run `pnpm convex:docker:up`). This file builds the app services that talk to it.
+#
+# The former Fastify API (apps/api) has been retired: the admin UI talks to Convex
+# directly and the worker claims jobs from Convex. A handful of external-I/O
+# features (WordPress upload, AI extraction triggers, export file generation,
+# poster import, backups) are pending the "actions phase" port and are gated in
+# the UI. See docs/convex-actions-tradeoffs.md and docs/convex-migration.md.
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: eventscrape-postgres
-    environment:
-      POSTGRES_DB: eventscrape
-      POSTGRES_USER: eventscrape
-      POSTGRES_PASSWORD: eventscrape_dev
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventscrape -d eventscrape"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      eventscrape:
-        aliases:
-          - postgres
-
-  redis:
-    image: redis:7-alpine
-    container_name: eventscrape-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      eventscrape:
-        aliases:
-          - redis
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: api
-    container_name: eventscrape-api
-    expose:
-      - "3001"
-    environment:
-      DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
-      REDIS_URL: redis://redis:6379
-      NODE_ENV: production
-      PORT: 3001
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
-      EXPORT_DIR: /data/exports
-      INSTAGRAM_IMAGES_DIR: /data/instagram_images
-      BACKUP_DIR: /data/backups
-    volumes:
-      - export_data:/data/exports
-      - instagram_images:/data/instagram_images
-      - backup_data:/data/backups
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      eventscrape:
-        aliases:
-          - api
-    restart: unless-stopped
-
   admin:
     build:
       context: .
       dockerfile: Dockerfile
       target: admin
-      args:
-        ADMIN_API_URL: ${ADMIN_API_URL:-http://__HOST__:3001/api}
     container_name: eventscrape-admin
-    expose:
-      - "3000"
-    environment:
-      VITE_API_URL: ${VITE_API_URL:-http://api:3001/api}
-      NODE_ENV: production
-    depends_on:
-      - api
-    networks:
-      eventscrape:
-        aliases:
-          - admin
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: eventscrape-nginx
     ports:
-      - "${EVENTSCRAPE_HTTP_PORT:-80}:80"
-    volumes:
-      - ./nginx-local.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - api
-      - admin
+      - "${EVENTSCRAPE_HTTP_PORT:-3000}:80"
+    environment:
+      # Browser-facing Convex deployment URL (defaults to the self-hosted backend).
+      VITE_CONVEX_URL: ${VITE_CONVEX_URL:-http://127.0.0.1:3210}
+      NODE_ENV: production
     networks:
-      eventscrape:
-        aliases:
-          - nginx
+      - eventscrape
     restart: unless-stopped
 
   worker:
@@ -115,24 +32,17 @@ services:
       target: worker
     container_name: eventscrape-worker
     environment:
-      DATABASE_URL: postgres://eventscrape:eventscrape_dev@postgres:5432/eventscrape
-      REDIS_URL: redis://redis:6379
+      # Worker claims jobs + reads/writes data over Convex (no DATABASE_URL/REDIS_URL).
+      CONVEX_URL: ${CONVEX_URL:-http://host.docker.internal:3210}
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
-      EXPORT_DIR: /data/exports
       INSTAGRAM_IMAGES_DIR: /data/instagram_images
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     volumes:
-      - export_data:/data/exports
       - instagram_images:/data/instagram_images
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
-      eventscrape:
-        aliases:
-          - worker
+      - eventscrape
     restart: unless-stopped
 
 networks:
@@ -140,8 +50,4 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
-  redis_data:
-  export_data:
   instagram_images:
-  backup_data:
