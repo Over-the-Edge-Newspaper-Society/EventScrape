@@ -50,6 +50,12 @@ export class BrowserPool {
       ],
     };
 
+    // In containers (e.g. Alpine) we ship a system Chromium instead of the
+    // Playwright-bundled browser. Honor the executable path when provided.
+    if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+    }
+
     return await chromium.launch(launchOptions);
   }
 

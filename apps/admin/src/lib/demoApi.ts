@@ -958,7 +958,7 @@ async function handleDemoRequest(url: URL, input: FetchInput, init?: FetchInit) 
   }
 
   if (method === 'DELETE' && endpoint === '/events/raw') {
-    const ids = Array.isArray(asRecord(body).ids) ? asRecord(body).ids : []
+    const ids = (Array.isArray(asRecord(body).ids) ? asRecord(body).ids : []) as string[]
     demoRawEvents = demoRawEvents.filter((item) => !ids.includes(item.event.id))
     return jsonResponse({ message: 'Demo raw events deleted', deletedIds: ids })
   }
@@ -983,7 +983,7 @@ async function handleDemoRequest(url: URL, input: FetchInput, init?: FetchInit) 
   }
 
   if (method === 'DELETE' && endpoint === '/events/canonical') {
-    const ids = Array.isArray(asRecord(body).ids) ? asRecord(body).ids : []
+    const ids = (Array.isArray(asRecord(body).ids) ? asRecord(body).ids : []) as string[]
     demoCanonicalEvents = demoCanonicalEvents.filter((item) => !ids.includes(item.id))
     return jsonResponse({ message: 'Demo canonical events deleted', deletedIds: ids })
   }
@@ -1060,7 +1060,7 @@ async function handleDemoRequest(url: URL, input: FetchInput, init?: FetchInit) 
         id: nextId('exp'),
         format: data.format === 'wp-rest' ? 'wp-rest' : data.format === 'json' ? 'json' : data.format === 'ics' ? 'ics' : 'csv',
         createdAt: new Date().toISOString(),
-        itemCount: Array.isArray(asRecord(data.filters).ids) ? asRecord(data.filters).ids.length : demoCanonicalEvents.length,
+        itemCount: Array.isArray(asRecord(data.filters).ids) ? (asRecord(data.filters).ids as any[]).length : demoCanonicalEvents.length,
         params: data,
         status: 'success',
       },

@@ -15,8 +15,11 @@ COPY pnpm-lock.yaml ./
 # Copy package.json files
 COPY worker/package.json ./worker/
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Install dependencies. --shamefully-hoist flattens all deps into the root
+# node_modules so the worker can resolve them after we copy node_modules into
+# worker/ in the runner stage (pnpm's default symlinked layout doesn't survive
+# that copy).
+RUN pnpm install --frozen-lockfile --shamefully-hoist
 
 # Rebuild the source code only when needed
 FROM base AS builder
