@@ -1,4 +1,4 @@
-import { queryClient as db } from './database.js';
+import { workerApi } from './convex.js';
 import type { ProcessedEvent } from '../types.js';
 import crypto from 'crypto';
 
@@ -137,237 +137,100 @@ export function detectRecurrencePattern(
   return 'custom';
 }
 
-/**
- * Save event with series and occurrences to database
- * Returns: { action: 'inserted' | 'updated' | 'unchanged', seriesId: string }
- */
-export async function saveEventWithOccurrences(
-  event: ProcessedEvent,
-  sourceId: string,
-  runId: string
-): Promise<{ action: 'inserted' | 'updated' | 'unchanged'; seriesId: string }> {
-  // Detect occurrence type
-  const occurrenceInfo = detectOccurrenceType(event);
-
-  // Generate content hash for change detection
-  const contentHash = generateSeriesContentHash(event);
-
-  // Extract series dates from raw metadata
-  const seriesDates: SeriesDateInfo[] = event.raw?.seriesDates || [
-    { start: event.startDatetime.toISOString(), end: event.endDatetime?.toISOString() }
-  ];
-
-  // Step 1: Insert or update series
-  const seriesData = {
-    source_id: sourceId,
-    run_id: runId,
-    source_event_id: event.sourceEventId || null,
-    title: event.title,
-    description_html: event.descriptionHtml || null,
-    occurrence_type: occurrenceInfo.occurrenceType,
-    event_status: 'scheduled' as const,
-    status_reason: null,
-    recurrence_type: occurrenceInfo.recurrenceType,
-    recurrence_pattern: null, // Could be extracted from RRULE if available
-    is_all_day: occurrenceInfo.isAllDay,
-    is_virtual: occurrenceInfo.isVirtual,
-    virtual_url: event.raw?.virtualUrl || null,
-    venue_name: event.venueName || null,
-    venue_address: event.venueAddress || null,
-    city: event.city || null,
-    region: event.region || null,
-    country: event.country || null,
-    lat: event.lat || null,
-    lon: event.lon || null,
-    organizer: event.organizer || null,
-    category: event.category || null,
-    price: event.price || null,
-    tags: event.tags ?? null,
-    url_primary: event.url,
-    image_url: event.imageUrl || null,
-    raw: event.raw ?? {},
-    content_hash: contentHash,
-  };
-
-  // Try to insert series (or update if exists)
-  let seriesId: string;
-  let seriesAction: 'inserted' | 'updated' | 'unchanged' = 'inserted';
-
-  if (event.sourceEventId) {
-    // Try insert first
-    const insertedSeries = await db`
-      INSERT INTO event_series ${db(seriesData)}
-      ON CONFLICT (source_id, source_event_id)
-      WHERE source_event_id IS NOT NULL
-      DO NOTHING
-      RETURNING id
-    `;
-
-    if (insertedSeries.length > 0) {
-      seriesId = insertedSeries[0].id;
-      seriesAction = 'inserted';
-    } else {
-      // Already exists, check if content changed
-      const existingSeries = await db`
-        SELECT id, content_hash
-        FROM event_series
-        WHERE source_id = ${sourceId}
-          AND source_event_id = ${event.sourceEventId}
-      `;
-
-      if (existingSeries.length === 0) {
-        throw new Error('Series should exist but was not found');
-      }
-
-      seriesId = existingSeries[0].id;
-
-      // Update if content changed
-      if (existingSeries[0].content_hash !== contentHash) {
-        await db`
-          UPDATE event_series
-          SET ${db(seriesData, 'title', 'description_html', 'occurrence_type', 'event_status',
-            'recurrence_type', 'is_all_day', 'is_virtual', 'virtual_url', 'venue_name',
-            'venue_address', 'city', 'region', 'country', 'lat', 'lon', 'organizer',
-            'category', 'price', 'tags', 'url_primary', 'image_url', 'raw', 'content_hash')},
-            last_updated_by_run_id = ${runId},
-            updated_at = NOW()
-          WHERE id = ${seriesId}
-        `;
-        seriesAction = 'updated';
-      } else {
-        // Update last_updated_by_run_id even if content unchanged
-        await db`
-          UPDATE event_series
-          SET last_updated_by_run_id = ${runId},
-              updated_at = NOW()
-          WHERE id = ${seriesId}
-        `;
-        seriesAction = 'unchanged';
-      }
-    }
-  } else {
-    // No source_event_id, always insert new series
-    const insertedSeries = await db`
-      INSERT INTO event_series ${db(seriesData)}
-      RETURNING id
-    `;
-    seriesId = insertedSeries[0].id;
-    seriesAction = 'inserted';
-  }
-
-  // Step 2: Insert or update occurrences
-  for (let i = 0; i < seriesDates.length; i++) {
-    const dateInfo = seriesDates[i];
-    const startDatetime = new Date(dateInfo.start);
-    const endDatetime = dateInfo.end ? new Date(dateInfo.end) : undefined;
-
-    // Convert to UTC for storage
-    const startDatetimeUtc = new Date(startDatetime.toISOString());
-    const endDatetimeUtc = endDatetime ? new Date(endDatetime.toISOString()) : null;
-
-    const durationSeconds = calculateDuration(startDatetime, endDatetime);
-    const occurrenceHash = generateOccurrenceHash(seriesId, startDatetime, endDatetime);
-
-    const occurrenceData = {
-      series_id: seriesId,
-      occurrence_hash: occurrenceHash,
-      sequence: i + 1,
-      start_datetime: startDatetime.toISOString(),
-      end_datetime: endDatetime?.toISOString() || null,
-      start_datetime_utc: startDatetimeUtc.toISOString(),
-      end_datetime_utc: endDatetimeUtc?.toISOString() || null,
-      duration_seconds: durationSeconds,
-      timezone: event.timezone,
-      has_recurrence: seriesDates.length > 1,
-      is_provisional: false,
-      title_override: null,
-      description_override: null,
-      venue_name_override: null,
-      venue_address_override: null,
-      event_status_override: null,
-      status_reason_override: null,
-      raw: dateInfo.rawText ? { rawText: dateInfo.rawText } : null,
-    };
-
-    // Insert occurrence (or update last_seen_at if exists)
-    await db`
-      INSERT INTO event_occurrences ${db(occurrenceData)}
-      ON CONFLICT (occurrence_hash) DO UPDATE
-      SET last_seen_at = NOW()
-    `;
-  }
-
-  return { action: seriesAction, seriesId };
+function toMs(d: Date | string | undefined | null): number | undefined {
+  if (d === undefined || d === null) return undefined;
+  const date = d instanceof Date ? d : new Date(d);
+  const ms = date.getTime();
+  return Number.isNaN(ms) ? undefined : ms;
 }
 
 /**
- * Backward compatibility: Also insert into events_raw with series_id reference
+ * Persist a scraped event (series + occurrences + events_raw) to Convex in one
+ * atomic mutation. Replaces the former saveEventWithOccurrences + saveToEventsRaw
+ * Postgres pair. All hashing / occurrence-type detection stays here (pure Node);
+ * the Convex mutation owns the index-based upsert + conflict logic.
  */
-export async function saveToEventsRaw(
+export async function persistScrapedEvent(
   event: ProcessedEvent,
   sourceId: string,
   runId: string,
-  seriesId: string,
-  occurrenceId?: string
-): Promise<void> {
-  const eventData = {
-    source_id: sourceId,
-    run_id: runId,
-    source_event_id: event.sourceEventId || null,
-    title: event.title,
-    description_html: event.descriptionHtml || null,
-    start_datetime: event.startDatetime,
-    end_datetime: event.endDatetime || null,
-    timezone: event.timezone,
-    venue_name: event.venueName || null,
-    venue_address: event.venueAddress || null,
-    city: event.city || null,
-    region: event.region || null,
-    country: event.country || null,
-    lat: event.lat || null,
-    lon: event.lon || null,
-    organizer: event.organizer || null,
-    category: event.category || null,
-    price: event.price || null,
-    tags: event.tags ?? null,
-    url: event.url,
-    image_url: event.imageUrl || null,
-    scraped_at: event.scrapedAt,
-    raw: event.raw ?? {},
-    content_hash: event.contentHash,
-    last_seen_at: new Date(),
-    series_id: seriesId,
-    occurrence_id: occurrenceId || null,
-  };
+): Promise<{ action: 'inserted' | 'updated' | 'unchanged'; seriesId: string }> {
+  const occurrenceInfo = detectOccurrenceType(event);
+  const contentHash = generateSeriesContentHash(event);
 
-  if (!event.sourceEventId) {
-    // No stable ID, always insert
-    await db`INSERT INTO events_raw ${db(eventData)}`;
-    return;
-  }
+  const seriesDates: SeriesDateInfo[] = event.raw?.seriesDates || [
+    { start: event.startDatetime.toISOString(), end: event.endDatetime?.toISOString() },
+  ];
 
-  // Try insert with conflict handling
-  const inserted = await db`
-    INSERT INTO events_raw ${db(eventData)}
-    ON CONFLICT (source_id, source_event_id)
-    WHERE source_event_id IS NOT NULL
-    DO NOTHING
-    RETURNING id
-  `;
+  const occurrences = seriesDates.map((dateInfo, i) => {
+    const startMs = toMs(dateInfo.start)!;
+    const endMs = toMs(dateInfo.end);
+    return {
+      sequence: i + 1,
+      startDatetime: startMs,
+      endDatetime: endMs,
+      startDatetimeUtc: startMs,
+      endDatetimeUtc: endMs,
+      durationSeconds:
+        endMs !== undefined ? Math.floor((endMs - startMs) / 1000) : undefined,
+      timezone: event.timezone,
+      hasRecurrence: seriesDates.length > 1,
+      raw: dateInfo.rawText ? { rawText: dateInfo.rawText } : undefined,
+    };
+  });
 
-  if (inserted.length === 0) {
-    // Already exists, update if content changed
-    await db`
-      UPDATE events_raw
-      SET ${db(eventData, 'title', 'description_html', 'start_datetime', 'end_datetime',
-        'timezone', 'venue_name', 'venue_address', 'city', 'region', 'country',
-        'lat', 'lon', 'organizer', 'category', 'price', 'tags', 'url', 'image_url',
-        'raw', 'content_hash', 'series_id', 'occurrence_id')},
-        last_updated_by_run_id = ${runId},
-        last_seen_at = NOW()
-      WHERE source_id = ${sourceId}
-        AND source_event_id = ${event.sourceEventId}
-        AND content_hash != ${event.contentHash}
-    `;
-  }
+  return await workerApi.saveScrapedEvent({
+    sourceId,
+    runId,
+    series: {
+      sourceEventId: event.sourceEventId || undefined,
+      title: event.title,
+      descriptionHtml: event.descriptionHtml || undefined,
+      occurrenceType: occurrenceInfo.occurrenceType,
+      recurrenceType: occurrenceInfo.recurrenceType,
+      isAllDay: occurrenceInfo.isAllDay,
+      isVirtual: occurrenceInfo.isVirtual,
+      virtualUrl: event.raw?.virtualUrl || undefined,
+      venueName: event.venueName || undefined,
+      venueAddress: event.venueAddress || undefined,
+      city: event.city || undefined,
+      region: event.region || undefined,
+      country: event.country || undefined,
+      lat: event.lat ?? undefined,
+      lon: event.lon ?? undefined,
+      organizer: event.organizer || undefined,
+      category: event.category || undefined,
+      price: event.price || undefined,
+      tags: event.tags ?? undefined,
+      urlPrimary: event.url,
+      imageUrl: event.imageUrl || undefined,
+      raw: event.raw ?? {},
+      contentHash,
+    },
+    occurrences,
+    rawEvent: {
+      sourceEventId: event.sourceEventId || undefined,
+      title: event.title,
+      descriptionHtml: event.descriptionHtml || undefined,
+      startDatetime: toMs(event.startDatetime)!,
+      endDatetime: toMs(event.endDatetime),
+      timezone: event.timezone || undefined,
+      venueName: event.venueName || undefined,
+      venueAddress: event.venueAddress || undefined,
+      city: event.city || undefined,
+      region: event.region || undefined,
+      country: event.country || undefined,
+      lat: event.lat ?? undefined,
+      lon: event.lon ?? undefined,
+      organizer: event.organizer || undefined,
+      category: event.category || undefined,
+      price: event.price || undefined,
+      tags: event.tags ?? undefined,
+      url: event.url,
+      imageUrl: event.imageUrl || undefined,
+      scrapedAt: toMs(event.scrapedAt) ?? Date.now(),
+      raw: event.raw ?? {},
+      contentHash: event.contentHash,
+    },
+  });
 }

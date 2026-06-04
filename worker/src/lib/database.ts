@@ -1,9 +1,4 @@
-import 'dotenv/config';
-import postgres from 'postgres';
-import { drizzle } from 'drizzle-orm/postgres-js';
-
-// Import schema from API package (shared)
-// For now, we'll replicate the essential types
+// Shared worker types (formerly co-located with the postgres-js client).
 interface Source {
   id: string;
   name: string;
@@ -53,13 +48,8 @@ interface EventRaw {
   contentHash: string;
 }
 
-const connectionString = process.env.DATABASE_URL;
+// NOTE: Postgres has been retired. This module now only exports shared types
+// used by the matcher and job handlers. All data access goes through Convex
+// (see ./convex.ts). The `id` fields are Convex document ids (strings).
 
-if (!connectionString) {
-  throw new Error('DATABASE_URL environment variable is not set');
-}
-
-const queryClient = postgres(connectionString);
-
-export { queryClient };
 export type { Source, Run, EventRaw };

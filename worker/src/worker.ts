@@ -1,536 +1,272 @@
-import { Worker, Queue } from 'bullmq';
-import IORedis from 'ioredis';
 import pino from 'pino';
-import { queryClient as db } from './lib/database.js';
 import { ModuleLoader } from './lib/module-loader.js';
 import { BrowserPool } from './lib/browser-pool.js';
 import { EventMatcher } from './lib/matcher.js';
 import { normalizeEvent, RateLimiter } from './lib/utils.js';
-import { saveEventWithOccurrences, saveToEventsRaw } from './lib/occurrence-db.js';
-import type { ScrapeJobData, MatchJobData, RunContext } from './types.js';
+import { persistScrapedEvent } from './lib/occurrence-db.js';
+import { jobs, workerApi, appendRunLog, type ClaimedJob } from './lib/convex.js';
+import type { ScrapeJobData, MatchJobData, RunContext, JobShim } from './types.js';
 import { handleInstagramScrapeJob } from './modules/instagram/instagram-job.js';
+import type { EventRaw } from './lib/database.js';
 import 'dotenv/config';
-
 
 const logger = pino({
   level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
   transport: process.env.NODE_ENV === 'development' ? {
     target: 'pino-pretty',
-    options: {
-      colorize: true,
-      translateTime: 'HH:MM:ss Z',
-      ignore: 'pid,hostname',
-    }
+    options: { colorize: true, translateTime: 'HH:MM:ss Z', ignore: 'pid,hostname' },
   } : undefined,
 });
 
+const WORKER_ID = `worker-${process.pid}`;
+const POLL_INTERVAL_MS = Number(process.env.WORKER_POLL_INTERVAL_MS || 1500);
+
+// Queue concurrency limits (parity with the old BullMQ worker config).
+const QUEUE_CONCURRENCY: Record<string, number> = {
+  scrape: 2,
+  match: 1,
+  instagramScrape: 1,
+};
+
 class EventScraperWorker {
-  private redis: IORedis;
-  private scrapeWorker: Worker;
-  private matchWorker: Worker;
-  private instagramWorker: Worker;
-  private matchQueue: Queue;
-  private moduleLoader: ModuleLoader;
-  private browserPool: BrowserPool;
-  private matcher: EventMatcher;
+  private moduleLoader = new ModuleLoader();
+  private browserPool = new BrowserPool(3, process.env.PLAYWRIGHT_HEADLESS !== 'false');
+  private matcher = new EventMatcher();
+  private active: Record<string, number> = { scrape: 0, match: 0, instagramScrape: 0 };
   private isShuttingDown = false;
-
-  constructor() {
-    // Initialize Redis connection
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-    this.redis = new IORedis(redisUrl, {
-      maxRetriesPerRequest: null, // Fix BullMQ deprecation warning
-    });
-
-    // Initialize components
-    this.moduleLoader = new ModuleLoader();
-    this.browserPool = new BrowserPool(
-      3, // max browsers
-      process.env.PLAYWRIGHT_HEADLESS !== 'false'
-    );
-    this.matcher = new EventMatcher();
-
-    // Initialize job queues
-    this.scrapeWorker = new Worker('scrape-queue', this.processScrapeJob.bind(this), {
-      connection: this.redis,
-      concurrency: 2,
-    });
-
-    this.matchWorker = new Worker('match-queue', this.processMatchJob.bind(this), {
-      connection: this.redis,
-      concurrency: 1,
-    });
-
-    this.instagramWorker = new Worker('instagram-scrape-queue', this.processInstagramScrapeJob.bind(this), {
-      connection: this.redis,
-      concurrency: 1, // Instagram scraping should be sequential to respect rate limits
-    });
-
-    // Initialize match queue for enqueueing jobs
-    this.matchQueue = new Queue('match-queue', {
-      connection: this.redis,
-    });
-
-    this.setupEventHandlers();
-  }
-
-  private setupEventHandlers(): void {
-    this.scrapeWorker.on('completed', (job) => {
-      logger.info(`Scrape job ${job.id} completed`);
-    });
-
-    this.scrapeWorker.on('failed', (job, err) => {
-      logger.error(`Scrape job ${job?.id} failed:`, err);
-    });
-
-    this.matchWorker.on('completed', (job) => {
-      logger.info(`Match job ${job.id} completed`);
-    });
-
-    this.matchWorker.on('failed', (job, err) => {
-      logger.error(`Match job ${job?.id} failed:`, err);
-    });
-
-    this.instagramWorker.on('completed', (job) => {
-      logger.info(`Instagram scrape job ${job.id} completed`);
-    });
-
-    this.instagramWorker.on('failed', (job, err) => {
-      logger.error(`Instagram scrape job ${job?.id} failed:`, err);
-    });
-
-    // Graceful shutdown
-    process.on('SIGINT', () => this.shutdown('SIGINT'));
-    process.on('SIGTERM', () => this.shutdown('SIGTERM'));
-  }
+  private inFlight = new Set<Promise<void>>();
 
   async initialize(): Promise<void> {
-    logger.info('🚀 Initializing Event Scraper Worker...');
+    logger.info('🚀 Initializing Event Scraper Worker (Convex mode)...');
+    await this.moduleLoader.loadModules();
+    logger.info(`✅ Loaded ${this.moduleLoader.getAllModules().length} scraper modules`);
+    await this.browserPool.initialize();
+    logger.info('✅ Browser pool initialized');
 
-    try {
-      // Test database connection
-      await db`SELECT 1`;
-      logger.info('✅ Database connected');
+    process.on('SIGINT', () => this.shutdown('SIGINT'));
+    process.on('SIGTERM', () => this.shutdown('SIGTERM'));
 
-      // Test Redis connection
-      await this.redis.ping();
-      logger.info('✅ Redis connected');
-
-      // Load scraper modules
-      await this.moduleLoader.loadModules();
-      logger.info(`✅ Loaded ${this.moduleLoader.getAllModules().length} scraper modules`);
-
-      // Initialize browser pool
-      await this.browserPool.initialize();
-      logger.info('✅ Browser pool initialized');
-
-      logger.info('🎉 Worker initialization complete!');
-    } catch (error) {
-      logger.error('❌ Worker initialization failed:', error);
-      throw error;
-    }
+    logger.info('🎉 Worker ready — polling Convex job queues');
+    this.pollLoop();
   }
 
-  private async processScrapeJob(job: any): Promise<void> {
-    const jobData = job.data as ScrapeJobData;
-    logger.info(`Processing scrape job for source ${jobData.sourceId}`);
-
-    try {
-      // Get source details from database
-      const result = await db`
-        SELECT id, name, base_url, module_key, default_timezone, rate_limit_per_min
-        FROM sources 
-        WHERE id = ${jobData.sourceId} AND active = true
-      `;
-      const source = result[0];
-
-      if (!source) {
-        throw new Error(`Source ${jobData.sourceId} not found or inactive`);
-      }
-
-      // Get scraper module
-      const module = this.moduleLoader.getModule(source.module_key);
-      if (!module) {
-        throw new Error(`Scraper module '${source.module_key}' not found`);
-      }
-
-      // Update run status to running
-      await db`
-        UPDATE runs 
-        SET status = 'running' 
-        WHERE id = ${jobData.runId}
-      `;
-
-      // Set up rate limiter
-      const rateLimiter = new RateLimiter(source.rate_limit_per_min);
-
-      // Get browser and page
-      const { browser, page, release } = await this.browserPool.getPage();
-
-      try {
-        // Create Redis stream writer
-        const streamKey = `logs:${jobData.runId}`;
-        const writeToRedisStream = (level: number, msg: string, source: string = 'worker') => {
-          this.redis.xadd(
-            streamKey, 
-            '*', 
-            'timestamp', Date.now().toString(),
-            'level', level.toString(),
-            'msg', msg,
-            'runId', jobData.runId,
-            'source', source,
-            'raw', JSON.stringify({ level, msg, source, runId: jobData.runId })
-          ).then(() => {
-            console.log(`✅ Log written to Redis stream: ${streamKey} - ${msg}`);
-          }).catch(err => {
-            console.error(`❌ Failed to write log to Redis stream ${streamKey}:`, err);
-          });
-        };
-
-        // Create run-specific logger
-        const runLogger = pino({
-          level: process.env.NODE_ENV === 'development' ? 'debug' : 'info',
-        });
-        
-        const baseContextLogger = runLogger.child({ 
-          source: source.module_key, 
-          runId: jobData.runId 
-        });
-
-        // Create wrapper logger that also writes to Redis
-        const contextLogger = {
-          info: (msg: string) => {
-            baseContextLogger.info(msg);
-            writeToRedisStream(30, msg, source.module_key);
-          },
-          error: (msg: string) => {
-            baseContextLogger.error(msg);
-            writeToRedisStream(50, msg, source.module_key);
-          },
-          warn: (msg: string) => {
-            baseContextLogger.warn(msg);
-            writeToRedisStream(40, msg, source.module_key);
-          },
-          debug: (msg: string) => {
-            baseContextLogger.debug(msg);
-            writeToRedisStream(20, msg, source.module_key);
-          }
-        };
-
-        // Create run context
-        const ctx: RunContext = {
-          browser,
-          page,
-          sourceId: source.id,
-          runId: jobData.runId,
-          source: {
-            id: source.id,
-            name: source.name,
-            baseUrl: source.base_url,
-            moduleKey: source.module_key,
-            defaultTimezone: source.default_timezone,
-            rateLimitPerMin: source.rate_limit_per_min,
-          },
-          logger: contextLogger,
-          jobData: {
-            testMode: jobData.testMode,
-            scrapeMode: jobData.scrapeMode,
-            paginationOptions: jobData.paginationOptions,
-            // Pass through uploadedFile when present (supports upload-only modules)
-            // @ts-expect-error: uploadedFile is provided by API job schema
-            uploadedFile: (job.data && (job.data as any).uploadedFile) ? (job.data as any).uploadedFile : undefined,
-            sourceId: jobData.sourceId,
-            runId: jobData.runId,
-          },
-          stats: {
-            pagesCrawled: 0,
-          },
-        };
-
-        contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name}`);
-
-        // Run the scraper
-        await rateLimiter.waitForToken();
-        contextLogger.info('📝 Running scraper module...');
-        const rawEvents = await module.run(ctx);
-        contextLogger.info(`📊 Found ${rawEvents.length} raw events`);
-
-        // Process and normalize events
-        contextLogger.info('🔄 Processing and normalizing events...');
-        const processedEvents = rawEvents.map(event => 
-          normalizeEvent(event, source.default_timezone)
-        );
-        contextLogger.info(`✅ Processed ${processedEvents.length} events`);
-
-        // Save events to database using new series/occurrences system
-        contextLogger.info('💾 Saving events to database (series + occurrences)...');
-        let savedCount = 0; // kept for backward-compat logs
-        const stats = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 } as const;
-        // mutable copy
-        const counters: Record<keyof typeof stats, number> = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
-        for (const event of processedEvents) {
-          try {
-            counters.processed++;
-
-            // Save to new series/occurrences tables
-            const { action, seriesId } = await saveEventWithOccurrences(event, source.id, jobData.runId);
-
-            // Also save to events_raw for backward compatibility
-            await saveToEventsRaw(event, source.id, jobData.runId, seriesId);
-
-            // Track stats
-            if (action === 'inserted') {
-              counters.inserted++;
-              savedCount++;
-            } else if (action === 'updated') {
-              counters.updated++;
-              savedCount++;
-            } else {
-              counters.unchanged++;
-            }
-
-            // Log series info if available
-            const seriesDates = event.raw?.seriesDates;
-            if (seriesDates && Array.isArray(seriesDates) && seriesDates.length > 1) {
-              contextLogger.info(`📅 Series event "${event.title}": ${seriesDates.length} occurrences`);
-            }
-          } catch (dbError) {
-            contextLogger.warn(`Failed to save event "${event.title}": ${dbError}`);
-            contextLogger.debug('Event that failed to save:', JSON.stringify(event, null, 2));
-            counters.failed++;
-          }
-        }
-
-        // Update run status
-        contextLogger.info('🎯 Updating run status...');
-        const pagesCrawled = ctx.stats?.pagesCrawled || 0;
-        await db`
-          UPDATE runs 
-          SET status = 'success', finished_at = NOW(), events_found = ${savedCount}, pages_crawled = ${pagesCrawled}
-          WHERE id = ${jobData.runId}
-        `;
-
-        contextLogger.info(`🎉 Scrape completed: ${savedCount}/${rawEvents.length} inserts/updates`);
-        contextLogger.info(`📊 Stats — processed: ${counters.processed}, inserted: ${counters.inserted}, updated: ${counters.updated}, unchanged: ${counters.unchanged}, failed: ${counters.failed}`);
-
-        // Queue a match job to find duplicates for recently scraped events
-        if (savedCount > 0) {
-          contextLogger.info('🔍 Queuing duplicate detection job...');
-          const matchJobData: MatchJobData = {
-            sourceIds: [source.id],
-            // Only check events from the last 30 days to keep it manageable
-            startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-          };
-          
-          await this.matchQueue.add('match', matchJobData, {
-            jobId: `match-after-scrape-${jobData.runId}`,
-            delay: 5000, // Wait 5 seconds to let any database operations complete
-          });
-          
-          contextLogger.info('✅ Duplicate detection job queued');
-        }
-
-      } finally {
-        await release();
-      }
-
-    } catch (error) {
-      logger.error(`❌ Scrape job failed:`, error);
-      
-      // Update run status to error
-      await db`
-        UPDATE runs 
-        SET status = 'error', finished_at = NOW(), errors_jsonb = ${JSON.stringify({ error: error.message })}
-        WHERE id = ${jobData.runId}
-      `;
-
-      throw error;
-    }
-  }
-
-  private async processMatchJob(job: any): Promise<void> {
-    const jobData = job.data as MatchJobData;
-    logger.info('Processing match job for duplicate detection', { jobData });
-
-    try {
-      logger.info('Starting match job processing...');
-      logger.info('Match job data:', JSON.stringify(jobData));
-      
-      // Get events to analyze
-      let events;
-      if (jobData.sourceIds && Array.isArray(jobData.sourceIds) && jobData.sourceIds.length > 0) {
-        logger.info('Using source-specific queries');
-        if (jobData.startDate && jobData.endDate) {
-          logger.info('Query: with sourceIds, startDate, and endDate');
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime >= ${jobData.startDate} 
-              AND e.start_datetime <= ${jobData.endDate}
-              AND e.source_id = ANY(${jobData.sourceIds})
-            ORDER BY e.start_datetime
-          `;
-        } else if (jobData.startDate) {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime >= ${jobData.startDate}
-              AND e.source_id = ANY(${jobData.sourceIds})
-            ORDER BY e.start_datetime
-          `;
-        } else if (jobData.endDate) {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime <= ${jobData.endDate}
-              AND e.source_id = ANY(${jobData.sourceIds})
-            ORDER BY e.start_datetime
-          `;
-        } else {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.source_id = ANY(${jobData.sourceIds})
-            ORDER BY e.start_datetime
-          `;
-        }
-      } else {
-        logger.info('Using all-sources queries');
-        if (jobData.startDate && jobData.endDate) {
-          logger.info('Query: all sources with startDate and endDate');
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime >= ${jobData.startDate} 
-              AND e.start_datetime <= ${jobData.endDate}
-            ORDER BY e.start_datetime
-          `;
-        } else if (jobData.startDate) {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime >= ${jobData.startDate}
-            ORDER BY e.start_datetime
-          `;
-        } else if (jobData.endDate) {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            WHERE e.start_datetime <= ${jobData.endDate}
-            ORDER BY e.start_datetime
-          `;
-        } else {
-          events = await db`
-            SELECT DISTINCT e.id, e.source_id as "sourceId", e.source_event_id as "sourceEventId", 
-                   e.title, e.start_datetime as "startDatetime", e.end_datetime as "endDatetime",
-                   e.venue_name as "venueName", e.venue_address as "venueAddress", 
-                   e.city, e.lat, e.lon, e.organizer, e.category
-            FROM events_raw e
-            ORDER BY e.start_datetime
-          `;
-        }
-      }
-
-      logger.info(`Found ${events.length} events to analyze for duplicates`);
-      
-      // Clear existing open matches to avoid accumulation
-      logger.info('Clearing existing open matches...');
-      const deletedCount = await db`
-        DELETE FROM matches WHERE status = 'open'
-      `;
-      logger.info(`Cleared ${deletedCount.count} existing open matches`);
-      
-      // Find potential duplicates (cast to EventRaw[] for matcher compatibility)
-      const matches = await this.matcher.findPotentialDuplicates(events as EventRaw[]);
-      
-      logger.info(`Matcher found ${matches.length} potential duplicates`);
-
-      // Save matches to database
-      let savedMatches = 0;
-      for (const match of matches) {
+  private async pollLoop(): Promise<void> {
+    while (!this.isShuttingDown) {
+      let claimedAny = false;
+      for (const queue of Object.keys(QUEUE_CONCURRENCY)) {
+        if (this.active[queue] >= QUEUE_CONCURRENCY[queue]) continue;
         try {
-          await db`
-            INSERT INTO matches (raw_id_a, raw_id_b, score, reason, status, created_by)
-            VALUES (${match.eventA}, ${match.eventB}, ${match.score}, ${JSON.stringify(match.features)}, 'open', 'system')
-            ON CONFLICT DO NOTHING
-          `;
-          savedMatches++;
-        } catch (dbError) {
-          logger.error(`Failed to save match: ${dbError}`, { match });
+          const job = (await jobs.claimNext({ queue, workerId: WORKER_ID })) as ClaimedJob;
+          if (job) {
+            claimedAny = true;
+            this.dispatch(job);
+          }
+        } catch (err) {
+          logger.error(`Failed to claim from ${queue}: ${(err as Error).message}`);
         }
       }
-
-      logger.info(`✅ Match job completed: ${matches.length} potential duplicates found, ${savedMatches} saved to database`);
-
-    } catch (error) {
-      const errorMessage = (error as Error).message;
-      const errorStack = (error as Error).stack;
-      logger.error(`❌ Match job failed with error: ${errorMessage}`);
-      console.error('❌ Match job full error:', error);
-      console.error('❌ Error stack:', errorStack);
-      throw error;
+      // Back off when idle to avoid hammering the backend.
+      if (!claimedAny) await sleep(POLL_INTERVAL_MS);
     }
   }
 
-  private async processInstagramScrapeJob(job: any): Promise<void> {
-    logger.info('Processing Instagram scrape job', { jobData: job.data });
+  private dispatch(job: NonNullable<ClaimedJob>): void {
+    this.active[job.queue]++;
+    const task = this.runJob(job).finally(() => {
+      this.active[job.queue]--;
+      this.inFlight.delete(task);
+    });
+    this.inFlight.add(task);
+  }
+
+  private async runJob(job: NonNullable<ClaimedJob>): Promise<void> {
+    logger.info(`▶️  Claimed ${job.queue} job ${job._id}`);
+    try {
+      if (job.queue === 'scrape') await this.processScrapeJob(job);
+      else if (job.queue === 'match') await this.processMatchJob(job);
+      else if (job.queue === 'instagramScrape') await this.processInstagramScrapeJob(job);
+      else throw new Error(`Unknown queue ${job.queue}`);
+
+      await jobs.complete({ jobId: job._id });
+      logger.info(`✅ ${job.queue} job ${job._id} completed`);
+    } catch (error) {
+      const message = (error as Error).message || String(error);
+      logger.error(`❌ ${job.queue} job ${job._id} failed: ${message}`);
+      // jobs.fail handles retry vs final-error (and marks the run on final failure).
+      await jobs.fail({ jobId: job._id, error: message }).catch((e) =>
+        logger.error(`Failed to mark job failed: ${(e as Error).message}`),
+      );
+    }
+  }
+
+  private async processScrapeJob(job: NonNullable<ClaimedJob>): Promise<void> {
+    const jobData = job.payload as ScrapeJobData;
+    const runId = jobData.runId;
+    const source = await workerApi.getSource({ sourceId: jobData.sourceId });
+    if (!source || !source.active) {
+      throw new Error(`Source ${jobData.sourceId} not found or inactive`);
+    }
+
+    const module = this.moduleLoader.getModule(source.moduleKey);
+    if (!module) throw new Error(`Scraper module '${source.moduleKey}' not found`);
+
+    await workerApi.markRunRunning({ runId });
+
+    const rateLimiter = new RateLimiter(source.rateLimitPerMin);
+    const { browser, page, release } = await this.browserPool.getPage();
+
+    const mkLog = (level: number) => (msg: string) => {
+      if (level >= 50) logger.error(msg);
+      else if (level >= 40) logger.warn(msg);
+      else logger.info(msg);
+      void appendRunLog(runId, level, msg, source.moduleKey);
+    };
+    const contextLogger = {
+      info: mkLog(30),
+      error: mkLog(50),
+      warn: mkLog(40),
+      debug: mkLog(20),
+    };
 
     try {
-      // Delegate to the Instagram job handler
-      const result = await handleInstagramScrapeJob(job);
+      const ctx: RunContext = {
+        browser,
+        page,
+        sourceId: source._id,
+        runId,
+        source: {
+          id: source._id,
+          name: source.name,
+          baseUrl: source.baseUrl,
+          moduleKey: source.moduleKey,
+          defaultTimezone: source.defaultTimezone,
+          rateLimitPerMin: source.rateLimitPerMin,
+        },
+        logger: contextLogger,
+        jobData: {
+          testMode: jobData.testMode,
+          scrapeMode: jobData.scrapeMode,
+          paginationOptions: jobData.paginationOptions,
+          // @ts-expect-error uploadedFile is provided by the trigger payload
+          uploadedFile: (jobData as any).uploadedFile,
+          sourceId: jobData.sourceId,
+          runId,
+        },
+        stats: { pagesCrawled: 0 },
+      };
 
-      logger.info('✅ Instagram scrape job completed', { result });
-      return result;
-    } catch (error) {
-      const errorMessage = (error as Error).message;
-      const errorStack = (error as Error).stack;
-      logger.error(`❌ Instagram scrape job failed with error: ${errorMessage}`);
-      console.error('❌ Instagram scrape job full error:', error);
-      console.error('❌ Error stack:', errorStack);
-      throw error;
+      contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name}`);
+      await rateLimiter.waitForToken();
+      contextLogger.info('📝 Running scraper module...');
+      const rawEvents = await module.run(ctx);
+      contextLogger.info(`📊 Found ${rawEvents.length} raw events`);
+
+      const processedEvents = rawEvents.map((event) =>
+        normalizeEvent(event, source.defaultTimezone),
+      );
+      contextLogger.info(`✅ Processed ${processedEvents.length} events`);
+
+      contextLogger.info('💾 Saving events to Convex (series + occurrences)...');
+      let savedCount = 0;
+      const counters = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+      for (const event of processedEvents) {
+        try {
+          counters.processed++;
+          const { action } = await persistScrapedEvent(event, source._id, runId);
+          if (action === 'inserted') { counters.inserted++; savedCount++; }
+          else if (action === 'updated') { counters.updated++; savedCount++; }
+          else counters.unchanged++;
+
+          const seriesDates = event.raw?.seriesDates;
+          if (Array.isArray(seriesDates) && seriesDates.length > 1) {
+            contextLogger.info(`📅 Series event "${event.title}": ${seriesDates.length} occurrences`);
+          }
+        } catch (dbError) {
+          contextLogger.warn(`Failed to save event "${event.title}": ${dbError}`);
+          counters.failed++;
+        }
+      }
+
+      const pagesCrawled = ctx.stats?.pagesCrawled || 0;
+      await workerApi.finishRun({
+        runId,
+        status: 'success',
+        eventsFound: savedCount,
+        pagesCrawled,
+      });
+
+      contextLogger.info(`🎉 Scrape completed: ${savedCount}/${rawEvents.length} inserts/updates`);
+      contextLogger.info(
+        `📊 processed: ${counters.processed}, inserted: ${counters.inserted}, updated: ${counters.updated}, unchanged: ${counters.unchanged}, failed: ${counters.failed}`,
+      );
+
+      // Enqueue a follow-up match job for recently scraped events.
+      if (savedCount > 0) {
+        contextLogger.info('🔍 Queuing duplicate detection job...');
+        const matchPayload: MatchJobData = {
+          sourceIds: [source._id],
+          startMs: Date.now() - 30 * 24 * 60 * 60 * 1000,
+        } as any;
+        await jobs.enqueue({
+          queue: 'match',
+          name: 'match-after-scrape',
+          payload: matchPayload,
+          delayMs: 5000,
+        });
+        contextLogger.info('✅ Duplicate detection job queued');
+      }
+    } finally {
+      await release();
     }
+  }
+
+  private async processMatchJob(job: NonNullable<ClaimedJob>): Promise<void> {
+    const jobData = (job.payload || {}) as MatchJobData & { startMs?: number; endMs?: number };
+    logger.info('Processing match job for duplicate detection');
+
+    const events = await workerApi.eventsForMatching({
+      sourceIds: jobData.sourceIds,
+      startMs: jobData.startMs,
+      endMs: jobData.endMs,
+    });
+    logger.info(`Found ${events.length} events to analyze for duplicates`);
+
+    const matches = await this.matcher.findPotentialDuplicates(events as unknown as EventRaw[]);
+    logger.info(`Matcher found ${matches.length} potential duplicates`);
+
+    const { cleared, inserted } = await workerApi.replaceOpenMatches({
+      matches: matches.map((mt) => ({
+        rawIdA: mt.eventA,
+        rawIdB: mt.eventB,
+        score: mt.score,
+        reason: mt.features,
+      })),
+    });
+    logger.info(`✅ Match job completed: cleared ${cleared} open, inserted ${inserted}`);
+  }
+
+  private async processInstagramScrapeJob(job: NonNullable<ClaimedJob>): Promise<void> {
+    const payload = job.payload as { runId?: string };
+    const shim: JobShim = {
+      id: job._id,
+      data: job.payload,
+      runId: payload.runId,
+      log: (msg: string) => {
+        logger.info(`[ig] ${msg}`);
+        if (payload.runId) void appendRunLog(payload.runId, 30, msg, 'instagram');
+      },
+      updateProgress: async () => {},
+    };
+    await handleInstagramScrapeJob(shim);
   }
 
   private async shutdown(signal: string): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
-
     logger.info(`🛑 Received ${signal}, shutting down gracefully...`);
-
     try {
-      // Stop accepting new jobs
-      await this.scrapeWorker.close();
-      await this.matchWorker.close();
-      await this.instagramWorker.close();
-      await this.matchQueue.close();
-
-      // Close browser pool
+      await Promise.allSettled([...this.inFlight]);
       await this.browserPool.closeAll();
-
-      // Close Redis connection
-      await this.redis.quit();
-
       logger.info('✅ Graceful shutdown complete');
       process.exit(0);
     } catch (error) {
@@ -540,9 +276,11 @@ class EventScraperWorker {
   }
 }
 
-// Start the worker
-const worker = new EventScraperWorker();
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
+const worker = new EventScraperWorker();
 worker.initialize().catch((error) => {
   logger.error('Failed to start worker:', error);
   process.exit(1);

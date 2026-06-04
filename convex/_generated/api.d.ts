@@ -24,6 +24,7 @@ import type * as sources from "../sources.js";
 import type * as storage from "../storage.js";
 import type * as systemSettings from "../systemSettings.js";
 import type * as wordpress from "../wordpress.js";
+import type * as worker from "../worker.js";
 
 import type {
   ApiFromModules,
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   storage: typeof storage;
   systemSettings: typeof systemSettings;
   wordpress: typeof wordpress;
+  worker: typeof worker;
 }>;
 
 /**

@@ -97,9 +97,22 @@ export interface ScrapeJobData {
 }
 
 export interface MatchJobData {
-  startDate?: string;
-  endDate?: string;
+  // Epoch-ms window (Convex stores timestamps as numbers).
+  startMs?: number;
+  endMs?: number;
   sourceIds?: string[];
+}
+
+/**
+ * BullMQ-compatible job shim handed to job handlers after the Convex migration.
+ * `log` writes to Convex runLogs; `updateProgress` is a noop placeholder.
+ */
+export interface JobShim<T = any> {
+  id: string;
+  data: T;
+  runId?: string;
+  log: (msg: string) => void;
+  updateProgress: (progress: unknown) => Promise<void>;
 }
 
 // Matching types
