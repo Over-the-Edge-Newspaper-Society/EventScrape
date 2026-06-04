@@ -19,7 +19,7 @@ export interface RawEvent {
   tags?: string[];
   url: string;
   imageUrl?: string;
-  raw: unknown; // original snippet
+  raw: any; // original snippet (arbitrary scraped JSON)
 }
 
 export interface RunContext {
@@ -51,6 +51,8 @@ export interface RunContext {
       startDate?: string;
       endDate?: string;
     };
+    sourceId?: string;
+    runId?: string;
   };
   stats?: {
     pagesCrawled: number;

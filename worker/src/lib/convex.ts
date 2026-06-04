@@ -43,6 +43,7 @@ export const jobs = {
   complete: m('jobs:complete'),
   fail: m('jobs:fail'),
   enqueue: m<string>('jobs:enqueue'),
+  reclaimStalled: m<{ requeued: number; failed: number }>('jobs:reclaimStalled'),
 };
 
 // Run logs (replaces Redis log streams) -------------------------------------

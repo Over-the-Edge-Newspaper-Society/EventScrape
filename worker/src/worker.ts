@@ -40,8 +40,15 @@ class EventScraperWorker {
     logger.info('🚀 Initializing Event Scraper Worker (Convex mode)...');
     await this.moduleLoader.loadModules();
     logger.info(`✅ Loaded ${this.moduleLoader.getAllModules().length} scraper modules`);
-    await this.browserPool.initialize();
-    logger.info('✅ Browser pool initialized');
+    // Browser-pool init is non-fatal: match jobs and Apify-based Instagram jobs
+    // don't need Playwright. Website scrape jobs will fail individually (and be
+    // retried) if the browser can't launch, rather than taking down the worker.
+    try {
+      await this.browserPool.initialize();
+      logger.info('✅ Browser pool initialized');
+    } catch (err) {
+      logger.warn(`⚠️  Browser pool init failed (website scrapes disabled): ${(err as Error).message}`);
+    }
 
     process.on('SIGINT', () => this.shutdown('SIGINT'));
     process.on('SIGTERM', () => this.shutdown('SIGTERM'));
@@ -51,7 +58,18 @@ class EventScraperWorker {
   }
 
   private async pollLoop(): Promise<void> {
+    let lastReclaim = 0;
     while (!this.isShuttingDown) {
+      // Periodically reclaim jobs stranded by a crashed worker.
+      if (Date.now() - lastReclaim > 60_000) {
+        lastReclaim = Date.now();
+        try {
+          const { requeued, failed } = await jobs.reclaimStalled({});
+          if (requeued || failed) logger.warn(`♻️  Reclaimed stalled jobs: ${requeued} requeued, ${failed} failed`);
+        } catch (err) {
+          logger.error(`reclaimStalled failed: ${(err as Error).message}`);
+        }
+      }
       let claimedAny = false;
       for (const queue of Object.keys(QUEUE_CONCURRENCY)) {
         if (this.active[queue] >= QUEUE_CONCURRENCY[queue]) continue;
@@ -147,7 +165,6 @@ class EventScraperWorker {
           testMode: jobData.testMode,
           scrapeMode: jobData.scrapeMode,
           paginationOptions: jobData.paginationOptions,
-          // @ts-expect-error uploadedFile is provided by the trigger payload
           uploadedFile: (jobData as any).uploadedFile,
           sourceId: jobData.sourceId,
           runId,

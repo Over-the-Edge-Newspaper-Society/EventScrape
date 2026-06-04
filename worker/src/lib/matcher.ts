@@ -97,9 +97,7 @@ export class EventMatcher {
 
     // Group events by time slots (15-minute granularity)
     for (const event of events) {
-      const dateTime = event.startDatetime instanceof Date 
-        ? DateTime.fromJSDate(event.startDatetime)
-        : DateTime.fromISO(event.startDatetime as string);
+      const dateTime = this.toDateTime(event.startDatetime as Date | string | number);
       
       // Round to 15-minute slots for grouping
       const roundedMinutes = Math.floor(dateTime.minute / 15) * 15;
@@ -156,12 +154,8 @@ export class EventMatcher {
    */
   private passesBlockingFilters(eventA: EventRaw, eventB: EventRaw, windowDays: number): boolean {
     // Date proximity check (within window)
-    const dateA = eventA.startDatetime instanceof Date 
-      ? DateTime.fromJSDate(eventA.startDatetime)
-      : DateTime.fromISO(eventA.startDatetime as string);
-    const dateB = eventB.startDatetime instanceof Date 
-      ? DateTime.fromJSDate(eventB.startDatetime)
-      : DateTime.fromISO(eventB.startDatetime as string);
+    const dateA = this.toDateTime(eventA.startDatetime as Date | string | number);
+    const dateB = this.toDateTime(eventB.startDatetime as Date | string | number);
     const daysDiff = Math.abs(dateA.diff(dateB, 'days').days);
     
     if (daysDiff > windowDays) {
@@ -276,13 +270,18 @@ export class EventMatcher {
   /**
    * Calculate time delta in minutes
    */
-  private calculateTimeDelta(dateA: Date | string, dateB: Date | string): number {
-    const dtA = dateA instanceof Date 
-      ? DateTime.fromJSDate(dateA)
-      : DateTime.fromISO(dateA);
-    const dtB = dateB instanceof Date 
-      ? DateTime.fromJSDate(dateB)
-      : DateTime.fromISO(dateB);
+  // Accepts a JS Date, an ISO string, or epoch-ms number (Convex stores
+  // timestamps as numbers). Centralizes parsing so the matcher works across all
+  // representations.
+  private toDateTime(value: Date | string | number): DateTime {
+    if (value instanceof Date) return DateTime.fromJSDate(value);
+    if (typeof value === 'number') return DateTime.fromMillis(value);
+    return DateTime.fromISO(value);
+  }
+
+  private calculateTimeDelta(dateA: Date | string | number, dateB: Date | string | number): number {
+    const dtA = this.toDateTime(dateA);
+    const dtB = this.toDateTime(dateB);
     return Math.abs(dtA.diff(dtB, 'minutes').minutes);
   }
 

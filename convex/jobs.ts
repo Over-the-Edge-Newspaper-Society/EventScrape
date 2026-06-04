@@ -101,6 +101,57 @@ export const claimNext = mutation({
   },
 });
 
+// Reclaim jobs left "running" by a worker that crashed/was killed before
+// completing. Without this they'd be stuck forever (claimNext only takes
+// "queued" jobs). Requeues if retries remain, else marks error.
+export const reclaimStalled = mutation({
+  args: { stalledMs: v.optional(v.number()) },
+  returns: v.object({ requeued: v.number(), failed: v.number() }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const threshold = now - (args.stalledMs ?? 5 * 60 * 1000);
+    const running = await ctx.db
+      .query("jobs")
+      .withIndex("by_status", (q) => q.eq("status", "running"))
+      .collect();
+
+    let requeued = 0;
+    let failed = 0;
+    for (const job of running) {
+      if ((job.startedAt ?? job.updatedAt) > threshold) continue;
+      if (job.cancelRequested) {
+        await ctx.db.patch(job._id, { status: "cancelled", finishedAt: now, updatedAt: now });
+        continue;
+      }
+      if (job.attempts < job.maxAttempts) {
+        await ctx.db.patch(job._id, {
+          status: "queued",
+          availableAt: now,
+          lastError: "Reclaimed after worker stall",
+          updatedAt: now,
+        });
+        requeued++;
+      } else {
+        await ctx.db.patch(job._id, {
+          status: "error",
+          finishedAt: now,
+          lastError: "Stalled and out of retries",
+          updatedAt: now,
+        });
+        if (job.runId) {
+          await ctx.db.patch(job.runId, {
+            status: "error",
+            finishedAt: now,
+            errors: { error: "Worker stalled" },
+          });
+        }
+        failed++;
+      }
+    }
+    return { requeued, failed };
+  },
+});
+
 export const complete = mutation({
   args: {
     jobId: v.id("jobs"),
