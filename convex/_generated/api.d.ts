@@ -8,12 +8,22 @@
  * @module
  */
 
+import type * as dashboard from "../dashboard.js";
+import type * as events from "../events.js";
+import type * as exports from "../exports.js";
+import type * as instagramAccounts from "../instagramAccounts.js";
+import type * as instagramReview from "../instagramReview.js";
+import type * as instagramSettings from "../instagramSettings.js";
 import type * as jobs from "../jobs.js";
+import type * as matches from "../matches.js";
 import type * as migration from "../migration.js";
 import type * as runLogs from "../runLogs.js";
 import type * as runs from "../runs.js";
+import type * as schedules from "../schedules.js";
 import type * as sources from "../sources.js";
 import type * as storage from "../storage.js";
+import type * as systemSettings from "../systemSettings.js";
+import type * as wordpress from "../wordpress.js";
 
 import type {
   ApiFromModules,
@@ -22,12 +32,22 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  dashboard: typeof dashboard;
+  events: typeof events;
+  exports: typeof exports;
+  instagramAccounts: typeof instagramAccounts;
+  instagramReview: typeof instagramReview;
+  instagramSettings: typeof instagramSettings;
   jobs: typeof jobs;
+  matches: typeof matches;
   migration: typeof migration;
   runLogs: typeof runLogs;
   runs: typeof runs;
+  schedules: typeof schedules;
   sources: typeof sources;
   storage: typeof storage;
+  systemSettings: typeof systemSettings;
+  wordpress: typeof wordpress;
 }>;
 
 /**
