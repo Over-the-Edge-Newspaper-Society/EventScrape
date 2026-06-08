@@ -10,6 +10,7 @@ import { handleInstagramScrapeJob } from './modules/instagram/instagram-job.js';
 import { handleReviewAiJob } from './jobs/reviewAi.js';
 import { handlePosterImportJob } from './jobs/posterImport.js';
 import { handleApifyImportJob } from './jobs/apifyImport.js';
+import { handleWordpressJob } from './jobs/wordpressUpload.js';
 import type { EventRaw } from './lib/database.js';
 import 'dotenv/config';
 
@@ -33,6 +34,7 @@ const QUEUE_CONCURRENCY: Record<string, number> = {
   posterImport: 1,
   apifyImport: 1,
   moduleSync: 1,
+  wordpress: 1,
 };
 
 class EventScraperWorker {
@@ -116,6 +118,7 @@ class EventScraperWorker {
       else if (job.queue === 'review') await handleReviewAiJob(this.shim(job));
       else if (job.queue === 'posterImport') await handlePosterImportJob(this.shim(job));
       else if (job.queue === 'apifyImport') await handleApifyImportJob(this.shim(job));
+      else if (job.queue === 'wordpress') await handleWordpressJob(this.shim(job));
       else if (job.queue === 'moduleSync') await this.syncModules();
       else throw new Error(`Unknown queue ${job.queue}`);
 

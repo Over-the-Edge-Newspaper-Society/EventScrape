@@ -1,7 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
-import { api } from "./_generated/api";
 import { scheduleType } from "./schema";
 import { cronMatches } from "./cronMatch";
 
@@ -324,12 +323,26 @@ async function enqueueScheduleJobs(
     const eventIds = rows.map((e: Doc<"eventsRaw">) => String(e._id));
     if (eventIds.length === 0) return { jobIds: [], units: 0 };
 
-    await ctx.scheduler.runAfter(0, api.wordpressUpload.uploadEvents, {
-      settingsId,
-      eventIds,
-      status: (config.status as "publish" | "draft" | "pending" | undefined) ?? "draft",
+    // Route through the worker (a real Node process) instead of a scheduled
+    // node action — self-hosted Convex doesn't reliably run background "use node"
+    // actions. The worker calls wordpressUpload:uploadEvents via direct HTTP.
+    const jobId = await ctx.db.insert("jobs", {
+      queue: "wordpress",
+      name: "schedule:wordpress",
+      status: "queued",
+      payload: {
+        settingsId,
+        eventIds,
+        status: (config.status as "publish" | "draft" | "pending" | undefined) ?? "draft",
+        scheduleId: schedule._id,
+      },
+      attempts: 0,
+      maxAttempts: 2,
+      availableAt: now,
+      createdAt: now,
+      updatedAt: now,
     });
-    return { jobIds: [], units: eventIds.length };
+    return { jobIds: [jobId], units: eventIds.length };
   }
 
   return { jobIds: [], units: 0 };
