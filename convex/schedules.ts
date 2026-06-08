@@ -365,6 +365,105 @@ async function enqueueScheduleJobs(
   return { jobIds: [], units: 0 };
 }
 
+// Dry-run the WordPress export selection for the CURRENT (possibly unsaved)
+// form values, so the UI can show how many events would be pulled and from
+// which sources before the user saves/runs. Mirrors the selection in
+// enqueueScheduleJobs exactly (same date window + source + isEventPoster filter).
+export const previewWordpressExport = query({
+  args: {
+    startDateOffset: v.optional(v.number()),
+    endDateOffset: v.optional(v.number()),
+    sourceIds: v.optional(v.array(v.string())),
+    city: v.optional(v.string()),
+    category: v.optional(v.string()),
+  },
+  returns: v.object({
+    count: v.number(),
+    sources: v.array(v.object({ sourceId: v.string(), name: v.string(), count: v.number() })),
+    sample: v.array(
+      v.object({
+        id: v.string(),
+        title: v.string(),
+        startDatetime: v.optional(v.number()),
+        sourceName: v.string(),
+      }),
+    ),
+    windowStart: v.optional(v.number()),
+    windowEnd: v.optional(v.number()),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const startMs = typeof args.startDateOffset === "number" ? now + args.startDateOffset * DAY : undefined;
+    const endMs = typeof args.endDateOffset === "number" ? now + args.endDateOffset * DAY : undefined;
+
+    const allSources = await ctx.db.query("sources").collect();
+    const nameById = new Map<string, string>(
+      allSources.map((s: Doc<"sources">) => [String(s._id), s.name] as [string, string]),
+    );
+
+    // Resolve configured sourceIds (Convex _id OR legacy UUID) — same as the schedule.
+    const targetSources = new Set<string>();
+    if (Array.isArray(args.sourceIds) && args.sourceIds.length > 0) {
+      const byId = new Map<string, string>(
+        allSources.map((s: Doc<"sources">) => [String(s._id), String(s._id)] as [string, string]),
+      );
+      const byLegacy = new Map<string, string>(
+        allSources
+          .filter((s: Doc<"sources">) => s.legacyId)
+          .map((s: Doc<"sources">) => [s.legacyId as string, String(s._id)] as [string, string]),
+      );
+      for (const sid of args.sourceIds) {
+        const resolved = byId.get(String(sid)) || byLegacy.get(String(sid));
+        if (resolved) targetSources.add(resolved);
+      }
+    }
+
+    let rows: Doc<"eventsRaw">[] = [];
+    if (targetSources.size > 0) {
+      for (const srcId of targetSources) {
+        const part = await ctx.db
+          .query("eventsRaw")
+          .withIndex("by_source", (q: any) => q.eq("sourceId", srcId))
+          .collect();
+        rows.push(...part);
+      }
+    } else {
+      rows = await ctx.db.query("eventsRaw").collect();
+    }
+    rows = rows.filter((e: Doc<"eventsRaw">) => {
+      if (e.isEventPoster === false) return false;
+      if (startMs !== undefined && e.startDatetime < startMs) return false;
+      if (endMs !== undefined && e.startDatetime > endMs) return false;
+      if (args.city && !(e.city ?? "").toLowerCase().includes(String(args.city).toLowerCase())) return false;
+      if (args.category && !(e.category ?? "").toLowerCase().includes(String(args.category).toLowerCase())) return false;
+      return true;
+    });
+
+    const bySource = new Map<string, number>();
+    for (const e of rows) {
+      const sid = String(e.sourceId);
+      bySource.set(sid, (bySource.get(sid) ?? 0) + 1);
+    }
+    const sources = Array.from(bySource.entries())
+      .map(([sourceId, count]) => ({ sourceId, name: nameById.get(sourceId) ?? "Unknown", count }))
+      .sort((a, b) => b.count - a.count);
+
+    const sample = rows
+      .slice()
+      .sort((a, b) => (a.startDatetime ?? 0) - (b.startDatetime ?? 0))
+      .slice(0, 50)
+      .map((e) => ({
+        id: String(e._id),
+        title: e.title ?? "(untitled)",
+        startDatetime: e.startDatetime,
+        sourceName: nameById.get(String(e.sourceId)) ?? "Unknown",
+      }));
+
+    return { count: rows.length, sources, sample, windowStart: startMs, windowEnd: endMs };
+  },
+});
+
 export const trigger = mutation({
   args: { id: v.id("schedules") },
   returns: v.object({

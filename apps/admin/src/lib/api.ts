@@ -326,6 +326,22 @@ export const schedulesApi = {
     runMutation<null>('schedules:remove', { id }).then(normalizeIds),
   trigger: (id: string) =>
     runMutation<{ message: string; scheduleId: string }>('schedules:trigger', { id }).then(normalizeIds),
+  previewWordpressExport: (params: {
+    startDateOffset?: number
+    endDateOffset?: number
+    sourceIds?: string[]
+    city?: string
+    category?: string
+  }) =>
+    runQuery<WordPressExportPreview>('schedules:previewWordpressExport', params).then(normalizeIds),
+}
+
+export interface WordPressExportPreview {
+  count: number
+  sources: { sourceId: string; name: string; count: number }[]
+  sample: { id: string; title: string; startDatetime?: number; sourceName: string }[]
+  windowStart?: number
+  windowEnd?: number
 }
 
 export const wordpressApi = {

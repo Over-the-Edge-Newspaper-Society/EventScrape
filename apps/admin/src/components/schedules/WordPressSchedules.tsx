@@ -9,8 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { schedulesApi, sourcesApi, wordpressApi, instagramApi, ScheduleWithSource } from '@/lib/api'
-import { Globe, Calendar, Filter, Edit } from 'lucide-react'
+import { schedulesApi, sourcesApi, wordpressApi, instagramApi, ScheduleWithSource, WordPressExportPreview } from '@/lib/api'
+import { Globe, Calendar, Filter, Edit, Eye } from 'lucide-react'
 
 export function WordPressSchedules() {
   const queryClient = useQueryClient()
@@ -30,6 +30,18 @@ export function WordPressSchedules() {
   const [postStatus, setPostStatus] = useState<'draft' | 'pending' | 'publish'>('draft')
   const [updateIfExists, setUpdateIfExists] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [preview, setPreview] = useState<WordPressExportPreview | null>(null)
+
+  const previewMutation = useMutation({
+    mutationFn: () =>
+      schedulesApi.previewWordpressExport({
+        startDateOffset,
+        endDateOffset,
+        sourceIds: selectedSourceIds.length > 0 ? selectedSourceIds : undefined,
+      }),
+    onSuccess: (data) => setPreview(data),
+    onError: () => toast.error('Failed to preview export'),
+  })
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -77,7 +89,15 @@ export function WordPressSchedules() {
     setTimezone(schedule.schedule.timezone || 'America/Vancouver')
     setStartDateOffset(config.startDateOffset || 0)
     setEndDateOffset(config.endDateOffset || 30)
-    setSelectedSourceIds(config.sourceIds || [])
+    // Stored sourceIds may be legacy UUIDs (from migrated/older schedules) while
+    // the checkboxes key off the Convex _id. Translate legacyId -> id so the
+    // saved sources show as checked (and re-saving normalizes them to _id).
+    const idByLegacy = new Map<string, string>()
+    for (const s of (sources?.sources || []) as any[]) {
+      if (s.legacyId) idByLegacy.set(String(s.legacyId), s.id)
+      idByLegacy.set(s.id, s.id)
+    }
+    setSelectedSourceIds((config.sourceIds || []).map((sid: string) => idByLegacy.get(sid) || sid))
     setPostStatus(config.status || 'draft')
     setUpdateIfExists(config.updateIfExists || false)
 
@@ -366,6 +386,15 @@ export function WordPressSchedules() {
                 </Button>
               )}
               <Button
+                type="button"
+                variant="outline"
+                onClick={() => previewMutation.mutate()}
+                disabled={previewMutation.isPending}
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                {previewMutation.isPending ? 'Previewing...' : 'Preview'}
+              </Button>
+              <Button
                 onClick={async () => {
                   if (!wordpressSettingsId || !cron) {
                     toast.error('Select WordPress site and cron')
@@ -393,6 +422,59 @@ export function WordPressSchedules() {
               </Button>
             </div>
           </div>
+
+          {preview && (
+            <div className="rounded-md border p-4 space-y-3 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Eye className="h-4 w-4" />
+                  Preview — <span className="text-base font-semibold">{preview.count}</span> event
+                  {preview.count === 1 ? '' : 's'} would be exported
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setPreview(null)}>
+                  Dismiss
+                </Button>
+              </div>
+              {preview.windowStart != null && preview.windowEnd != null && (
+                <p className="text-xs text-muted-foreground">
+                  Window: {new Date(preview.windowStart).toLocaleDateString()} →{' '}
+                  {new Date(preview.windowEnd).toLocaleDateString()}
+                  {selectedSourceIds.length === 0 ? ' · all sources' : ` · ${preview.sources.length} source(s) with matches`}
+                </p>
+              )}
+              {preview.count === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No events match this date window / source selection.
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {preview.sources.map((s) => (
+                      <Badge key={s.sourceId} variant="secondary">
+                        {s.name}: {s.count}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border rounded-md divide-y">
+                    {preview.sample.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+                        <span className="truncate">{e.title}</span>
+                        <span className="text-muted-foreground whitespace-nowrap">
+                          {e.sourceName}
+                          {e.startDatetime ? ` · ${new Date(e.startDatetime).toLocaleDateString()}` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {preview.count > preview.sample.length && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing first {preview.sample.length} of {preview.count} (sorted by date).
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Quick Presets</Label>
