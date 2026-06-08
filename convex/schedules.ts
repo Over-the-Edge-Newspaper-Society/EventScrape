@@ -302,19 +302,27 @@ async function enqueueScheduleJobs(
       }
     }
 
-    // Select events in the window via the start_datetime index.
-    let rows = await ctx.db
-      .query("eventsRaw")
-      .withIndex("by_start_datetime", (q: any) => {
-        let r = q;
-        if (startMs !== undefined) r = r.gte("startDatetime", startMs);
-        if (endMs !== undefined) r = r.lte("startDatetime", endMs);
-        return r;
-      })
-      .collect();
+    // Collect candidates, then filter the date window in JS. (The
+    // by_start_datetime index *range* proved unreliable here — it returned the
+    // whole table — so we filter dates in JS like events:listRaw does.) When
+    // sources are configured we narrow via the by_source index, which also keeps
+    // Instagram posts out of the WordPress export.
+    let rows: Doc<"eventsRaw">[] = [];
+    if (targetSources.size > 0) {
+      for (const srcId of targetSources) {
+        const part = await ctx.db
+          .query("eventsRaw")
+          .withIndex("by_source", (q: any) => q.eq("sourceId", srcId))
+          .collect();
+        rows.push(...part);
+      }
+    } else {
+      rows = await ctx.db.query("eventsRaw").collect();
+    }
     rows = rows.filter((e: Doc<"eventsRaw">) => {
       if (e.isEventPoster === false) return false;
-      if (targetSources.size > 0 && !targetSources.has(String(e.sourceId))) return false;
+      if (startMs !== undefined && e.startDatetime < startMs) return false;
+      if (endMs !== undefined && e.startDatetime > endMs) return false;
       if (config.city && !(e.city ?? "").toLowerCase().includes(String(config.city).toLowerCase())) return false;
       if (config.category && !(e.category ?? "").toLowerCase().includes(String(config.category).toLowerCase())) return false;
       return true;
