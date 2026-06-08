@@ -269,12 +269,26 @@ const tourismPgModule: ScraperModule = {
           // Rate limiting
           await delay(addJitter(2000, 50));
           
-          // Navigate to event detail page
-          await page.goto(eventLink.url, { 
-            waitUntil: 'networkidle',
-            timeout: 20000 
+          // Navigate to event detail page.
+          // Elementor pages embed Google Maps iframes + analytics that often never
+          // reach 'networkidle' within the timeout, which would throw and force this
+          // event down the degraded fallback path. Wait for DOM + the start-date field
+          // (which is what we actually parse) instead.
+          await page.goto(eventLink.url, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
           });
           if (ctx.stats) ctx.stats.pagesCrawled++;
+
+          // Ensure the JetEngine dynamic fields we parse have rendered.
+          try {
+            await page.waitForSelector('.event-start-date .jet-listing-dynamic-field__content', {
+              timeout: 10000,
+              state: 'attached',
+            });
+          } catch {
+            logger.warn(`Start-date field not found for ${eventLink.title}, parsing what is available`);
+          }
 
           // Extract detailed event information
           const eventDetails = await page.evaluate(() => {
@@ -747,12 +761,26 @@ const tourismPgModule: ScraperModule = {
 
         } catch (eventError) {
           logger.warn(`Failed to process event ${eventLink.title}: ${eventError}`);
-          
+
+          // Derive a sane start from the calendar date (e.g. "June 6, 2026") so a failed
+          // detail page keeps the correct event date instead of the scrape timestamp.
+          let fallbackStart = new Date().toISOString();
+          const fbParts = eventLink.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+          if (fbParts) {
+            const [, fbMonth, fbDay, fbYear] = fbParts;
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            const fbMonthIndex = monthNames.indexOf(fbMonth);
+            if (fbMonthIndex !== -1) {
+              fallbackStart = `${fbYear}-${String(fbMonthIndex + 1).padStart(2, '0')}-${String(fbDay).padStart(2, '0')} 09:00`;
+            }
+          }
+
           // Create minimal fallback event
           const fallbackEvent: RawEvent = {
             sourceEventId: `${eventLink.url}#${eventLink.date}`,
             title: eventLink.title,
-            start: new Date().toISOString(),
+            start: fallbackStart,
             city: 'Prince George',
             region: 'British Columbia',
             country: 'Canada',

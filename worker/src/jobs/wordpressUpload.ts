@@ -7,16 +7,20 @@ import { JobShim } from '../types.js';
 // action via DIRECT HTTP (which works), in chunks to stay well under action time
 // limits. payload: { settingsId, eventIds: string[], status }.
 const uploadRef = makeFunctionReference<'action'>('wordpressUpload:uploadEvents');
+const markCompleteRef = makeFunctionReference<'mutation'>('exports:markComplete');
+const markErrorRef = makeFunctionReference<'mutation'>('exports:markError');
 const CHUNK = 25;
 
 export async function handleWordpressJob(job: JobShim<any>): Promise<void> {
-  const { settingsId, eventIds, status } = job.data as {
+  const { settingsId, eventIds, status, exportId } = job.data as {
     settingsId: string;
     eventIds: string[];
     status?: 'publish' | 'draft' | 'pending';
+    exportId?: string;
   };
   if (!settingsId || !Array.isArray(eventIds) || eventIds.length === 0) {
     job.log('WordPress export: nothing to publish');
+    if (exportId) await convex.mutation(markCompleteRef, { id: exportId, itemCount: 0 }).catch(() => {});
     return;
   }
 
@@ -40,4 +44,17 @@ export async function handleWordpressJob(job: JobShim<any>): Promise<void> {
     }
   }
   job.log(`WordPress export complete: ${uploaded} uploaded, ${failed} failed`);
+
+  // Update the Export History record (created by the schedule trigger).
+  if (exportId) {
+    try {
+      if (uploaded === 0 && failed > 0) {
+        await convex.mutation(markErrorRef, { id: exportId, errorMessage: `All ${failed} uploads failed` });
+      } else {
+        await convex.mutation(markCompleteRef, { id: exportId, itemCount: uploaded });
+      }
+    } catch (err) {
+      job.log(`Failed to update export record: ${(err as Error).message}`);
+    }
+  }
 }

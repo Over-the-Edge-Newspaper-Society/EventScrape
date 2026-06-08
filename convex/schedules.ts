@@ -323,6 +323,20 @@ async function enqueueScheduleJobs(
     const eventIds = rows.map((e: Doc<"eventsRaw">) => String(e._id));
     if (eventIds.length === 0) return { jobIds: [], units: 0 };
 
+    const wpStatus = (config.status as "publish" | "draft" | "pending" | undefined) ?? "draft";
+
+    // Create an Export History record (Automated wp-rest, "processing") — the
+    // worker marks it success/error with the uploaded count, matching the old
+    // scheduler. scheduleId set => UI shows the "Automated" badge.
+    const exportId = await ctx.db.insert("exports", {
+      format: "wp-rest",
+      createdAt: now,
+      itemCount: eventIds.length,
+      params: { filters: {}, wpSiteId: settingsId, status: wpStatus, scheduleId: schedule._id },
+      status: "processing",
+      scheduleId: schedule._id,
+    });
+
     // Route through the worker (a real Node process) instead of a scheduled
     // node action — self-hosted Convex doesn't reliably run background "use node"
     // actions. The worker calls wordpressUpload:uploadEvents via direct HTTP.
@@ -330,12 +344,7 @@ async function enqueueScheduleJobs(
       queue: "wordpress",
       name: "schedule:wordpress",
       status: "queued",
-      payload: {
-        settingsId,
-        eventIds,
-        status: (config.status as "publish" | "draft" | "pending" | undefined) ?? "draft",
-        scheduleId: schedule._id,
-      },
+      payload: { settingsId, eventIds, status: wpStatus, scheduleId: schedule._id, exportId },
       attempts: 0,
       maxAttempts: 2,
       availableAt: now,
