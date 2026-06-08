@@ -45,6 +45,10 @@ export class BrowserPool {
         '--disable-plugins-discovery',
         '--disable-web-security',
         '--allow-running-insecure-content',
+        // Some servers (e.g. tourismpg.com) trigger net::ERR_HTTP2_PROTOCOL_ERROR
+        // in Chromium's HTTP/2 stack even though they respond fine over HTTP/1.1.
+        // Force HTTP/1.1 to avoid these protocol negotiation failures.
+        '--disable-http2',
         '--no-zygote',
         '--memory-pressure-off',
       ],

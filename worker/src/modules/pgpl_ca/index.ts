@@ -1,10 +1,7 @@
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
-import { DateTime } from 'luxon';
 
 const BASE_URL = 'https://www.pgpl.ca';
-const AJAX_ENDPOINT = `${BASE_URL}/views/ajax`;
-const VIEW_DOM_ID = '8af03284011b70d3455bce0d07c4b339';
 const TIMEZONE = 'America/Vancouver';
 const DEFAULT_MAX_PAGES = 8;
 const DEFAULT_PAGE_DELAY_MS = 1200;
@@ -16,197 +13,123 @@ type PgplListingEvent = {
   dateLabel: string;
   timeText?: string | null;
   locationText?: string | null;
+  descriptionHtml?: string | null;
   imageUrl?: string | null;
 };
 
-type PgplDetailData = {
-  dateItems: string[];
-  descriptionHtml?: string | null;
-  accessibilityHtml?: string | null;
-  locationText?: string | null;
-  audienceText?: string | null;
-  registrationText?: string | null;
-  categoryTexts?: string[];
-  sourceEventId?: string | null;
-  heroImage?: string | null;
+type PgplDateRange = {
+  start: string;
+  end?: string;
 };
 
-type AjaxListingResult = {
+type PgplDetailData = {
+  nodeId?: string | null;
+  dates: PgplDateRange[];
+  title?: string | null;
+  locationText?: string | null;
+  imageUrl?: string | null;
+};
+
+type ListingFetchResult = {
   success: boolean;
   events: PgplListingEvent[];
   status?: number;
   error?: string;
 };
 
-type AjaxDetailResult = {
+type DetailFetchResult = {
   success: boolean;
   data?: PgplDetailData;
   status?: number;
   error?: string;
 };
 
-const BASE_PAYLOAD: Record<string, string> = {
-  view_name: 'programs_and_events',
-  view_display_id: 'page',
-  view_path: 'events',
-  view_base_path: 'events',
-  view_dom_id: VIEW_DOM_ID,
-  pager_element: '0',
-};
-
+/**
+ * Parse the server-rendered `/events` listing (Drupal 11 "event" view).
+ * Each event is an `.event-block-2` card with title, image, time, location
+ * and a short description. The authoritative dates live on the detail page.
+ */
 export const extractListingEventsFromDocument = (doc: Document): PgplListingEvent[] => {
-  const viewContent = doc.querySelector('.view-content');
-  if (!viewContent) return [];
+  const blocks = Array.from(doc.querySelectorAll('.event-block-2'));
 
-  const events: PgplListingEvent[] = [];
-  let currentDate = '';
+  return blocks
+    .map((block: Element): PgplListingEvent | null => {
+      const titleLink = block.querySelector('.post-title a') as HTMLAnchorElement | null;
+      const href = titleLink?.getAttribute('href');
+      if (!href) return null;
 
-  const children = Array.from(viewContent.children);
-  children.forEach((child: Element) => {
-    const tagName = child.tagName?.toLowerCase() ?? '';
+      const imageEl = block.querySelector('.event-image img') as HTMLImageElement | null;
+      const locationEl = block.querySelector('.event-address .field__item') || block.querySelector('.event-address');
+      const descriptionEl = block.querySelector('.event-description .field__item') || block.querySelector('.event-description');
 
-    if (tagName === 'h3') {
-      const label = child.textContent?.trim();
-      if (label) currentDate = label;
-      return;
-    }
+      const times = Array.from(block.querySelectorAll('.event-time'))
+        .map(el => el.textContent?.replace(/\s+/g, ' ').trim())
+        .filter((value): value is string => Boolean(value));
 
-    if (!child.classList.contains('views-row')) return;
+      const dayEl = block.querySelector('.event-date .date');
+      const monthEl = block.querySelector('.event-date .month');
+      const dateLabel = [dayEl?.textContent?.trim(), monthEl?.textContent?.trim()]
+        .filter((value): value is string => Boolean(value))
+        .join(' ');
 
-    const titleLink = child.querySelector('.views-field-title a') as HTMLAnchorElement | null;
-    const timeField = child.querySelector('.views-field-field-start-time .field-content');
-    const locationField = child.querySelector('.views-field-field-location .field-content');
-    const imageEl = child.querySelector('.views-field-field-event-image img') as HTMLImageElement | null;
-
-    if (!titleLink?.getAttribute('href')) return;
-
-    events.push({
-      title: titleLink.textContent?.trim() || '',
-      relativeUrl: titleLink.getAttribute('href') || '',
-      dateLabel: currentDate,
-      timeText: timeField?.textContent?.trim() || null,
-      locationText: locationField?.textContent?.trim() || null,
-      imageUrl: imageEl?.getAttribute('src') || null,
-    });
-  });
-
-  return events;
+      return {
+        title: titleLink?.textContent?.replace(/\s+/g, ' ').trim() || '',
+        relativeUrl: href,
+        dateLabel,
+        timeText: times.length ? times.join(' - ') : null,
+        locationText: locationEl?.textContent?.replace(/\s+/g, ' ').trim() || null,
+        descriptionHtml: descriptionEl?.innerHTML?.trim() || null,
+        imageUrl: imageEl?.getAttribute('src') || null,
+      };
+    })
+    .filter((event): event is PgplListingEvent => Boolean(event));
 };
 
+/**
+ * Parse an event detail page. The Drupal 11 "recurring output" widget renders
+ * each occurrence as a pair of `<time datetime>` elements (start + end) inside
+ * `.recurring-output--wrapper`, covering both the next instance and the full
+ * list of upcoming dates.
+ */
 export const extractDetailDataFromDocument = (doc: Document): PgplDetailData => {
-  const descriptionEl = doc.querySelector('.field-name-body .field-item');
-  const accessibilityEl = doc.querySelector('.field-name-field-accessibility-information .field-item');
-  const locationEl = doc.querySelector('.field-name-field-location .field-item');
-  const audienceEl = doc.querySelector('.field-name-field-target-audience .field-item');
-  const registrationEl = doc.querySelector('.field-name-field-registration-type .field-item') || doc.querySelector('.field-name-field-registration .field-item');
-  const categoryEls = Array.from(doc.querySelectorAll('.field-name-field-program-type .field-item, .field-name-field-categories .field-item'));
-  const heroImageEl = doc.querySelector('.field-name-field-event-image img') as HTMLImageElement | null;
-  const shortlinkEl = doc.querySelector('link[rel="shortlink"]');
+  const article = doc.querySelector('article[data-history-node-id]');
+  const scope: ParentNode = article || doc;
 
-  const dateItems = Array.from(doc.querySelectorAll('.field-name-field-start-time .field-item'))
-    .map(item => item.textContent?.replace(/\s+/g, ' ').trim())
-    .filter((value): value is string => Boolean(value));
+  const wrappers = Array.from(scope.querySelectorAll('.recurring-output--wrapper'));
+  const timeContainers = wrappers.length
+    ? wrappers
+    : Array.from(scope.querySelectorAll('.event-time, .event-info'));
 
-  return {
-    dateItems,
-    descriptionHtml: descriptionEl?.innerHTML?.trim() || null,
-    accessibilityHtml: accessibilityEl?.innerHTML?.trim() || null,
-    locationText: locationEl?.textContent?.trim() || null,
-    audienceText: audienceEl?.textContent?.trim() || null,
-    registrationText: registrationEl?.textContent?.trim() || null,
-    categoryTexts: categoryEls
-      .map(el => el.textContent?.trim())
-      .filter((value): value is string => Boolean(value)),
-    sourceEventId: shortlinkEl?.getAttribute('href') || null,
-    heroImage: heroImageEl?.getAttribute('src') || null,
-  };
-};
+  const dates: PgplDateRange[] = [];
+  const seenStarts = new Set<string>();
 
-export const parseDateRangeText = (value: string, timezone: string = TIMEZONE): { start?: string; end?: string } | null => {
-  if (!value) return null;
-  let normalized = value
-    .replace(/\u2013|\u2014/g, '-')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  for (const container of timeContainers) {
+    const isoValues = Array.from(container.querySelectorAll('time[datetime]'))
+      .map(el => el.getAttribute('datetime'))
+      .filter((value): value is string => Boolean(value));
 
-  if (!normalized) return null;
-
-  const [datePartRaw, timePartRaw] = normalized.split(' - ');
-  if (!datePartRaw) return null;
-
-  const cleanedDate = datePartRaw
-    .replace(/^[A-Za-z]+,\s*/, '')
-    .replace(/(\d{1,2})(st|nd|rd|th)/gi, '$1')
-    .trim();
-
-  const baseDate = DateTime.fromFormat(cleanedDate, 'MMMM d, yyyy', { zone: timezone });
-  if (!baseDate.isValid) {
-    return null;
-  }
-
-  const normalizeTimeText = (text?: string | null): string | null => {
-    if (!text) return null;
-    return text
-      .replace(/(am|pm)(?=[A-Za-z])/gi, '$1 ')
-      .replace(/-/g, ' - ')
-      .replace(/(am|pm)to/gi, '$1 to ')
-      .replace(/\s+/g, ' ')
-      .replace(/\./g, '')
-      .trim();
-  };
-
-  const parseTimeComponent = (text?: string | null): { hour: number; minute: number } | null => {
-    if (!text) return null;
-    const cleaned = text.toLowerCase();
-    const match = cleaned.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
-    if (!match) return null;
-    let hour = parseInt(match[1] || '0', 10);
-    const minute = parseInt(match[2] || '0', 10);
-    const meridiem = match[3];
-    if (meridiem === 'pm' && hour < 12) hour += 12;
-    if (meridiem === 'am' && hour === 12) hour = 0;
-    return { hour, minute };
-  };
-
-  const timeText = normalizeTimeText(timePartRaw);
-
-  if (timeText?.toLowerCase().includes('all day')) {
-    const startIso = baseDate.set({ hour: 9, minute: 0 }).toISO();
-    const endIso = baseDate.set({ hour: 17, minute: 0 }).toISO();
-    return { start: startIso || undefined, end: endIso || undefined };
-  }
-
-  let startTimeText: string | null = null;
-  let endTimeText: string | null = null;
-
-  if (timeText) {
-    const rangeMatch = timeText.match(/^(.+?)\s*(?:to|-)\s*(.+)$/i);
-    if (rangeMatch) {
-      startTimeText = rangeMatch[1].trim();
-      endTimeText = rangeMatch[2].trim();
-    } else {
-      startTimeText = timeText.trim();
+    for (let i = 0; i < isoValues.length; i += 2) {
+      const start = isoValues[i];
+      const end = isoValues[i + 1];
+      if (!start || seenStarts.has(start)) continue;
+      seenStarts.add(start);
+      dates.push({ start, end: end || undefined });
     }
   }
 
-  const startTime = parseTimeComponent(startTimeText) || { hour: 9, minute: 0 };
-  const endTime = parseTimeComponent(endTimeText);
+  dates.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 
-  const startIso = baseDate.set({ hour: startTime.hour, minute: startTime.minute }).toISO();
-  let endIso: string | undefined;
-
-  if (endTime) {
-    let endDateTime = baseDate.set({ hour: endTime.hour, minute: endTime.minute });
-    if (endDateTime < baseDate.set({ hour: startTime.hour, minute: startTime.minute })) {
-      endDateTime = endDateTime.plus({ days: 1 });
-    }
-    endIso = endDateTime.toISO() || undefined;
-  }
+  const locationEl = scope.querySelector('.field--name-field-location .field__item')
+    || scope.querySelector('.field--name-field-location');
+  const imageEl = scope.querySelector('.field--name-field-event-image img') as HTMLImageElement | null;
+  const titleEl = scope.querySelector('h1.post-title');
 
   return {
-    start: startIso || undefined,
-    end: endIso,
+    nodeId: article?.getAttribute('data-history-node-id') || null,
+    dates,
+    title: titleEl?.textContent?.replace(/\s+/g, ' ').trim() || null,
+    locationText: locationEl?.textContent?.replace(/\s+/g, ' ').trim() || null,
+    imageUrl: imageEl?.getAttribute('src') || null,
   };
 };
 
@@ -218,7 +141,7 @@ const pgplModule: ScraperModule = {
   label: 'Prince George Public Library',
   startUrls: [`${BASE_URL}/events`],
   paginationType: 'page',
-  integrationTags: ['api', 'calendar'],
+  integrationTags: ['calendar'],
 
   async run(ctx: RunContext): Promise<RawEvent[]> {
     const { page, logger, jobData } = ctx;
@@ -288,37 +211,24 @@ const pgplModule: ScraperModule = {
   },
 };
 
-async function fetchListingPage(page: RunContext['page'], pageIndex: number): Promise<AjaxListingResult> {
+async function fetchListingPage(page: RunContext['page'], pageIndex: number): Promise<ListingFetchResult> {
+  const listingUrl = `${BASE_URL}/events?page=${pageIndex}`;
   try {
-    const payload = { ...BASE_PAYLOAD, page: String(pageIndex) };
     return await page.evaluate(
-      async ({ ajaxUrl, payloadData, extractor }: { ajaxUrl: string; payloadData: Record<string, string>; extractor: string }) => {
+      async ({ url, extractor }: { url: string; extractor: string }) => {
         try {
-          const params = new URLSearchParams(payloadData).toString();
-          const response = await fetch(ajaxUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: params,
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
           });
 
           if (!response.ok) {
             return { success: false, status: response.status, events: [] };
           }
 
-          const data = await response.json();
-          const htmlElement = data.find(
-            (entry: any) => entry && typeof entry === 'object' && 'data' in entry && typeof entry.data === 'string',
-          );
-
-          if (!htmlElement?.data) {
-            return { success: true, events: [] };
-          }
-
+          const html = await response.text();
           const parser = new DOMParser();
-          const doc = parser.parseFromString(htmlElement.data, 'text/html');
+          const doc = parser.parseFromString(html, 'text/html');
           const extractorFn = eval(extractor);
           const events = extractorFn(doc);
 
@@ -327,23 +237,21 @@ async function fetchListingPage(page: RunContext['page'], pageIndex: number): Pr
           return { success: false, error: error?.message || 'Unknown error', events: [] };
         }
       },
-      { ajaxUrl: AJAX_ENDPOINT, payloadData: payload, extractor: listingExtractorSource },
+      { url: listingUrl, extractor: listingExtractorSource },
     );
   } catch (error: any) {
     return { success: false, error: error?.message || 'Failed to evaluate listing page', events: [] };
   }
 }
 
-async function fetchDetailData(page: RunContext['page'], url: string): Promise<AjaxDetailResult> {
+async function fetchDetailData(page: RunContext['page'], url: string): Promise<DetailFetchResult> {
   try {
     return await page.evaluate(
       async ({ detailUrl, extractor }: { detailUrl: string; extractor: string }) => {
         try {
           const response = await fetch(detailUrl, {
             method: 'GET',
-            headers: {
-              'X-Requested-With': 'XMLHttpRequest',
-            },
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
           });
 
           if (!response.ok) {
@@ -373,45 +281,34 @@ function buildRawEvent(
   detail: PgplDetailData,
   absoluteUrl: string,
 ): RawEvent | null {
-  const dateRanges = detail.dateItems
-    .map(item => parseDateRangeText(item))
-    .filter((range): range is { start?: string; end?: string } => Boolean(range?.start));
-
-  const dateInfo = dateRanges[0];
-  if (!dateInfo?.start) {
+  const primary = detail.dates[0];
+  if (!primary?.start) {
     return null;
   }
 
-  const imageCandidate = detail.heroImage || listing.imageUrl;
+  const imageCandidate = detail.imageUrl || listing.imageUrl;
   const absoluteImage = imageCandidate ? new URL(imageCandidate, BASE_URL).href : undefined;
-  const sourceEventIdMatch = detail.sourceEventId?.match(/node\/(\d+)/);
 
-  const descriptionParts: string[] = [];
-  if (detail.descriptionHtml) descriptionParts.push(detail.descriptionHtml);
-  if (detail.accessibilityHtml) {
-    descriptionParts.push(`<h4>Accessibility Information</h4>${detail.accessibilityHtml}`);
-  }
-
-  const tags = [
-    detail.audienceText?.trim(),
-    detail.registrationText?.trim(),
-  ].filter((value): value is string => Boolean(value));
+  const seriesDates = detail.dates.map(date => ({
+    start: date.start,
+    end: date.end,
+    rawText: null,
+  }));
 
   return {
-    sourceEventId: sourceEventIdMatch?.[1],
-    title: listing.title,
-    start: dateInfo.start,
-    end: dateInfo.end,
-    descriptionHtml: descriptionParts.join('<hr />') || undefined,
+    sourceEventId: detail.nodeId || undefined,
+    title: detail.title || listing.title,
+    start: primary.start,
+    end: primary.end,
+    descriptionHtml: listing.descriptionHtml || undefined,
     venueName: detail.locationText || listing.locationText || undefined,
     url: absoluteUrl,
     imageUrl: absoluteImage,
-    category: detail.categoryTexts && detail.categoryTexts.length > 0 ? detail.categoryTexts.join(', ') : undefined,
-    price: detail.registrationText || undefined,
-    tags: tags.length ? tags : undefined,
     raw: {
       listing,
       detail,
+      seriesDates,
+      timezone: TIMEZONE,
     },
   };
 }

@@ -5,7 +5,6 @@ import { JSDOM } from 'jsdom';
 import pgplModule, {
   extractListingEventsFromDocument,
   extractDetailDataFromDocument,
-  parseDateRangeText,
 } from './index.js';
 
 const fixturePath = (file: string) =>
@@ -26,34 +25,36 @@ describe('PGPL Module', () => {
     expect(events.length).toBeGreaterThan(5);
 
     const first = events[0];
-    expect(first.title).toBe('Full STEAM Ahead - NID');
-    expect(first.dateLabel).toBe('Monday November 10');
-    expect(first.timeText).toContain('1:00 pm');
-    expect(first.locationText).toContain('Bob Harkins Branch');
-    expect(first.relativeUrl).toBe('/events/full-steam-ahead-nid');
+    expect(first.title).toBe('Seed Library');
+    expect(first.relativeUrl).toBe('/events/seed-library');
+    expect(first.dateLabel).toBe('08 June');
+    expect(first.imageUrl).toContain('Seed%20Library.png');
+
+    const lego = events.find(e => e.relativeUrl === '/events/legotime');
+    expect(lego).toBeTruthy();
+    expect(lego?.timeText).toContain('3:00 pm');
+    expect(lego?.locationText).toContain('Bob Harkins Branch');
+    expect(lego?.descriptionHtml).toContain('LEGO');
   });
 
-  it('extracts detail data from an event page', async () => {
+  it('extracts detail dates from an event page', async () => {
     const html = await readFile(fixturePath('event-detail.html'), 'utf-8');
     const dom = new JSDOM(html);
     const detail = extractDetailDataFromDocument(dom.window.document);
 
-    expect(detail.dateItems[0]).toContain('Monday, November 10, 2025');
+    expect(detail.nodeId).toBe('534');
+    expect(detail.title).toBe('LEGOtime!');
     expect(detail.locationText).toBe('Bob Harkins Branch');
-    expect(detail.audienceText).toBe('Families');
-    expect(detail.registrationText).toBe('Free Drop In');
-    expect(detail.heroImage).toContain('Full%20Steam%20Ahead.png');
-    expect(detail.sourceEventId).toBe('/node/8057');
-    expect(detail.descriptionHtml).toContain('special STEAM Build and Play');
-  });
+    expect(detail.imageUrl).toContain('LegoTime');
 
-  it('parses date range text correctly', () => {
-    const parsed = parseDateRangeText('Monday, November 10, 2025 - 1:00pm to 2:00pm');
-    expect(parsed?.start).toBe('2025-11-10T13:00:00.000-08:00');
-    expect(parsed?.end).toBe('2025-11-10T14:00:00.000-08:00');
+    // Recurring weekly event — multiple upcoming occurrences, de-duplicated.
+    expect(detail.dates.length).toBeGreaterThan(1);
+    expect(detail.dates[0].start).toBe('2026-06-08T15:00:00-07:00');
+    expect(detail.dates[0].end).toBe('2026-06-08T17:00:00-07:00');
 
-    const allDay = parseDateRangeText('Tuesday, December 2, 2025 - All Day');
-    expect(allDay?.start).toBe('2025-12-02T09:00:00.000-08:00');
-    expect(allDay?.end).toBe('2025-12-02T17:00:00.000-08:00');
+    // Dates are sorted ascending and unique by start.
+    const starts = detail.dates.map(d => d.start);
+    expect(new Set(starts).size).toBe(starts.length);
+    expect([...starts].sort()).toEqual(starts);
   });
 });

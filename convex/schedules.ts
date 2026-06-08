@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 import { scheduleType } from "./schema";
 import { cronMatches } from "./cronMatch";
 
@@ -172,14 +173,14 @@ export const remove = mutation({
 //  - wordpress_export: gated — the WordPress export runs in the worker/actions
 //    phase, not yet wired, so it is skipped with no job.
 async function enqueueScheduleJobs(
-  ctx: { db: any },
+  ctx: any,
   schedule: Doc<"schedules">,
-): Promise<Id<"jobs">[]> {
+): Promise<{ jobIds: Id<"jobs">[]; units: number }> {
   const now = Date.now();
   const config = (schedule.config ?? {}) as Record<string, any>;
 
   if (schedule.scheduleType === "scrape") {
-    if (!schedule.sourceId) return [];
+    if (!schedule.sourceId) return { jobIds: [], units: 0 };
     const runId = await ctx.db.insert("runs", {
       sourceId: schedule.sourceId,
       startedAt: now,
@@ -205,7 +206,7 @@ async function enqueueScheduleJobs(
       createdAt: now,
       updatedAt: now,
     });
-    return [jobId];
+    return { jobIds: [jobId], units: 1 };
   }
 
   if (schedule.scheduleType === "instagram_scrape") {
@@ -226,7 +227,7 @@ async function enqueueScheduleJobs(
     if (typeof config.accountLimit === "number") {
       accounts = accounts.slice(0, config.accountLimit);
     }
-    if (accounts.length === 0) return [];
+    if (accounts.length === 0) return { jobIds: [], units: 0 };
 
     // Parent batch run for progress aggregation.
     const igSource = await ctx.db
@@ -265,11 +266,73 @@ async function enqueueScheduleJobs(
       });
       jobIds.push(jobId);
     }
-    return jobIds;
+    return { jobIds, units: jobIds.length };
   }
 
-  // wordpress_export: requires the WordPress upload worker/actions phase.
-  return [];
+  // wordpress_export: select the configured events and schedule the WordPress
+  // upload action (wordpressUpload:uploadEvents). Replaces the old BullMQ path.
+  if (schedule.scheduleType === "wordpress_export") {
+    const settingsId = schedule.wordpressSettingsId ?? (config.wordpressSettingsId as Id<"wordpressSettings"> | undefined);
+    if (!settingsId) return { jobIds: [], units: 0 };
+    const wp = await ctx.db.get(settingsId);
+    if (!wp || !wp.active) return { jobIds: [], units: 0 };
+
+    // Date window from day offsets relative to now (mirrors the original).
+    const DAY = 24 * 60 * 60 * 1000;
+    const startMs =
+      typeof config.startDateOffset === "number" ? now + config.startDateOffset * DAY : undefined;
+    const endMs =
+      typeof config.endDateOffset === "number" ? now + config.endDateOffset * DAY : undefined;
+
+    // Resolve configured sourceIds — they may be old Postgres UUIDs (stored in
+    // the schedule config pre-migration), so match by Convex _id OR legacyId.
+    const targetSources = new Set<string>();
+    if (Array.isArray(config.sourceIds) && config.sourceIds.length > 0) {
+      const allSources = await ctx.db.query("sources").collect();
+      const byId = new Map<string, string>(
+        allSources.map((s: Doc<"sources">) => [String(s._id), String(s._id)] as [string, string]),
+      );
+      const byLegacy = new Map<string, string>(
+        allSources
+          .filter((s: Doc<"sources">) => s.legacyId)
+          .map((s: Doc<"sources">) => [s.legacyId as string, String(s._id)] as [string, string]),
+      );
+      for (const sid of config.sourceIds) {
+        const resolved = byId.get(String(sid)) || byLegacy.get(String(sid));
+        if (resolved) targetSources.add(resolved);
+      }
+    }
+
+    // Select events in the window via the start_datetime index.
+    let rows = await ctx.db
+      .query("eventsRaw")
+      .withIndex("by_start_datetime", (q: any) => {
+        let r = q;
+        if (startMs !== undefined) r = r.gte("startDatetime", startMs);
+        if (endMs !== undefined) r = r.lte("startDatetime", endMs);
+        return r;
+      })
+      .collect();
+    rows = rows.filter((e: Doc<"eventsRaw">) => {
+      if (e.isEventPoster === false) return false;
+      if (targetSources.size > 0 && !targetSources.has(String(e.sourceId))) return false;
+      if (config.city && !(e.city ?? "").toLowerCase().includes(String(config.city).toLowerCase())) return false;
+      if (config.category && !(e.category ?? "").toLowerCase().includes(String(config.category).toLowerCase())) return false;
+      return true;
+    });
+
+    const eventIds = rows.map((e: Doc<"eventsRaw">) => String(e._id));
+    if (eventIds.length === 0) return { jobIds: [], units: 0 };
+
+    await ctx.scheduler.runAfter(0, api.wordpressUpload.uploadEvents, {
+      settingsId,
+      eventIds,
+      status: (config.status as "publish" | "draft" | "pending" | undefined) ?? "draft",
+    });
+    return { jobIds: [], units: eventIds.length };
+  }
+
+  return { jobIds: [], units: 0 };
 }
 
 export const trigger = mutation({
@@ -285,18 +348,21 @@ export const trigger = mutation({
     if (!schedule) {
       throw new ConvexError({ code: "NOT_FOUND", message: "Schedule not found" });
     }
-    const jobIds = await enqueueScheduleJobs(ctx, schedule);
+    const { jobIds, units } = await enqueueScheduleJobs(ctx, schedule);
     await ctx.db.patch(schedule._id, { lastRunAt: Date.now() });
+    const wp = schedule.scheduleType === "wordpress_export";
     return {
       message:
-        jobIds.length > 0
-          ? `Schedule triggered (${jobIds.length} job${jobIds.length === 1 ? "" : "s"})`
-          : schedule.scheduleType === "wordpress_export"
-            ? "WordPress export scheduling requires the actions phase"
+        units > 0
+          ? wp
+            ? `WordPress export started for ${units} event${units === 1 ? "" : "s"}`
+            : `Schedule triggered (${units} job${units === 1 ? "" : "s"})`
+          : wp
+            ? "No matching events to export (check the date window / sources / WordPress settings)"
             : "No jobs enqueued (no matching target)",
       scheduleId: schedule._id,
       jobId: jobIds[0],
-      jobsEnqueued: jobIds.length,
+      jobsEnqueued: units,
     };
   },
 });
@@ -329,11 +395,11 @@ export const runDue = internalMutation({
       }
       if (!matches) continue;
 
-      const jobIds = await enqueueScheduleJobs(ctx, schedule);
+      const { units } = await enqueueScheduleJobs(ctx, schedule);
       await ctx.db.patch(schedule._id, { lastRunAt: now });
-      if (jobIds.length > 0) {
+      if (units > 0) {
         fired++;
-        jobs += jobIds.length;
+        jobs += units;
       }
     }
     return { fired, jobs };
@@ -374,12 +440,12 @@ export const triggerAllActive = mutation({
 
     for (const schedule of activeSchedules) {
       try {
-        const jobIds = await enqueueScheduleJobs(ctx, schedule);
+        const { jobIds, units } = await enqueueScheduleJobs(ctx, schedule);
         await ctx.db.patch(schedule._id, { lastRunAt: Date.now() });
         triggered.push({
           id: schedule._id,
           type: schedule.scheduleType,
-          status: jobIds.length > 0 ? "triggered" : "skipped",
+          status: units > 0 ? "triggered" : "skipped",
           jobId: jobIds[0],
         });
       } catch (err) {
