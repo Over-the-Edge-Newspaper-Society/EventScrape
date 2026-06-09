@@ -35,13 +35,45 @@ export function InstagramReview() {
   const classifyMutation = useMutation({
     mutationFn: ({ id, isEventPoster }: { id: string; isEventPoster: boolean }) =>
       instagramReviewApi.classifyPost(id, { isEventPoster }),
+    // Optimistically update the cached queue so the card moves/leaves instantly
+    // instead of waiting for the server roundtrip + refetch.
+    onMutate: async ({ id, isEventPoster }) => {
+      await queryClient.cancelQueries({ queryKey: ['instagram-review-queue'] })
+      const previous = queryClient.getQueriesData({ queryKey: ['instagram-review-queue'] })
+      for (const [key, data] of previous) {
+        const old = data as { posts?: any[] } | undefined
+        if (!old?.posts) continue
+        // queryKey shape: ['instagram-review-queue', page, filter, accountId]
+        const keyFilter = (key as unknown[])[2]
+        const posts = old.posts
+          .map((item: any) =>
+            item.event?.id === id
+              ? { ...item, event: { ...item.event, isEventPoster } }
+              : item,
+          )
+          .filter((item: any) => {
+            if (item.event?.id !== id) return true
+            // Keep the just-classified post only if it still belongs to this tab.
+            if (keyFilter === 'pending') return false
+            if (keyFilter === 'event') return isEventPoster === true
+            if (keyFilter === 'not-event') return isEventPoster === false
+            if (keyFilter === 'needs-extraction') return isEventPoster === true
+            return true // 'all' keeps it (status just flips in place)
+          })
+        queryClient.setQueryData(key, { ...old, posts })
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      context?.previous?.forEach(([key, data]) => queryClient.setQueryData(key, data))
+      toast.error('Failed to classify post')
+    },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
       toast.success(`Post marked as ${variables.isEventPoster ? 'event' : 'not event'}`)
     },
-    onError: () => {
-      toast.error('Failed to classify post')
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
     },
   })
 
