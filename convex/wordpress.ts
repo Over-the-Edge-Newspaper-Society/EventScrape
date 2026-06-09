@@ -41,6 +41,25 @@ export const getEventsForUpload = internalQuery({
   handler: async (ctx, args) => {
     const out: any[] = [];
 
+    // sourceCategoryMappings is keyed by the source's legacy UUID, but eventsRaw
+    // stores the Convex source _id. Resolve each event's legacyId so the upload
+    // can match the category mapping by either key. Cached to one get per source.
+    const legacyCache = new Map<string, string | undefined>();
+    const legacyFor = async (sid: any): Promise<string | undefined> => {
+      if (!sid) return undefined;
+      const key = String(sid);
+      if (legacyCache.has(key)) return legacyCache.get(key);
+      let legacy: string | undefined = undefined;
+      try {
+        const src: any = await ctx.db.get(sid);
+        if (src && src.legacyId) legacy = src.legacyId as string;
+      } catch {
+        // sid wasn't a valid source id; leave undefined.
+      }
+      legacyCache.set(key, legacy);
+      return legacy;
+    };
+
     for (const idStr of args.ids) {
       // Try eventsRaw.
       const rawId = ctx.db.normalizeId("eventsRaw", idStr);
@@ -69,6 +88,7 @@ export const getEventsForUpload = internalQuery({
             tags: e.tags ?? undefined,
             raw: e.raw,
             sourceId: e.sourceId,
+            sourceLegacyId: await legacyFor(e.sourceId),
           });
           continue;
         }
@@ -113,6 +133,7 @@ export const getEventsForUpload = internalQuery({
             tags: c.tags ?? undefined,
             raw,
             sourceId,
+            sourceLegacyId: await legacyFor(sourceId),
           });
           continue;
         }

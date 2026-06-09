@@ -342,8 +342,26 @@ export function InstagramReviewPostCard({
             </a>
           )}
 
-          {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
-            <div className="space-y-2">
+          <div className="space-y-2">
+            {/* Current classification status (when already decided) */}
+            {event.isEventPoster !== null && (
+              <div className="flex items-center gap-2">
+                {event.isEventPoster ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span className="text-sm font-medium text-green-600">Marked as Event</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* AI assist only makes sense when undecided */}
+            {event.isEventPoster === null && (
               <Button
                 onClick={() => onAiClassify(event.id)}
                 disabled={isAiClassifyPending}
@@ -358,88 +376,62 @@ export function InstagramReviewPostCard({
                 )}
                 Let AI Decide
               </Button>
-              <div className="flex gap-2">
-                <Button
-                  onClick={() => onMarkAsEvent(event.id)}
-                  disabled={isClassifyPending || isAiClassifyPending}
-                  className="flex-1"
-                  size="lg"
-                >
-                  <CheckCircle className="mr-2 h-5 w-5" />
-                  Event
-                </Button>
-                <Button
-                  onClick={() => onMarkAsNotEvent(event.id)}
-                  disabled={isClassifyPending || isAiClassifyPending}
-                  variant="outline"
-                  className="flex-1"
-                  size="lg"
-                >
-                  <XCircle className="mr-2 h-5 w-5" />
-                  Not Event
-                </Button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {event.isEventPoster !== null && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {event.isEventPoster ? (
-                    <>
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                      <span className="text-sm font-medium text-green-600">Event</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-500">Not Event</span>
-                    </>
-                  )}
-                </div>
-                <Button
-                  onClick={() =>
-                    event.isEventPoster ? onMarkAsNotEvent(event.id) : onMarkAsEvent(event.id)
-                  }
-                  disabled={isClassifyPending}
-                  variant="ghost"
-                  size="sm"
-                >
-                  Change
-                </Button>
-              </div>
-
-              {event.isEventPoster && event.localImagePath && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {!hasExtraction ? (
-                    <Button
-                      onClick={handleExtract}
-                      disabled={isExtractPending}
-                      variant="default"
-                      size="sm"
-                      className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-                    >
-                      {isExtractPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-4 w-4" />
-                      )}
-                      Extract with AI
-                    </Button>
-                  ) : (
-                    <InstagramExtractedEventDialog
-                      eventId={event.id}
-                      dialogSubject={dialogSubject}
-                      extractedEvents={extractedEvents}
-                      isExtractPending={isExtractPending}
-                      onReextract={handleReextract}
-                    />
-                  )}
-                </div>
-              )}
+            {/* Always offer the decision — even a post already marked Not Event
+                can be re-decided here; it moves to the right tab on refetch. */}
+            <div className="flex gap-2">
+              <Button
+                onClick={() => onMarkAsEvent(event.id)}
+                disabled={isClassifyPending || isAiClassifyPending}
+                variant={event.isEventPoster === true ? 'default' : 'outline'}
+                className="flex-1"
+                size="lg"
+              >
+                <CheckCircle className="mr-2 h-5 w-5" />
+                Event
+              </Button>
+              <Button
+                onClick={() => onMarkAsNotEvent(event.id)}
+                disabled={isClassifyPending || isAiClassifyPending}
+                variant={event.isEventPoster === false ? 'default' : 'outline'}
+                className="flex-1"
+                size="lg"
+              >
+                <XCircle className="mr-2 h-5 w-5" />
+                Not Event
+              </Button>
             </div>
-          )}
+
+            {event.isEventPoster && event.localImagePath && (
+              <div className="flex flex-wrap items-center gap-2">
+                {!hasExtraction ? (
+                  <Button
+                    onClick={handleExtract}
+                    disabled={isExtractPending}
+                    variant="default"
+                    size="sm"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                  >
+                    {isExtractPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Extract with AI
+                  </Button>
+                ) : (
+                  <InstagramExtractedEventDialog
+                    eventId={event.id}
+                    dialogSubject={dialogSubject}
+                    extractedEvents={extractedEvents}
+                    isExtractPending={isExtractPending}
+                    onReextract={handleReextract}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -556,8 +548,26 @@ export function InstagramReviewPostCard({
             </div>
           </div>
 
-          {(filter === 'pending' || filter === 'all') && event.isEventPoster === null && (
-            <div className="space-y-3 border-t pt-4">
+          <div className="space-y-3 border-t pt-4">
+            {/* Current classification status (when already decided) */}
+            {event.isEventPoster !== null && (
+              <div className="flex items-center gap-2">
+                {event.isEventPoster ? (
+                  <>
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <span className="text-sm font-medium text-green-600">Marked as Event</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-5 w-5 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* AI assist only makes sense when undecided */}
+            {event.isEventPoster === null && (
               <Button
                 onClick={() => onAiClassify(event.id)}
                 disabled={isAiClassifyPending}
@@ -572,88 +582,62 @@ export function InstagramReviewPostCard({
                 )}
                 Let AI Decide
               </Button>
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => onMarkAsEvent(event.id)}
-                  disabled={isClassifyPending || isAiClassifyPending}
-                  className="flex-1"
-                  size="lg"
-                >
-                  <CheckCircle className="mr-2 h-5 w-5" />
-                  Mark Event
-                </Button>
-                <Button
-                  onClick={() => onMarkAsNotEvent(event.id)}
-                  disabled={isClassifyPending || isAiClassifyPending}
-                  variant="outline"
-                  className="flex-1"
-                  size="lg"
-                >
-                  <XCircle className="mr-2 h-5 w-5" />
-                  Not Event
-                </Button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {event.isEventPoster !== null && (
-            <div className="space-y-3 border-t pt-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {event.isEventPoster ? (
-                    <>
-                      <CheckCircle className="h-5 w-5 text-green-600" />
-                      <span className="text-sm font-medium text-green-600">Marked as Event</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-5 w-5 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-500">Marked as Not Event</span>
-                    </>
-                  )}
-                </div>
-                <Button
-                  onClick={() =>
-                    event.isEventPoster ? onMarkAsNotEvent(event.id) : onMarkAsEvent(event.id)
-                  }
-                  disabled={isClassifyPending}
-                  variant="ghost"
-                  size="sm"
-                >
-                  Change
-                </Button>
-              </div>
-
-              {event.isEventPoster && event.localImagePath && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {!hasExtraction ? (
-                    <Button
-                      onClick={handleExtract}
-                      disabled={isExtractPending}
-                      variant="default"
-                      size="sm"
-                      className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-                    >
-                      {isExtractPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="mr-2 h-4 w-4" />
-                      )}
-                      Extract Event Data with AI
-                    </Button>
-                  ) : (
-                    <InstagramExtractedEventDialog
-                      eventId={event.id}
-                      dialogSubject={dialogSubject}
-                      extractedEvents={extractedEvents}
-                      isExtractPending={isExtractPending}
-                      onReextract={handleReextract}
-                    />
-                  )}
-                </div>
-              )}
+            {/* Always offer the decision — even a post already marked Not Event
+                can be re-decided here; it moves to the right tab on refetch. */}
+            <div className="flex gap-3">
+              <Button
+                onClick={() => onMarkAsEvent(event.id)}
+                disabled={isClassifyPending || isAiClassifyPending}
+                variant={event.isEventPoster === true ? 'default' : 'outline'}
+                className="flex-1"
+                size="lg"
+              >
+                <CheckCircle className="mr-2 h-5 w-5" />
+                Mark Event
+              </Button>
+              <Button
+                onClick={() => onMarkAsNotEvent(event.id)}
+                disabled={isClassifyPending || isAiClassifyPending}
+                variant={event.isEventPoster === false ? 'default' : 'outline'}
+                className="flex-1"
+                size="lg"
+              >
+                <XCircle className="mr-2 h-5 w-5" />
+                Not Event
+              </Button>
             </div>
-          )}
+
+            {event.isEventPoster && event.localImagePath && (
+              <div className="flex flex-wrap items-center gap-2">
+                {!hasExtraction ? (
+                  <Button
+                    onClick={handleExtract}
+                    disabled={isExtractPending}
+                    variant="default"
+                    size="sm"
+                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                  >
+                    {isExtractPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Extract Event Data with AI
+                  </Button>
+                ) : (
+                  <InstagramExtractedEventDialog
+                    eventId={event.id}
+                    dialogSubject={dialogSubject}
+                    extractedEvents={extractedEvents}
+                    isExtractPending={isExtractPending}
+                    onReextract={handleReextract}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </div>
     </Card>

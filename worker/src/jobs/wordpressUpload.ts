@@ -12,11 +12,12 @@ const markErrorRef = makeFunctionReference<'mutation'>('exports:markError');
 const CHUNK = 25;
 
 export async function handleWordpressJob(job: JobShim<any>): Promise<void> {
-  const { settingsId, eventIds, status, exportId } = job.data as {
+  const { settingsId, eventIds, status, exportId, updateIfExists } = job.data as {
     settingsId: string;
     eventIds: string[];
     status?: 'publish' | 'draft' | 'pending';
     exportId?: string;
+    updateIfExists?: boolean;
   };
   if (!settingsId || !Array.isArray(eventIds) || eventIds.length === 0) {
     job.log('WordPress export: nothing to publish');
@@ -30,7 +31,7 @@ export async function handleWordpressJob(job: JobShim<any>): Promise<void> {
   for (let i = 0; i < eventIds.length; i += CHUNK) {
     const batch = eventIds.slice(i, i + CHUNK);
     try {
-      const res: any = await convex.action(uploadRef, { settingsId, eventIds: batch, status });
+      const res: any = await convex.action(uploadRef, { settingsId, eventIds: batch, status, updateIfExists });
       // res.message: "Uploaded N events, M failed"
       const m = /Uploaded (\d+) events?, (\d+) failed/.exec(res?.message || '');
       if (m) {

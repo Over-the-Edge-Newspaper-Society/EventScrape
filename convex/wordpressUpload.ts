@@ -360,6 +360,7 @@ class WordPressClient {
       imageUrl?: string;
       raw?: any;
       sourceId?: string;
+      sourceLegacyId?: string;
     }>,
     options: {
       status?: "publish" | "draft" | "pending";
@@ -403,9 +404,13 @@ class WordPressClient {
           ? JSON.parse(options.sourceCategoryMappings)
           : options.sourceCategoryMappings;
 
+      // Mappings may be keyed by the source's Convex _id OR its legacy UUID —
+      // try both so categories resolve regardless of which key was configured.
       let categoryId: number | undefined;
-      if (event.sourceId && mappings) {
-        categoryId = mappings[event.sourceId];
+      if (mappings) {
+        categoryId =
+          (event.sourceId ? mappings[event.sourceId] : undefined) ??
+          (event.sourceLegacyId ? mappings[event.sourceLegacyId] : undefined);
       }
 
       const hasSeriesData =
@@ -515,6 +520,7 @@ export const uploadEvents = action({
     status: v.optional(
       v.union(v.literal("publish"), v.literal("draft"), v.literal("pending")),
     ),
+    updateIfExists: v.optional(v.boolean()),
   },
   returns: v.object({ message: v.string(), results: v.array(v.any()) }),
   handler: async (ctx, args): Promise<{ message: string; results: any[] }> => {
@@ -566,6 +572,7 @@ export const uploadEvents = action({
           imageUrl,
           raw: e.raw,
           sourceId: e.sourceId,
+          sourceLegacyId: e.sourceLegacyId,
         };
       }),
     );
@@ -578,7 +585,7 @@ export const uploadEvents = action({
 
     const results = await client.uploadEvents(preparedEvents, {
       status: args.status || "draft",
-      updateIfExists: false,
+      updateIfExists: args.updateIfExists ?? false,
       sourceCategoryMappings:
         (settings.sourceCategoryMappings as Record<string, number>) || {},
       includeMedia,
