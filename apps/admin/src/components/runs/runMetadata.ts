@@ -8,6 +8,7 @@ const paginationMap: Record<string, PaginationType> = {
   'downtownpg_com': 'calendar',
   'caledonianordic_com': 'calendar',
   'tworiversgallery_com': 'page',
+  'theexplorationplace_com': 'calendar',
 }
 
 const integrationTagsMap: Record<string, string[]> = {
@@ -20,6 +21,7 @@ const integrationTagsMap: Record<string, string[]> = {
   'fraserfinds_ca': ['api'],
   'tworiversgallery_com': ['api'],
   'northernlightswinery_ca': ['api'],
+  'theexplorationplace_com': ['api'],
   'ai_poster_import': ['csv'],
 }
 
