@@ -9,6 +9,7 @@ const paginationMap: Record<string, PaginationType> = {
   'caledonianordic_com': 'calendar',
   'tworiversgallery_com': 'page',
   'theexplorationplace_com': 'calendar',
+  'ominecaartscentre_com': 'calendar',
 }
 
 const integrationTagsMap: Record<string, string[]> = {
@@ -22,6 +23,10 @@ const integrationTagsMap: Record<string, string[]> = {
   'tworiversgallery_com': ['api'],
   'northernlightswinery_ca': ['api'],
   'theexplorationplace_com': ['api'],
+  'ominecaartscentre_com': ['rss'],
+  'caledoniaramblers_ca': ['page-navigation'],
+  'cncentre_ca': ['page-navigation'],
+  'legion43pg_ca': ['page-navigation'],
   'ai_poster_import': ['csv'],
 }
 

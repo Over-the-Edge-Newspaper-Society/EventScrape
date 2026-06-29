@@ -1,0 +1,157 @@
+BEGIN:VCALENDAR
+PRODID:-//Google Inc//Google Calendar 70.9054//EN
+VERSION:2.0
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Omineca Upcoming Events (Public)
+X-WR-TIMEZONE:America/Vancouver
+X-WR-CALDESC:Subscribe to keep up with the most up-to-date info!
+BEGIN:VTIMEZONE
+TZID:America/Vancouver
+X-LIC-LOCATION:America/Vancouver
+BEGIN:STANDARD
+TZOFFSETFROM:-0700
+TZOFFSETTO:-0700
+TZNAME:PST
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VEVENT
+DTSTART;TZID=America/Vancouver:20220608T100000
+DTEND;TZID=America/Vancouver:20220608T130000
+RRULE:FREQ=WEEKLY;UNTIL=20231101T065959Z;BYDAY=WE
+DTSTAMP:20260629T073645Z
+UID:01hnfaq0043d9bfes82lih8gl7@google.com
+CLASS:PUBLIC
+CREATED:20220610T041225Z
+LAST-MODIFIED:20231016T035034Z
+LOCATION:Omineca Arts Centre\, 369 Victoria St\, Prince George\, BC V2L 2J6
+ \, Canada
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:Open Hours w/ Michelle Biden
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;TZID=America/Vancouver:20250211T190000
+DTEND;TZID=America/Vancouver:20250211T210000
+RRULE:FREQ=WEEKLY;UNTIL=20250520T065959Z;BYDAY=TU
+EXDATE;TZID=America/Vancouver:20250304T190000
+EXDATE;TZID=America/Vancouver:20250422T190000
+EXDATE;TZID=America/Vancouver:20250225T190000
+DTSTAMP:20260629T073645Z
+UID:3oll8a1jh7ec3iu3j5cik5dd77_R20250212T030000@google.com
+CREATED:20250131T212149Z
+DESCRIPTION:<b>Life Drawing at Omineca Arts Centre</b><br><br><a href="http
+ s://www.facebook.com/share/15gCXV1uk3/" target="_blank">https://www.faceboo
+ k.com/share/15gCXV1uk3/</a><br><br><br>Join us for a relaxed night of life 
+ drawing at Omineca Arts Centre! Practice capturing the human form with a li
+ ve model in a mix of short and long poses. All skill levels welcome.<br><br
+ >⏰ Time: 6:45 PM – 9:00 PM (Drawing will start at 7\, Doors will lock at 7:
+ 05 PM)<br>📍 Location: Omineca Arts Centre<br>💰 Price: By cash donation ($
+ 15 suggested to support the model and the centre)<br>🔞 18+ Event (Nude Mod
+ el)<br>✏️ Please bring your own materials and a drawing board if you have o
+ ne as we will be seated at tables.
+LAST-MODIFIED:20250211T183519Z
+LOCATION:Omineca Arts Centre\, 369 Victoria St\, Prince George\, BC V2L 2J6
+ \, Canada
+SEQUENCE:1
+STATUS:CONFIRMED
+SUMMARY:Life Drawing Session
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20231125T000000Z
+DTEND:20231125T040000Z
+DTSTAMP:20260629T073645Z
+UID:040000008200E00074C5B7101A82E00800000000E1C3F2AE911EDA01000000000000000
+ 01000000099885A4A97263447B1A6B88F80B1F71D
+CREATED:20231124T045002Z
+DESCRIPTION:<html>\n<head>\n<meta http-equiv="Content-Type" content="text/h
+ tml\; charset=utf-8">\n</head>\n<body>\n<div><span style="font-size:12pt">J
+ oin us at Omineca for some unique Plaid Friday shopping. We will be showcas
+ ing an intriguing mix of local artists and Indigenous Artisans. Food will b
+ e available from 4-7pm from the inimitable Dat´san Cho Bannock (cash only).
+ \n You can also chill at our art table and enter the gift basket draw. Free
+  entry. Follow the event to learn about the interesting vendors we have in 
+ store for you!</span></div>\n<div><br>\n</div>\n<div>Part of the @DowntownP
+ G Plaid Friday Celebrations.</div>\n<div><br>\n</div>\n<a href="https://www
+ .facebook.com/share/4KmzdkdZo4S3u9X9/?mibextid=9VsGKo">https://www.facebook
+ .com/share/4KmzdkdZo4S3u9X9/?mibextid=9VsGKo</a><br>\n</body>\n</html>\n
+LAST-MODIFIED:20231124T045002Z
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:Plaid Friday Artisan Market
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260204T200000Z
+DTEND:20260204T210000Z
+DTSTAMP:20260629T073645Z
+UID:4q51qnln95lauquaf7amfbgn2b@google.com
+CLASS:PUBLIC
+CREATED:20260109T231800Z
+DESCRIPTION:<ul><li><time>Wednesday\, February 4\, 2026</time></li><li><tim
+ e>12:00 p.m.</time>  <time>1:00 p.m.</time></li><li>Omineca Arts Centre <a 
+ href="http://maps.google.com/?q=369%20Victoria%20Street%20Prince%20George\,
+ %20BC\,%20V2L%202J6%20Canada" target="_blank">(map)</a></li><li><a href="ht
+ tp://www.google.com/calendar/event?action=TEMPLATE&amp\;text=Workshop%20-%2
+ 0STUFF%20THAT%20WORKS%21%20Songwriting%20Workshop%20with%20Linda%20McRae&am
+ p\;dates=20260204T200000Z/20260204T210000Z&amp\;location=369%20Victoria%20S
+ treet%2C%20Prince%20George%2C%20BC%2C%20V2L%202J6%2C%20Canada">Google Calen
+ dar</a>  <a href="https://www.coldsnapfestival.com/coldsnap2026schedule/stu
+ ff-that-works-songwriting-workshop-with-linda-mcrae?format=ical">ICS</a></l
+ i></ul><br><p>We are honoured to kick off the Coldsnap Workshop/IceJam even
+ ts with a songwriting workshop hosted by the one and only Linda McRae. Ever
+ ybody has a story to tell. Let’s explore ways to find your unique voice and
+  create your own stories. Got writer’s block? Linda will present a raft of 
+ tips and tricks to get the creative juices flowing again. Open to all level
+ s and experiences. Bring a writing utensil\, no instrument needed.</p>
+LAST-MODIFIED:20260109T235956Z
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:Workshop - STUFF THAT WORKS! Songwriting Workshop with Linda McRae
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260301T210000Z
+DTEND:20260301T230000Z
+DTSTAMP:20260629T073645Z
+UID:7phl84034fr5m42i9p4gg6rf6b@google.com
+CREATED:20260205T201248Z
+DESCRIPTION:You <a><u></u></a>can create change for tenants in Prince Georg
+ e by building collective power. Our first Tenants' Rights Workshop in Novem
+ ber showed us that too many of our neighbors are struggling alone. We discu
+ ssed issues like exploitative landlords and a lack of meaningful tenant adv
+ ocacy. We believe that adequate housing is a human right. By coming togethe
+ r\, you can help build a community of mutual support and find solutions to 
+ housing injustice.<br><br><b>Who can attend?</b><br><br>Everyone is welcome
+  to attend. To ensure our group is led by tenants for tenants\, only those 
+ who do not own property can become a member or vote.<br><br><b>How can I he
+ lp make this meeting successful?</b><br><br>Invite your family\, friends\, 
+ and neighbors. You can share this post or print posters and handbills.<br><
+ br>This event takes place on the traditional\, unceded territory of the Lhe
+ idli T'enneh. We can not talk about housing justice without talking about t
+ he displacement of Indigenous Peoples both past and present. No displacemen
+ t on stolen land.
+LAST-MODIFIED:20260214T004308Z
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:Northern Tenants Union Meeting 
+TRANSP:OPAQUE
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260510T020000Z
+DTEND:20260510T080000Z
+DTSTAMP:20260629T073645Z
+UID:1i4aqfqjb2lk80uh8ugpm5e51k@google.com
+CREATED:20260310T214604Z
+DESCRIPTION:Live music featuring\nThe Narcans\nAnomalist\nUrban Indian\nAll
+  Ages\nDoors at 7om show at 8pm\nTickets $20 in advance $25 at the door
+LAST-MODIFIED:20260506T192355Z
+SEQUENCE:1
+STATUS:CONFIRMED
+SUMMARY:A night of Hip - Hop\, Punk & Metal
+TRANSP:TRANSPARENT
+END:VEVENT
+END:VCALENDAR
