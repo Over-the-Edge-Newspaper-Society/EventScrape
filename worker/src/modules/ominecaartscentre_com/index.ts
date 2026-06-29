@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
-import { parseICal, expandOccurrences, type VEvent } from './ical.js';
+import { parseICal, expandOccurrences, type VEvent } from '../../lib/ical.js';
 import { PG_TZ } from '../../lib/dates.js';
 import { fetchText } from '../../lib/wp.js';
 

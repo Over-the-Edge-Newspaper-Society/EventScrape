@@ -94,8 +94,19 @@ the reliable fallback for both venues.
 Common logic lives in `worker/src/lib/` so modules don't re-implement it:
 
 - **`lib/tribe-events.ts`** — client + mapper for any WordPress site running
-  "The Events Calendar" plugin. Add a venue with its base URL + an `organizer`
-  default (used by `caledonianordic_com`, `theexplorationplace_com`).
+  "The Events Calendar" plugin, plus a **`createTribeModule({key, label,
+  baseUrl, organizer})`** factory that returns a whole `ScraperModule`. A new
+  such venue is ~10 lines (`caledonianordic_com`, `theexplorationplace_com`).
+- **`lib/dom-extract.ts`** — `serializeExtractor` / `extractFromPage` /
+  `fetchAndExtract`: author a DOM extractor once (jsdom-testable) and run it in
+  the browser without re-writing the `page.evaluate(eval(...))` plumbing
+  (`caledoniaramblers_ca`, `cncentre_ca`, `legion43pg_ca`, `pgpride_com`,
+  `pgara_ca`).
+- **`lib/wp.ts`** — `fetchJson` / `fetchText` (over `page.request`) and
+  `paginateWpRest` (generic WordPress REST paginator). Used by the API/feed
+  modules.
+- **`lib/ical.ts`** — iCal (RFC 5545) parser with basic RRULE expansion, for
+  Google Calendar / Teamup / Tockify feeds (`ominecaartscentre_com`).
 - **`lib/dates.ts`** — timezone-aware date kit (`PG_TZ` + `localStringToIso`,
   `combineDateAndTime`, `epochMsToIso`, `normalizeIsoZone`, `isoFromNaiveZ`,
   `parseLooseDate`, `parseClockTime`, `rollForwardIfPast`). Every module's date
@@ -103,5 +114,3 @@ Common logic lives in `worker/src/lib/` so modules don't re-implement it:
 - **`lib/text.ts`** — `decodeEntities` (HTML-entity decoding) shared across the
   API modules.
 - **`lib/utils.ts`** — `delay`, `addJitter`, `normalizeEvent` (pre-existing).
-- **`lib/ical.ts`** *(future)* — the iCal parser currently in
-  `ominecaartscentre_com/ical.ts`; promote it when a second feed needs it.

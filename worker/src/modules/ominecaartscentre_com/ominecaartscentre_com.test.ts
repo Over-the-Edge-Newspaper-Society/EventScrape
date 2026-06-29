@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { DateTime } from 'luxon';
-import { parseICal, icalToDateTime, expandOccurrences, unfoldLines } from './ical.js';
+import { parseICal, icalToDateTime, expandOccurrences, unfoldLines } from '../../lib/ical.js';
 import ominecaModule, { eventsFromIcal } from './index.js';
 
 const ZONE = 'America/Vancouver';

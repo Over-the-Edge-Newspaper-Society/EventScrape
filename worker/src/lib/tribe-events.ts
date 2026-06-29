@@ -1,5 +1,6 @@
+import { DateTime } from 'luxon';
 import type { Page } from 'playwright';
-import type { RawEvent } from '../types.js';
+import type { RawEvent, ScraperModule, RunContext } from '../types.js';
 import { delay, addJitter } from './utils.js';
 import { decodeEntities } from './text.js';
 import { PG_TZ, localStringToIso } from './dates.js';
@@ -231,4 +232,66 @@ export async function fetchTribeEvents(
   }
 
   return events;
+}
+
+// --- Module factory ----------------------------------------------------------
+
+export interface TribeModuleConfig {
+  key: string;
+  label: string;
+  baseUrl: string;
+  organizer: string;
+  startPath?: string;       // default '/events/'
+  fullMonths?: number;      // forward window in full mode (default 12)
+  testMonths?: number;      // forward window in test mode (default 1)
+  /** Emit a Cloudflare/aggregator-fallback hint when 0 events come back. */
+  cloudflareNote?: boolean;
+}
+
+/**
+ * Build a complete ScraperModule for a WordPress site running "The Events
+ * Calendar". Collapses a per-venue module to its config; the run() body (date
+ * window + paginated fetch + mapping) lives here once.
+ */
+export function createTribeModule(config: TribeModuleConfig): ScraperModule {
+  const startPath = config.startPath ?? '/events/';
+  const defaults: TribeMapDefaults = { organizer: config.organizer };
+
+  return {
+    key: config.key,
+    label: config.label,
+    startUrls: [`${config.baseUrl}${startPath}`],
+    paginationType: 'calendar',
+    integrationTags: ['api'],
+
+    async run(ctx: RunContext): Promise<RawEvent[]> {
+      const { page, logger, jobData } = ctx;
+      const isTestMode = jobData?.testMode === true;
+      const paginationOptions = jobData?.paginationOptions;
+
+      logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${config.label} via Events Calendar REST API`);
+
+      const now = DateTime.now().setZone(PG_TZ);
+      const months = isTestMode ? (config.testMonths ?? 1) : (config.fullMonths ?? 12);
+      const startDate = paginationOptions?.startDate || now.toFormat('yyyy-MM-dd');
+      const endDate = paginationOptions?.endDate || now.plus({ months }).toFormat('yyyy-MM-dd');
+      logger.info(`Requesting events from ${startDate} to ${endDate}`);
+
+      const events = await fetchTribeEvents(page, config.baseUrl, {
+        startDate,
+        endDate,
+        perPage: isTestMode ? 10 : 50,
+        maxPages: isTestMode ? 1 : 25,
+        logger,
+        defaults,
+        onPage: () => { if (ctx.stats) ctx.stats.pagesCrawled++; },
+      });
+
+      if (events.length === 0 && config.cloudflareNote) {
+        logger.warn('No events returned — the origin may be blocking this IP (Cloudflare 522). Consider the fraserfinds_ca aggregator as a fallback.');
+      }
+      logger.info(`Scrape completed. Total events: ${events.length}`);
+      return events;
+    },
+  };
 }
