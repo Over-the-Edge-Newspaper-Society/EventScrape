@@ -6,6 +6,7 @@ const paginationMap: Record<string, PaginationType> = {
   'unbc_ca': 'page',
   'prince_george_ca': 'calendar',
   'downtownpg_com': 'calendar',
+  'caledonianordic_com': 'calendar',
 }
 
 const integrationTagsMap: Record<string, string[]> = {
@@ -14,6 +15,7 @@ const integrationTagsMap: Record<string, string[]> = {
   'unbc_ca': ['page-navigation'],
   'prince_george_ca': ['calendar'],
   'downtownpg_com': ['calendar'],
+  'caledonianordic_com': ['api'],
   'ai_poster_import': ['csv'],
 }
 
