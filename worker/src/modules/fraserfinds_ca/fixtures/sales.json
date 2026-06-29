@@ -1,0 +1,38 @@
+[
+ {
+  "id": "3cc3c13f119929ce51d241799eb8ee80",
+  "address": "7700 Lancaster",
+  "categories": "Furniture & Home D\u00e9cor",
+  "weatherPolicy": "",
+  "description": "Where woodwork meets the canvas. An at home art show organized for viewing and appreciating the many works of art by this talented local artist. With opportunity to purchase your favorite piece. With furniture,  art pieces, wood jewelry, and much more! Come check out it. For all to enjoy",
+  "photo": [],
+  "days": [
+   {
+    "date": "2026-07-05",
+    "start": "9:30 AM",
+    "end": "1:00 PM"
+   }
+  ],
+  "lat": 53.853404,
+  "lng": -122.7573427,
+  "updated_at": "2026-06-28 01:23:03"
+ },
+ {
+  "id": "24516afa94c6f5bbd7d1b7a7f7d4710f",
+  "address": "690 Tabor Blvd S.",
+  "categories": "Furniture & Home D\u00e9cor, Clothing & Accessories, Kids' Toys & Games, Books, Movies & Music, Kitchen & Appliances",
+  "weatherPolicy": "",
+  "description": "Yard Sale",
+  "photo": [],
+  "days": [
+   {
+    "date": "2026-06-29",
+    "start": "10:00 AM",
+    "end": "6:00 PM"
+   }
+  ],
+  "lat": 53.9180094,
+  "lng": -122.806817,
+  "updated_at": "2026-06-28 01:23:03"
+ }
+]

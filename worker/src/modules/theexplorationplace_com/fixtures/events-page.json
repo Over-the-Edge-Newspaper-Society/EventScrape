@@ -1,0 +1,51 @@
+{
+  "events": [
+    {
+      "id": 4821,
+      "url": "https://theexplorationplace.com/event/senior-monday-3/2026-06-29/",
+      "title": "Senior Monday",
+      "description": "<p>Mondays are for our 60+ visitors! Enjoy $10 admission and a free coffee or tea while you explore.</p>",
+      "excerpt": "Mondays are for our 60+ visitors!",
+      "start_date": "2026-06-29 10:00:00",
+      "end_date": "2026-06-29 17:00:00",
+      "utc_start_date": "2026-06-29 17:00:00",
+      "utc_end_date": "2026-06-30 00:00:00",
+      "timezone": "America/Vancouver",
+      "all_day": false,
+      "cost": "$10",
+      "venue": {
+        "venue": "The Exploration Place",
+        "address": "333 Becott Pl",
+        "city": "Prince George",
+        "stateprovince": "BC",
+        "zip": "V2L 5T6",
+        "country": "Canada"
+      },
+      "categories": [{ "name": "Arts &amp; Culture" }],
+      "organizer": [{ "organizer": "The Exploration Place" }],
+      "image": { "url": "https://theexplorationplace.com/wp-content/uploads/senior-monday.jpg" }
+    },
+    {
+      "id": 4822,
+      "url": "https://theexplorationplace.com/event/daycare-wednesday/2026-06-24/",
+      "title": "Daycare Wednesday",
+      "description": "<p>A weekly program for daycare groups.</p>",
+      "start_date": "2026-06-24 09:30:00",
+      "end_date": "2026-06-24 11:30:00",
+      "timezone": "America/Vancouver",
+      "all_day": false,
+      "cost": "",
+      "venue": {
+        "venue": "The Exploration Place",
+        "address": "333 Becott Pl",
+        "city": "Prince George",
+        "stateprovince": "BC"
+      },
+      "categories": [{ "name": "Family" }],
+      "organizer": [],
+      "image": false
+    }
+  ],
+  "total": 2,
+  "total_pages": 1
+}

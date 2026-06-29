@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0" xml:base="https://www.caledoniaramblers.ca/">
+  <channel>
+    <title>Caledonia Ramblers - Upcoming Hikes</title>
+    <link>https://www.caledoniaramblers.ca/</link>
+    <description/>
+    <language>en</language>
+    
+        <outline text="&lt;a href=&quot;/hike-details/home-lake-and-greer-falls&quot; hreflang=&quot;en&quot;&gt;Home Lake and Greer Falls&lt;/a&gt;" type="rss" xmlUrl="&lt;a href=&quot;/hike-details/home-lake-and-greer-falls&quot; hreflang=&quot;en&quot;&gt;Home Lake and Greer Falls&lt;/a&gt;"/>
+    <outline text="&lt;a href=&quot;/hike-details/tabor-mountaintroll-crossover&quot; hreflang=&quot;en&quot;&gt;Tabor Mountain/Troll Crossover&lt;/a&gt;" type="rss" xmlUrl="&lt;a href=&quot;/hike-details/tabor-mountaintroll-crossover&quot; hreflang=&quot;en&quot;&gt;Tabor Mountain/Troll Crossover&lt;/a&gt;"/>
+    <outline text="&lt;a href=&quot;/hike-details/two-sisters-barkerville&quot; hreflang=&quot;en&quot;&gt;Two Sisters (Barkerville)&lt;/a&gt;" type="rss" xmlUrl="&lt;a href=&quot;/hike-details/two-sisters-barkerville&quot; hreflang=&quot;en&quot;&gt;Two Sisters (Barkerville)&lt;/a&gt;"/>
+    <outline text="&lt;a href=&quot;/hike-details/longworth-lookout&quot; hreflang=&quot;en&quot;&gt;Longworth Lookout&lt;/a&gt;" type="rss" xmlUrl="&lt;a href=&quot;/hike-details/longworth-lookout&quot; hreflang=&quot;en&quot;&gt;Longworth Lookout&lt;/a&gt;"/>
+    <outline text="&lt;a href=&quot;/hike-details/crest-circuit&quot; hreflang=&quot;en&quot;&gt;Crest Circuit&lt;/a&gt;" type="rss" xmlUrl="&lt;a href=&quot;/hike-details/crest-circuit&quot; hreflang=&quot;en&quot;&gt;Crest Circuit&lt;/a&gt;"/>
+
+  </channel>
+</rss>
