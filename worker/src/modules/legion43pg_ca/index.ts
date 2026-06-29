@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
+import { fetchAndExtract } from '../../lib/dom-extract.js';
+import { paginateWpRest } from '../../lib/wp.js';
 
 /**
  * Royal Canadian Legion Branch 43 (legion43pg.ca) — WordPress + Modern Events
@@ -96,8 +98,6 @@ export function mapMecEvent(raw: RawMecEvent, url: string, zone = DEFAULT_TZ): R
   return event;
 }
 
-const extractorSource = `(${extractMecEventFromDocument.toString()})`;
-
 const legionModule: ScraperModule = {
   key: 'legion43pg_ca',
   label: 'Royal Canadian Legion Branch 43',
@@ -113,18 +113,14 @@ const legionModule: ScraperModule = {
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
 
     // 1) Discover event URLs from the MEC REST route.
-    const links: string[] = [];
-    for (let pageNum = 1; pageNum <= (isTestMode ? 1 : 10); pageNum++) {
-      const url = `${BASE_URL}/wp-json/wp/v2/mec-events?per_page=100&page=${pageNum}&status=publish`;
-      const res = await page.request.get(url, { timeout: 30000 });
-      if (ctx.stats) ctx.stats.pagesCrawled++;
-      if (!res.ok()) break;
-      const posts = (await res.json()) as McePost[];
-      if (!Array.isArray(posts) || posts.length === 0) break;
-      links.push(...posts.map(p => p.link).filter(Boolean));
-      const totalPages = Number(res.headers()['x-wp-totalpages'] || '1');
-      if (pageNum >= totalPages) break;
-    }
+    const posts = await paginateWpRest<McePost>(page, `${BASE_URL}/wp-json/wp/v2/mec-events`, {
+      perPage: 100,
+      maxPages: isTestMode ? 1 : 10,
+      query: { status: 'publish' },
+      logger,
+      onPage: () => { if (ctx.stats) ctx.stats.pagesCrawled++; },
+    });
+    const links = posts.map(p => p.link).filter(Boolean);
     logger.info(`Discovered ${links.length} MEC event(s)`);
 
     const now = DateTime.now().setZone(zone).minus({ days: 1 });
@@ -134,16 +130,7 @@ const legionModule: ScraperModule = {
     // 2) Parse the date off each event page.
     for (const [i, url] of targets.entries()) {
       try {
-        const raw: RawMecEvent | null = await page.evaluate(
-          async ({ detailUrl, extractor }) => {
-            const resp = await fetch(detailUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            if (!resp.ok) return null;
-            const html = await resp.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            return eval(extractor)(doc);
-          },
-          { detailUrl: url, extractor: extractorSource },
-        );
+        const raw = await fetchAndExtract<RawMecEvent>(page, url, extractMecEventFromDocument);
         if (ctx.stats) ctx.stats.pagesCrawled++;
         if (!raw) { logger.warn(`Failed to fetch ${url}`); continue; }
 

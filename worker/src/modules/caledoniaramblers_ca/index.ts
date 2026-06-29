@@ -1,5 +1,6 @@
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { PG_TZ, isoFromNaiveZ } from '../../lib/dates.js';
+import { extractFromPage } from '../../lib/dom-extract.js';
 
 /**
  * Caledonia Ramblers Hiking Club (caledoniaramblers.ca) — Drupal.
@@ -111,8 +112,6 @@ export function mapHikeToRawEvent(hike: RawHike, zone = DEFAULT_TZ): RawEvent | 
   };
 }
 
-const extractorSource = `(${extractHikesFromDocument.toString()})`;
-
 const ramblersModule: ScraperModule = {
   key: 'caledoniaramblers_ca',
   label: 'Caledonia Ramblers Hiking Club',
@@ -130,10 +129,7 @@ const ramblersModule: ScraperModule = {
     await page.goto(`${BASE_URL}/schedule`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (ctx.stats) ctx.stats.pagesCrawled++;
 
-    const hikes: RawHike[] = await page.evaluate((extractor: string) => {
-      const fn = eval(extractor);
-      return fn(document);
-    }, extractorSource);
+    const hikes = await extractFromPage<RawHike[]>(page, extractHikesFromDocument);
 
     logger.info(`Found ${hikes.length} hike row(s) in the schedule`);
 

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { parseICal, expandOccurrences, type VEvent } from './ical.js';
 import { PG_TZ } from '../../lib/dates.js';
+import { fetchText } from '../../lib/wp.js';
 
 /**
  * Omineca Arts Centre (ominecaartscentre.com).
@@ -85,15 +86,14 @@ const ominecaModule: ScraperModule = {
       ? DateTime.fromISO(paginationOptions.endDate, { zone })
       : now.plus({ months: isTestMode ? 1 : 6 });
 
-    const res = await page.request.get(ICAL_URL, { timeout: 30000 });
+    const { ok, status, text } = await fetchText(page, ICAL_URL);
     if (ctx.stats) ctx.stats.pagesCrawled++;
-    if (!res.ok()) {
-      logger.error(`iCal feed returned HTTP ${res.status()}`);
-      throw new Error(`HTTP ${res.status()} from ${ICAL_URL}`);
+    if (!ok || !text) {
+      logger.error(`iCal feed returned HTTP ${status}`);
+      throw new Error(`HTTP ${status} from ${ICAL_URL}`);
     }
 
-    const ical = await res.text();
-    const events = eventsFromIcal(ical, windowStart, windowEnd, zone);
+    const events = eventsFromIcal(text, windowStart, windowEnd, zone);
     logger.info(`Expanded ${events.length} occurrence(s) within ${windowStart.toISODate()}..${windowEnd.toISODate()}`);
     return events;
   },

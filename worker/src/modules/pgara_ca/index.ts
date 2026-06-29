@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { PG_TZ, parseLooseDate, parseClockTime, rollForwardIfPast } from '../../lib/dates.js';
+import { extractFromPage } from '../../lib/dom-extract.js';
 
 // Re-export shared parsers under this module's names (used by its tests).
 export { parseLooseDate };
@@ -98,8 +99,6 @@ export function mapRowToEvent(row: RawScheduleRow, now: DateTime, zone = DEFAULT
   };
 }
 
-const extractorSource = `(${extractScheduleRows.toString()})`;
-
 const pgaraModule: ScraperModule = {
   key: 'pgara_ca',
   label: 'PGARA Speedway',
@@ -118,9 +117,7 @@ const pgaraModule: ScraperModule = {
     if (ctx.stats) ctx.stats.pagesCrawled++;
     await page.waitForTimeout(2500); // let Wix hydrate
 
-    const rows: RawScheduleRow[] = await page.evaluate((extractor: string) => {
-      return eval(extractor)(document);
-    }, extractorSource);
+    const rows = await extractFromPage<RawScheduleRow[]>(page, extractScheduleRows);
     logger.info(`Extracted ${rows.length} candidate schedule row(s)`);
 
     const now = DateTime.now().setZone(zone);

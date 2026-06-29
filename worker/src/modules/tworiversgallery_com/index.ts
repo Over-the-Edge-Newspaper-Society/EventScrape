@@ -1,7 +1,7 @@
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
-import { delay, addJitter } from '../../lib/utils.js';
 import { PG_TZ, combineDateAndTime } from '../../lib/dates.js';
 import { decodeEntities } from '../../lib/text.js';
+import { paginateWpRest } from '../../lib/wp.js';
 
 // Re-export the shared HTML-entity decoder for this module's tests.
 export { decodeEntities };
@@ -124,36 +124,20 @@ const twoRiversModule: ScraperModule = {
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label} via WP REST API`);
 
     for (const postType of POST_TYPES) {
-      for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-        const url = `${BASE_URL}/wp-json/wp/v2/${postType}?per_page=${perPage}&page=${pageNum}&_embed=1&orderby=date&order=desc`;
-        logger.info(`Fetching ${postType} page ${pageNum}`);
-        const res = await page.request.get(url, { timeout: 30000 });
-        if (ctx.stats) ctx.stats.pagesCrawled++;
+      const posts = await paginateWpRest<WpPost>(page, `${BASE_URL}/wp-json/wp/v2/${postType}`, {
+        perPage,
+        maxPages,
+        query: { _embed: '1', orderby: 'date', order: 'desc' },
+        logger,
+        onPage: () => { if (ctx.stats) ctx.stats.pagesCrawled++; },
+      });
 
-        if (!res.ok()) {
-          // WP returns 400 ("rest_post_invalid_page_number") past the last page.
-          if (res.status() === 400 && pageNum > 1) {
-            logger.info(`Reached end of ${postType} at page ${pageNum}`);
-          } else {
-            logger.warn(`${postType} page ${pageNum} returned HTTP ${res.status()}`);
-          }
-          break;
-        }
-
-        const posts = (await res.json()) as WpPost[];
-        if (!Array.isArray(posts) || posts.length === 0) break;
-
-        let mapped = 0;
-        for (const post of posts) {
-          const e = mapPostToRawEvent(post, postType, zone);
-          if (e) { events.push(e); mapped++; }
-        }
-        logger.info(`Mapped ${mapped}/${posts.length} ${postType}`);
-
-        const totalPages = Number(res.headers()['x-wp-totalpages'] || '1');
-        if (pageNum >= totalPages || isTestMode) break;
-        await delay(addJitter(1000, 50));
+      let mapped = 0;
+      for (const post of posts) {
+        const e = mapPostToRawEvent(post, postType, zone);
+        if (e) { events.push(e); mapped++; }
       }
+      logger.info(`Mapped ${mapped}/${posts.length} ${postType}`);
     }
 
     logger.info(`Scrape completed. Total events: ${events.length}`);

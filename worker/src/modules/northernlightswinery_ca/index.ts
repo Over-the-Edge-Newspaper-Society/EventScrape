@@ -1,6 +1,7 @@
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { PG_TZ, epochMsToIso } from '../../lib/dates.js';
 import { decodeEntities } from '../../lib/text.js';
+import { fetchJson } from '../../lib/wp.js';
 
 // Re-export shared helpers for this module's tests.
 export { decodeEntities };
@@ -124,15 +125,14 @@ const wineryModule: ScraperModule = {
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label} via Squarespace JSON`);
 
     const url = `${BASE_URL}${COLLECTION_PATH}?format=json`;
-    const res = await page.request.get(url, { timeout: 30000 });
+    const { ok, status, data } = await fetchJson<SqsCollectionResponse>(page, url);
     if (ctx.stats) ctx.stats.pagesCrawled++;
-    if (!res.ok()) {
-      logger.error(`Squarespace JSON returned HTTP ${res.status()}`);
-      throw new Error(`HTTP ${res.status()} from ${url}`);
+    if (!ok || !data) {
+      logger.error(`Squarespace JSON returned HTTP ${status}`);
+      throw new Error(`HTTP ${status} from ${url}`);
     }
 
-    const body = (await res.json()) as SqsCollectionResponse;
-    const items = body.upcoming || [];
+    const items = data.upcoming || [];
     const slice = isTestMode ? items.slice(0, 3) : items;
     logger.info(`Squarespace returned ${items.length} upcoming item(s)`);
 

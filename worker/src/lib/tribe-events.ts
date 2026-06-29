@@ -3,6 +3,7 @@ import type { RawEvent } from '../types.js';
 import { delay, addJitter } from './utils.js';
 import { decodeEntities } from './text.js';
 import { PG_TZ, localStringToIso } from './dates.js';
+import { fetchJson } from './wp.js';
 
 // Re-export shared helpers so existing importers (and their tests) keep working.
 export { decodeEntities } from './text.js';
@@ -198,19 +199,19 @@ export async function fetchTribeEvents(
     const url = `${apiBase}?${params.toString()}`;
     logger.info(`Fetching Events Calendar API page ${pageNum}: ${url}`);
 
-    const response = await page.request.get(url, { timeout: 30000 });
+    const { ok, status, data } = await fetchJson(page, url);
     opts.onPage?.();
 
-    if (!response.ok()) {
-      if (response.status() === 400 && pageNum > 1) {
+    if (!ok) {
+      if (status === 400 && pageNum > 1) {
         logger.info(`Reached end of pages at page ${pageNum} (HTTP 400)`);
         break;
       }
-      logger.warn(`API request failed: HTTP ${response.status()} for page ${pageNum}`);
+      logger.warn(`API request failed: HTTP ${status} for page ${pageNum}`);
       break;
     }
 
-    const { events: apiEvents, totalPages, total } = parseEventsResponse(await response.json());
+    const { events: apiEvents, totalPages, total } = parseEventsResponse(data);
     if (pageNum === 1) logger.info(`API reports ${total} event(s) across ${totalPages} page(s)`);
 
     for (const apiEvent of apiEvents) {

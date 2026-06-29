@@ -2,6 +2,8 @@ import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
 import { PG_TZ, normalizeIsoZone } from '../../lib/dates.js';
+import { fetchAndExtract } from '../../lib/dom-extract.js';
+import { fetchText } from '../../lib/wp.js';
 
 /**
  * CN Centre (cncentre.ca) — Prince George's arena. Drupal 10.
@@ -84,8 +86,6 @@ export function mapCnEvent(raw: RawCnEvent, url: string, zone = DEFAULT_TZ): Raw
   return event;
 }
 
-const extractorSource = `(${extractEventFromDocument.toString()})`;
-
 const cnCentreModule: ScraperModule = {
   key: 'cncentre_ca',
   label: 'CN Centre',
@@ -101,13 +101,13 @@ const cnCentreModule: ScraperModule = {
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
 
     // 1) Discover event URLs from the sitemap.
-    const sitemapRes = await page.request.get(SITEMAP_URL, { timeout: 30000 });
+    const sitemap = await fetchText(page, SITEMAP_URL);
     if (ctx.stats) ctx.stats.pagesCrawled++;
-    if (!sitemapRes.ok()) {
-      logger.error(`sitemap.xml returned HTTP ${sitemapRes.status()}`);
-      throw new Error(`HTTP ${sitemapRes.status()} from ${SITEMAP_URL}`);
+    if (!sitemap.ok || !sitemap.text) {
+      logger.error(`sitemap.xml returned HTTP ${sitemap.status}`);
+      throw new Error(`HTTP ${sitemap.status} from ${SITEMAP_URL}`);
     }
-    const urls = extractEventUrlsFromSitemap(await sitemapRes.text());
+    const urls = extractEventUrlsFromSitemap(sitemap.text);
     logger.info(`Discovered ${urls.length} event URL(s) in sitemap`);
 
     const now = DateTime.now().setZone(zone).minus({ days: 1 });
@@ -117,16 +117,7 @@ const cnCentreModule: ScraperModule = {
     // 2) Parse each detail page in the browser context.
     for (const [i, url] of targets.entries()) {
       try {
-        const raw: RawCnEvent | null = await page.evaluate(
-          async ({ detailUrl, extractor }) => {
-            const resp = await fetch(detailUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            if (!resp.ok) return null;
-            const html = await resp.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            return eval(extractor)(doc);
-          },
-          { detailUrl: url, extractor: extractorSource },
-        );
+        const raw = await fetchAndExtract<RawCnEvent>(page, url, extractEventFromDocument);
         if (ctx.stats) ctx.stats.pagesCrawled++;
         if (!raw) { logger.warn(`Failed to fetch ${url}`); continue; }
 

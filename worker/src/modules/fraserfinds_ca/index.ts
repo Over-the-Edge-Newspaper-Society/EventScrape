@@ -1,6 +1,7 @@
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
 import { PG_TZ, combineDateAndTime } from '../../lib/dates.js';
+import { fetchJson } from '../../lib/wp.js';
 
 /**
  * Fraser Finds (fraserfinds.ca) — Prince George community hub.
@@ -194,11 +195,10 @@ const fraserFindsModule: ScraperModule = {
     try {
       const url = `${BASE_URL}/api/events`;
       logger.info(`Fetching aggregated events: ${url}`);
-      const res = await page.request.get(url, { timeout: 30000 });
+      const { ok, status, data } = await fetchJson<FraserFindsEvent[]>(page, url);
       if (ctx.stats) ctx.stats.pagesCrawled++;
-      if (res.ok()) {
-        const body = (await res.json()) as FraserFindsEvent[];
-        const list = Array.isArray(body) ? body : [];
+      if (ok) {
+        const list = Array.isArray(data) ? data : [];
         const slice = isTestMode ? list.slice(0, 5) : list;
         let mapped = 0;
         for (const ev of slice) {
@@ -215,7 +215,7 @@ const fraserFindsModule: ScraperModule = {
           .map(([s, n]) => `${s}(${n})`).join(', ');
         logger.info(`Mapped ${mapped} aggregated events. Sources: ${summary}`);
       } else {
-        logger.warn(`/api/events returned HTTP ${res.status()}`);
+        logger.warn(`/api/events returned HTTP ${status}`);
       }
     } catch (err) {
       logger.warn(`Failed to fetch aggregated events: ${err}`);
@@ -227,11 +227,10 @@ const fraserFindsModule: ScraperModule = {
     try {
       const url = `${BASE_URL}/api/sales`;
       logger.info(`Fetching garage sales: ${url}`);
-      const res = await page.request.get(url, { timeout: 30000 });
+      const { ok, status, data } = await fetchJson<FraserFindsSale[]>(page, url);
       if (ctx.stats) ctx.stats.pagesCrawled++;
-      if (res.ok()) {
-        const body = (await res.json()) as FraserFindsSale[];
-        const list = Array.isArray(body) ? body : [];
+      if (ok) {
+        const list = Array.isArray(data) ? data : [];
         const slice = isTestMode ? list.slice(0, 3) : list;
         let mapped = 0;
         for (const sale of slice) {
@@ -241,7 +240,7 @@ const fraserFindsModule: ScraperModule = {
         }
         logger.info(`Mapped ${mapped} garage-sale day events from ${slice.length} sale(s)`);
       } else {
-        logger.warn(`/api/sales returned HTTP ${res.status()}`);
+        logger.warn(`/api/sales returned HTTP ${status}`);
       }
     } catch (err) {
       logger.warn(`Failed to fetch garage sales: ${err}`);

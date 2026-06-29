@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { PG_TZ, parseLooseDate, parseClockTime } from '../../lib/dates.js';
+import { extractFromPage } from '../../lib/dom-extract.js';
 
 // The shared loose date/time parsers (re-exported under this module's names).
 export const parseDateText = parseLooseDate;
@@ -113,8 +114,6 @@ export function mapScrapedEvent(raw: RawScrapedEvent, fallbackYear: number, zone
   };
 }
 
-const extractorSource = `(${extractEventsFromDocument.toString()})`;
-
 const pgPrideModule: ScraperModule = {
   key: 'pgpride_com',
   label: 'Prince George Pride Society',
@@ -143,9 +142,7 @@ const pgPrideModule: ScraperModule = {
     }
     await page.waitForTimeout(2000);
 
-    const scraped: RawScrapedEvent[] = await page.evaluate((extractor: string) => {
-      return eval(extractor)(document);
-    }, extractorSource);
+    const scraped = await extractFromPage<RawScrapedEvent[]>(page, extractEventsFromDocument);
     logger.info(`Extracted ${scraped.length} candidate event(s) from rendered page`);
 
     const fallbackYear = DateTime.now().setZone(zone).year;
