@@ -89,8 +89,19 @@ the reliable fallback for both venues.
   time is serialized with a spurious `Z`; we strip it and read it as PG-local.
   CN Centre's listing is AJAX, so we discover event URLs from `sitemap.xml`.
 
-## Reuse
+## Reuse — shared helpers
 
-`worker/src/lib/tribe-events.ts` is a shared client for any WordPress site
-running "The Events Calendar" plugin — drop in a new module with the site's base
-URL and an `organizer` default to add another such venue.
+Common logic lives in `worker/src/lib/` so modules don't re-implement it:
+
+- **`lib/tribe-events.ts`** — client + mapper for any WordPress site running
+  "The Events Calendar" plugin. Add a venue with its base URL + an `organizer`
+  default (used by `caledonianordic_com`, `theexplorationplace_com`).
+- **`lib/dates.ts`** — timezone-aware date kit (`PG_TZ` + `localStringToIso`,
+  `combineDateAndTime`, `epochMsToIso`, `normalizeIsoZone`, `isoFromNaiveZ`,
+  `parseLooseDate`, `parseClockTime`, `rollForwardIfPast`). Every module's date
+  helper now delegates here, so date bugs are fixed in one place.
+- **`lib/text.ts`** — `decodeEntities` (HTML-entity decoding) shared across the
+  API modules.
+- **`lib/utils.ts`** — `delay`, `addJitter`, `normalizeEvent` (pre-existing).
+- **`lib/ical.ts`** *(future)* — the iCal parser currently in
+  `ominecaartscentre_com/ical.ts`; promote it when a second feed needs it.

@@ -1,5 +1,5 @@
-import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
+import { PG_TZ, isoFromNaiveZ } from '../../lib/dates.js';
 
 /**
  * Caledonia Ramblers Hiking Club (caledoniaramblers.ca) — Drupal.
@@ -14,7 +14,7 @@ import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
  */
 
 const BASE_URL = 'https://www.caledoniaramblers.ca';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 
 export interface RawHike {
   title: string | null;
@@ -76,11 +76,7 @@ export const extractHikesFromDocument = (doc: Document): RawHike[] => {
  * local time rather than UTC.
  */
 export function hikeStartIso(hike: RawHike, zone = DEFAULT_TZ): string | undefined {
-  const attr = hike.meetingAttr || hike.dateAttr;
-  if (!attr) return undefined;
-  const naive = attr.replace(/Z$/, '');
-  const dt = DateTime.fromISO(naive, { zone });
-  return dt.isValid ? (dt.toISO() ?? undefined) : undefined;
+  return isoFromNaiveZ(hike.meetingAttr || hike.dateAttr, zone);
 }
 
 /** Map a parsed hike row onto RawEvent. Returns null if it has no date. */

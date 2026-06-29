@@ -15,8 +15,10 @@ import {
  * rather than scraping HTML, so this module is tagged `api`.
  */
 
+import { PG_TZ } from '../../lib/dates.js';
+
 const BASE_URL = 'https://caledonianordic.com';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const DEFAULTS: TribeMapDefaults = { organizer: 'Caledonia Nordic Ski Club' };
 
 // Re-export the shared helpers (and a defaults-bound mapper) for unit tests.

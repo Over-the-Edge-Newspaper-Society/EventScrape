@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
+import { PG_TZ, normalizeIsoZone } from '../../lib/dates.js';
 
 /**
  * CN Centre (cncentre.ca) — Prince George's arena. Drupal 10.
@@ -15,7 +16,7 @@ import { delay, addJitter } from '../../lib/utils.js';
 const BASE_URL = 'https://www.cncentre.ca';
 const SITEMAP_URL = `${BASE_URL}/sitemap.xml`;
 const EVENT_PATH = '/events-tickets/events-calendar/';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 
 export interface RawCnEvent {
   title: string | null;
@@ -57,18 +58,11 @@ export const extractEventFromDocument = (doc: Document): RawCnEvent => {
   };
 };
 
-/** Normalize an ISO datetime (already carries an offset) into the target zone. */
-function normalizeIso(attr: string | null, zone: string): string | undefined {
-  if (!attr) return undefined;
-  const dt = DateTime.fromISO(attr, { setZone: true });
-  return dt.isValid ? (dt.setZone(zone).toISO() ?? undefined) : undefined;
-}
-
 /** Map a parsed detail page onto RawEvent. Returns null without a start date. */
 export function mapCnEvent(raw: RawCnEvent, url: string, zone = DEFAULT_TZ): RawEvent | null {
-  const start = normalizeIso(raw.startAttr, zone);
+  const start = normalizeIsoZone(raw.startAttr, zone);
   if (!start) return null;
-  const end = normalizeIso(raw.endAttr, zone);
+  const end = normalizeIsoZone(raw.endAttr, zone);
 
   const event: RawEvent = {
     sourceEventId: url.replace(`${BASE_URL}${EVENT_PATH}`, '').replace(/\/$/, ''),

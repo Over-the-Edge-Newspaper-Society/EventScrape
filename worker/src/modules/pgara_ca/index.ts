@@ -1,5 +1,10 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
+import { PG_TZ, parseLooseDate, parseClockTime, rollForwardIfPast } from '../../lib/dates.js';
+
+// Re-export shared parsers under this module's names (used by its tests).
+export { parseLooseDate };
+export const parseTime = parseClockTime;
 
 /**
  * Prince George Auto Racing Association (pgara.ca) — Wix.
@@ -17,45 +22,12 @@ import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 
 const BASE_URL = 'https://www.pgara.ca';
 const SCHEDULE_URL = `${BASE_URL}/event-schedule`;
-const DEFAULT_TZ = 'America/Vancouver';
-
-const MONTHS = 'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec';
+const DEFAULT_TZ = PG_TZ;
 
 export interface RawScheduleRow {
   text: string;
   dateText: string;
   timeText: string | null;
-}
-
-/** Parse a loose date string; uses fallbackYear when the year is absent. */
-export function parseLooseDate(input: string | null, fallbackYear: number, zone = DEFAULT_TZ): DateTime | null {
-  if (!input) return null;
-  const t = input.replace(/\s+/g, ' ').trim();
-  const m = t.match(new RegExp(`(${MONTHS})\\.?\\s+(\\d{1,2})(?:,?\\s+(\\d{4}))?`, 'i'));
-  if (m) {
-    const norm = `${m[1].replace(/\.$/, '')} ${m[2]} ${m[3] || fallbackYear}`;
-    for (const fmt of ['MMMM d yyyy', 'MMM d yyyy']) {
-      const dt = DateTime.fromFormat(norm, fmt, { zone });
-      if (dt.isValid) return dt;
-    }
-  }
-  for (const fmt of ['yyyy-MM-dd', 'MM/dd/yyyy', 'M/d/yyyy']) {
-    const dt = DateTime.fromFormat(t, fmt, { zone });
-    if (dt.isValid) return dt;
-  }
-  return null;
-}
-
-export function parseTime(input: string | null): { hour: number; minute: number } | null {
-  if (!input) return null;
-  const m = input.match(/(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)/i);
-  if (!m) return null;
-  let hour = parseInt(m[1], 10);
-  const minute = m[2] ? parseInt(m[2], 10) : 0;
-  const ap = m[3].toLowerCase().replace(/\./g, '');
-  if (ap === 'pm' && hour < 12) hour += 12;
-  if (ap === 'am' && hour === 12) hour = 0;
-  return hour <= 23 && minute <= 59 ? { hour, minute } : null;
 }
 
 /**
@@ -66,7 +38,7 @@ export function parseTime(input: string | null): { hour: number; minute: number 
 export function resolveStartIso(row: RawScheduleRow, now: DateTime, zone = DEFAULT_TZ): string | undefined {
   let dt = parseLooseDate(row.dateText, now.year, zone);
   if (!dt) return undefined;
-  if (dt < now.minus({ months: 1 })) dt = dt.plus({ years: 1 });
+  dt = rollForwardIfPast(dt, now);
   const time = parseTime(row.timeText);
   dt = time ? dt.set({ hour: time.hour, minute: time.minute }) : dt.set({ hour: 18, minute: 0 }); // races run evenings
   return dt.toISO() ?? undefined;

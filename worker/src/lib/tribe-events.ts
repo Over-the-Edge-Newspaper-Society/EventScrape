@@ -1,7 +1,13 @@
-import { DateTime } from 'luxon';
 import type { Page } from 'playwright';
 import type { RawEvent } from '../types.js';
 import { delay, addJitter } from './utils.js';
+import { decodeEntities } from './text.js';
+import { PG_TZ, localStringToIso } from './dates.js';
+
+// Re-export shared helpers so existing importers (and their tests) keep working.
+export { decodeEntities } from './text.js';
+/** Site-local "yyyy-MM-dd HH:mm:ss" → ISO with the zone's offset. */
+export const toIsoWithZone = localStringToIso;
 
 /**
  * Shared client + mapper for WordPress sites running "The Events Calendar"
@@ -15,7 +21,7 @@ import { delay, addJitter } from './utils.js';
  * API reference: https://theeventscalendar.com/knowledgebase/k/rest-api-events/
  */
 
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const MAX_PER_PAGE = 50; // The Events Calendar caps per_page at 50
 
 // --- Tribe API shapes (only the fields we consume) ---------------------------
@@ -66,35 +72,6 @@ export interface TribeMapDefaults {
 }
 
 // --- Pure helpers (unit-tested) ----------------------------------------------
-
-/** Decode the handful of HTML entities WordPress emits in titles/categories. */
-export function decodeEntities(input?: string): string {
-  if (!input) return '';
-  return input
-    .replace(/&amp;/g, '&')
-    .replace(/&#0?38;/g, '&')
-    .replace(/&#8217;/g, '’')
-    .replace(/&#8216;/g, '‘')
-    .replace(/&#8220;/g, '“')
-    .replace(/&#8221;/g, '”')
-    .replace(/&#8211;/g, '–')
-    .replace(/&#8212;/g, '—')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .trim();
-}
-
-/** Convert a site-local "yyyy-MM-dd HH:mm:ss" string + zone into an ISO string. */
-export function toIsoWithZone(local?: string, zone: string = DEFAULT_TZ): string | undefined {
-  if (!local) return undefined;
-  const dt = DateTime.fromFormat(local, 'yyyy-MM-dd HH:mm:ss', { zone });
-  return dt.isValid ? (dt.toISO() ?? undefined) : undefined;
-}
 
 function isVenueObject(v: TribeEvent['venue']): v is TribeVenue {
   return !!v && !Array.isArray(v) && typeof v === 'object';

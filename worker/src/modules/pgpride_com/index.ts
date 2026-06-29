@@ -1,5 +1,10 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
+import { PG_TZ, parseLooseDate, parseClockTime } from '../../lib/dates.js';
+
+// The shared loose date/time parsers (re-exported under this module's names).
+export const parseDateText = parseLooseDate;
+export const parseTimeText = parseClockTime;
 
 /**
  * Prince George Pride Society (pgpride.com) — GoDaddy Website Builder.
@@ -19,57 +24,13 @@ import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 
 const BASE_URL = 'https://pgpride.com';
 const CALENDAR_URL = `${BASE_URL}/event-calendar`;
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 
 export interface RawScrapedEvent {
   title: string | null;
   dateText: string | null;
   timeText: string | null;
   url: string | null;
-}
-
-const MONTHS = 'January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec';
-
-/** Pull a date out of free text, trying several common formats. */
-export function parseDateText(dateText: string | null, fallbackYear: number, zone = DEFAULT_TZ): DateTime | null {
-  if (!dateText) return null;
-  const t = dateText.replace(/\s+/g, ' ').trim();
-
-  // ISO first
-  const iso = DateTime.fromISO(t, { zone });
-  if (iso.isValid) return iso;
-
-  // "February 20, 2026" / "Feb 20 2026" / "February 20"
-  const m = t.match(new RegExp(`(${MONTHS})\\.?\\s+(\\d{1,2})(?:,?\\s+(\\d{4}))?`, 'i'));
-  if (m) {
-    const [, month, day, year] = m;
-    const norm = `${month.replace(/\.$/, '')} ${day} ${year || fallbackYear}`;
-    for (const fmt of ['MMMM d yyyy', 'MMM d yyyy']) {
-      const dt = DateTime.fromFormat(norm, fmt, { zone });
-      if (dt.isValid) return dt;
-    }
-  }
-
-  // numeric: 2026-02-20 / 02/20/2026 / 20/02/2026
-  for (const fmt of ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MM/yyyy', 'M/d/yyyy']) {
-    const dt = DateTime.fromFormat(t, fmt, { zone });
-    if (dt.isValid) return dt;
-  }
-  return null;
-}
-
-/** Pull a start time ("7:00 PM", "7 pm", "19:00") out of free text. */
-export function parseTimeText(timeText: string | null): { hour: number; minute: number } | null {
-  if (!timeText) return null;
-  const m = timeText.match(/(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?/i);
-  if (!m) return null;
-  let hour = parseInt(m[1], 10);
-  const minute = m[2] ? parseInt(m[2], 10) : 0;
-  const ap = (m[3] || '').toLowerCase().replace(/\./g, '');
-  if (ap === 'pm' && hour < 12) hour += 12;
-  if (ap === 'am' && hour === 12) hour = 0;
-  if (hour > 23 || minute > 59) return null;
-  return { hour, minute };
 }
 
 /** Combine scraped date + time text into an ISO start string. */

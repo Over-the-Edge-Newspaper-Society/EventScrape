@@ -1,5 +1,11 @@
-import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
+import { PG_TZ, epochMsToIso } from '../../lib/dates.js';
+import { decodeEntities } from '../../lib/text.js';
+
+// Re-export shared helpers for this module's tests.
+export { decodeEntities };
+/** Epoch ms → ISO string in the venue timezone, floored to the minute. */
+export const msToIso = epochMsToIso;
 
 /**
  * Northern Lights Estate Winery (northernlightswinery.ca) — Squarespace.
@@ -13,7 +19,7 @@ import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 
 const BASE_URL = 'https://www.northernlightswinery.ca';
 const COLLECTION_PATH = '/events-calendar';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000; // ignore end dates implausibly far out
 
 // --- Squarespace shapes (only what we use) -----------------------------------
@@ -46,26 +52,6 @@ export interface SqsCollectionResponse {
 }
 
 // --- Pure helpers (unit-tested) ----------------------------------------------
-
-export function decodeEntities(input?: string): string {
-  if (!input) return '';
-  return input
-    .replace(/&amp;/g, '&')
-    .replace(/&#0?38;/g, '&')
-    .replace(/&#8217;/g, '’')
-    .replace(/&#8211;/g, '–')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .trim();
-}
-
-/** Epoch ms → ISO string in the venue timezone, floored to the minute. */
-export function msToIso(ms?: number, zone = DEFAULT_TZ): string | undefined {
-  if (typeof ms !== 'number' || !Number.isFinite(ms)) return undefined;
-  const dt = DateTime.fromMillis(ms, { zone }).set({ second: 0, millisecond: 0 });
-  return dt.isValid ? (dt.toISO() ?? undefined) : undefined;
-}
 
 function buildAddress(loc?: SqsLocation): string | undefined {
   if (!loc) return undefined;

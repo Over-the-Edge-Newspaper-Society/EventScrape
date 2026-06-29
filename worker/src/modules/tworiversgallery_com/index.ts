@@ -1,6 +1,10 @@
-import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
+import { PG_TZ, combineDateAndTime } from '../../lib/dates.js';
+import { decodeEntities } from '../../lib/text.js';
+
+// Re-export the shared HTML-entity decoder for this module's tests.
+export { decodeEntities };
 
 /**
  * Two Rivers Gallery (tworiversgallery.ca) — WordPress.
@@ -15,7 +19,7 @@ import { delay, addJitter } from '../../lib/utils.js';
  */
 
 const BASE_URL = 'https://tworiversgallery.ca';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const POST_TYPES = ['events', 'programs'] as const;
 
 // --- WP REST shapes (only what we use) ---------------------------------------
@@ -45,22 +49,6 @@ export interface WpPost {
 
 // --- Pure helpers (unit-tested) ----------------------------------------------
 
-/** Decode the handful of HTML entities WordPress emits in titles. */
-export function decodeEntities(input?: string): string {
-  if (!input) return '';
-  return input
-    .replace(/&amp;/g, '&')
-    .replace(/&#0?38;/g, '&')
-    .replace(/&#8217;/g, '’')
-    .replace(/&#8211;/g, '–')
-    .replace(/&#8212;/g, '—')
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .trim();
-}
-
 const af = (f?: AcfField): string => (f?.value ?? '').trim();
 
 /**
@@ -70,10 +58,7 @@ const af = (f?: AcfField): string => (f?.value ?? '').trim();
 export function acfDateTime(dateVal?: string, timeVal?: string, zone = DEFAULT_TZ): string | undefined {
   const d = (dateVal || '').trim();
   if (!/^\d{8}$/.test(d)) return undefined;
-  const t = (timeVal || '').trim();
-  const fmt = t ? 'yyyyMMdd HH:mm:ss' : 'yyyyMMdd';
-  const dt = DateTime.fromFormat(t ? `${d} ${t}` : d, fmt, { zone });
-  return dt.isValid ? (dt.toISO() ?? undefined) : undefined;
+  return combineDateAndTime(d, timeVal, { dateFormat: 'yyyyMMdd', timeFormat: 'HH:mm:ss', zone });
 }
 
 function featuredImage(post: WpPost): string | undefined {

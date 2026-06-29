@@ -1,6 +1,6 @@
-import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
+import { PG_TZ, combineDateAndTime } from '../../lib/dates.js';
 
 /**
  * Fraser Finds (fraserfinds.ca) — Prince George community hub.
@@ -23,7 +23,7 @@ import { delay, addJitter } from '../../lib/utils.js';
  */
 
 const BASE_URL = 'https://fraserfinds.ca';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const AGGREGATOR = 'fraserfinds.ca';
 
 // --- API shapes (only the fields we consume) ---------------------------------
@@ -72,14 +72,7 @@ export interface FraserFindsSale {
  * it as an all-day event starting at midnight local time.
  */
 export function combineDateTime(date: string, time: string | undefined, zone = DEFAULT_TZ): string | undefined {
-  if (!date) return undefined;
-  const t = (time || '').trim();
-  if (t) {
-    const dt = DateTime.fromFormat(`${date} ${t}`, 'yyyy-MM-dd h:mm a', { zone });
-    if (dt.isValid) return dt.toISO() ?? undefined;
-  }
-  const dateOnly = DateTime.fromFormat(date, 'yyyy-MM-dd', { zone });
-  return dateOnly.isValid ? (dateOnly.toISO() ?? undefined) : undefined;
+  return combineDateAndTime(date, time, { dateFormat: 'yyyy-MM-dd', timeFormat: 'h:mm a', zone });
 }
 
 /** Derive a readable source/host label from the original link. */

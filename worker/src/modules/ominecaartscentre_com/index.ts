@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { parseICal, expandOccurrences, type VEvent } from './ical.js';
+import { PG_TZ } from '../../lib/dates.js';
 
 /**
  * Omineca Arts Centre (ominecaartscentre.com).
@@ -15,7 +16,7 @@ import { parseICal, expandOccurrences, type VEvent } from './ical.js';
 const CAL_ID = 'c_9ddad3eb5ba84ca41db304f7846d3012e08bfa1f246ff1c5d03acac455296c08@group.calendar.google.com';
 const ICAL_URL = `https://calendar.google.com/calendar/ical/${encodeURIComponent(CAL_ID)}/public/basic.ics`;
 const SITE_URL = 'https://www.ominecaartscentre.com/events/calendar';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 
 /** Map a VEVENT + one expanded occurrence onto a RawEvent. */
 export function mapOccurrence(ev: VEvent, occ: { start: string; end?: string; allDay: boolean }): RawEvent {

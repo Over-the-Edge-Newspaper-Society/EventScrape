@@ -20,8 +20,10 @@ import {
  * aggregator feed (`fraserfinds_ca`) as a fallback.
  */
 
+import { PG_TZ } from '../../lib/dates.js';
+
 const BASE_URL = 'https://theexplorationplace.com';
-const DEFAULT_TZ = 'America/Vancouver';
+const DEFAULT_TZ = PG_TZ;
 const DEFAULTS: TribeMapDefaults = { organizer: 'The Exploration Place' };
 
 // Re-export a defaults-bound mapper for unit tests.
