@@ -1,74 +1,91 @@
 # Calendar Data Sources — Investigation & Integration Plan
 
 Investigation of candidate Prince George / Northern BC event sources, each probed
-live for the cleanest ingestion method. EventScrape modules declare how they pull
-data via `integrationTags: ('calendar' | 'csv' | 'page-navigation' | 'api' | 'rss')[]`
-(see `worker/src/types.ts`). Prefer an `api`/`rss` feed over HTML scraping whenever
-one exists — it is faster, needs no headless browser, and breaks less often.
+live for the cleanest ingestion method, plus the modules built from that work.
+EventScrape modules declare how they pull data via
+`integrationTags: ('calendar' | 'csv' | 'page-navigation' | 'api' | 'rss')[]`
+(see `worker/src/types.ts`). Prefer an `api`/`rss` feed over HTML scraping
+whenever one exists — it is faster, needs no headless browser, and breaks less
+often.
 
-## Key finding: fraserfinds.ca is already an aggregator
+## Key finding: fraserfinds.ca is an aggregator
 
 `https://fraserfinds.ca` is a custom React app backed by its own JSON API:
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /api/events` | ~585 KB aggregated community calendar (`title/date/start/end/venue/category/description/link`) |
+| `GET /api/events` | ~870 events aggregated from 20+ local feeds (`title/date/start/end/venue/category/description/link/source`) |
 | `GET /api/sales`  | Garage sales (`address`, `days[].{date,start,end}`, `lat/lng`, `categories`) |
 | `GET /api/indoor` | Indoor-activity business directory |
-| `GET /api/sponsors`, `/api/submit`, `/api/digest/subscribe` | sponsors / submissions / newsletter |
 
-`/api/events` already covers many of the venues below (event counts at time of probe):
-The Exploration Place (309), PG Public Library (147), Two Rivers Gallery (63),
-CN Centre (15), Northern Lights Winery (14), Omineca Arts Centre (10),
-PGARA Speedway (9), Legion Hall (7), plus Studio 2880, Knox, PG Playhouse, etc.
+Every aggregated event keeps its original `source` name **and** a `link` back
+to the source page, so the `fraserfinds_ca` module preserves that attribution
+(the canonical `url` points at the origin venue, and `raw.originalSource` /
+`raw.aggregatedVia` record the chain). Sources it pulls from (counts at time of
+probe): The Exploration Place (309), PG Public Library (147), Hart Pioneer
+Centre (80), Two Rivers Gallery (63), City of Prince George (59), PG Golf &
+Curling (40), Facebook events (36), Caledonia Ramblers (19), Farmers Market
+(19), PG Symphony (17), CN Centre (15), Northern Lights Winery (14), Omineca
+Arts Centre (10), PGARA (9), Tourism PG (7), Legion (7), PG Pride (7), Theatre
+NorthWest (6), BCNE (4), Caledonia Nordic (2).
 
-Trade-off: ingesting `/api/events` gives instant broad coverage with minimal code,
-but makes us depend on their curation/uptime and re-publishes a peer aggregator's
-data. Recommended use: build direct modules for the clean primary sources, and use
-`/api/events` only to backfill the hard (Cloudflare/Wix/GoDaddy) venues.
+This means the aggregator alone covers the JS-only website-builder venues
+(PG Pride, PGARA) and Facebook events that have no scrapable first-party feed.
 
-## Per-source results
+## Per-source results & build status
 
-| Source | Tech | Best integration | Tag | Effort | Status |
-|--------|------|------------------|-----|--------|--------|
-| caledonianordic.com | WordPress + The Events Calendar | `GET /wp-json/tribe/events/v1/events` (full structured events) | `api` | Easy | **Built** |
-| fraserfinds.ca (garage sales) | Custom React + API | `GET /api/sales` | `api` | Easy | Planned |
-| fraserfinds.ca (#calendar) | Custom React + API | `GET /api/events` (aggregated) | `api` | Easy | Planned |
-| tworiversgallery.ca | WordPress, custom post types | `GET /wp-json/wp/v2/events` and `/programs` (ACF start/end date+time) | `api` | Easy | Planned |
-| northernlightswinery.ca | Squarespace + Eventbrite | `?format=json` collection, or Eventbrite API | `api` | Med | Planned |
-| caledoniaramblers.ca | Drupal 11 | RSS `/events/feed` + `/schedule` table for dates | `rss` | Med | Planned |
-| cncentre.ca | Drupal 10 | Server-rendered HTML (`<time datetime>`, `field-when`); listing `/events-tickets/events-calendar` | `page-navigation` | Med | Planned |
-| legion43pg.ca | WordPress + Modern Events Calendar | `/wp-json/wp/v2/mec-events` for discovery; dates NOT in REST → scrape event pages | `page-navigation` | Med | Planned |
-| theexplorationplace.com | WordPress + Events Calendar | Cloudflare returns 522 to datacenter IPs → needs a real browser. Fully covered by fraserfinds | `page-navigation` | Hard | Backfill via fraserfinds |
-| ominecaartscentre.com | "ESF" host | HTML scrape `/events/calendar`. Also in fraserfinds | `page-navigation` | Hard | Backfill via fraserfinds |
-| pgpride.com | GoDaddy Website Builder | JS-rendered calendar widget (iframe srcdoc), no feed → Playwright, brittle | `page-navigation` | Hard | Deferred |
-| pgara.ca | Wix | Wix Events in `wix-warmup-data` (warmup showed season archives; schedule unclear). Also in fraserfinds | `page-navigation` | Hard | Deferred |
-| facebook.com/events/… | Facebook | Auth-walled + anti-bot, single event URL → not cleanly scrapeable. Use `ai_poster_import`/Instagram path or manual entry | — | Skip | Skip |
+| # | Source | Tech | Integration | Tag | Module | Status |
+|---|--------|------|-------------|-----|--------|--------|
+| 1 | fraserfinds.ca (calendar + sales) | Custom React + API | `/api/events` + `/api/sales` | `api` | `fraserfinds_ca` | ✅ Built |
+| 2 | caledonianordic.com | WP + The Events Calendar | `/wp-json/tribe/events/v1/events` | `api` | `caledonianordic_com` | ✅ Built |
+| 3 | tworiversgallery.ca | WP custom post types | `/wp-json/wp/v2/events` + `/programs` (ACF dates) | `api` | `tworiversgallery_com` | ✅ Built |
+| 4 | northernlightswinery.ca | Squarespace + Eventbrite | `?format=json` collection feed | `api` | `northernlightswinery_ca` | ✅ Built |
+| 5 | theexplorationplace.com | WP + The Events Calendar | same tribe API (shared lib) | `api` | `theexplorationplace_com` | ✅ Built¹ |
+| 6 | ominecaartscentre.com | Google Sites + Google Calendar | public iCal feed (`/ical/.../public/basic.ics`) | `rss` | `ominecaartscentre_com` | ✅ Built |
+| 7 | caledoniaramblers.ca | Drupal 11 | `/schedule` view table | `page-navigation` | `caledoniaramblers_ca` | ✅ Built |
+| 8 | cncentre.ca | Drupal 10 | sitemap.xml → detail pages (ISO `<time>`) | `page-navigation` | `cncentre_ca` | ✅ Built |
+| 9 | legion43pg.ca | WP + Modern Events Calendar | MEC REST (discovery) → event-page dates | `page-navigation` | `legion43pg_ca` | ✅ Built |
+| 10 | pgpride.com | GoDaddy Website Builder | JS calendar widget, no feed | — | via `fraserfinds_ca` | ◐ Aggregator² |
+| 11 | pgara.ca | Wix | Wix Events API absent (404); JS-only | — | via `fraserfinds_ca` | ◐ Aggregator² |
+| 12 | facebook.com/events/… | Facebook | Auth-walled + anti-bot | — | via `fraserfinds_ca` | ◐ Aggregator² |
+
+¹ The Exploration Place origin sits behind Cloudflare and returns HTTP 522 to
+datacenter IP ranges. The module uses the same shared Events Calendar client and
+runs from the worker's real browser; if Cloudflare still blocks it, Fraser Finds
+re-publishes 300+ Exploration Place events as the fallback.
+
+² No scrapable first-party feed (JS website builders / auth-walled). These are
+covered through the `fraserfinds_ca` aggregator, which keeps each event's
+original source attribution. A direct module would require a rendered-browser
+heuristic scraper and would be brittle — not worth it while the aggregator
+covers them.
 
 ## Notes on the API endpoints
 
 - **The Events Calendar** (`caledonianordic`, `theexplorationplace`):
-  `GET /wp-json/tribe/events/v1/events?per_page=50&page=N&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&status=publish`.
-  Response: `{ events: [...], total, total_pages }`. Each event has site-local
-  `start_date`/`end_date` plus a `timezone` field, `all_day`, nested `venue`,
-  `categories[]`, `cost`, `image.url`. `per_page` caps at 50; HTTP 400 marks
-  "past the last page."
-- **Two Rivers Gallery** custom post types: `GET /wp-json/wp/v2/events` and
-  `/wp-json/wp/v2/programs`. Dates live in `acf.{start_date,end_date,start_time,end_time}`
-  as pre-formatted strings (e.g. `"September 9"`, `"6:00 pm"`).
-- **Modern Events Calendar** (`legion43pg`): the default `wp/v2/mec-events` REST
-  returns post fields but NOT event start/end (they live in postmeta). Either read
-  the rendered event page or the plugin's iCal export.
-- **Squarespace** (`northernlightswinery`): append `?format=json` to any collection
-  URL for the underlying JSON; the page also embeds Eventbrite tickets.
-- **Drupal feed** (`caledoniaramblers`): `/events/feed` is a views RSS feed of
-  upcoming hikes; hike dates are on the `/schedule` table and `/hike-details/*` pages.
+  `GET /wp-json/tribe/events/v1/events?per_page=50&page=N&start_date=…&end_date=…&status=publish`.
+  Shared client/mapper in `worker/src/lib/tribe-events.ts`. Each event has
+  site-local `start_date`/`end_date` + a `timezone` field, `all_day`, nested
+  `venue`, `categories[]`, `cost`, `image.url`. `per_page` caps at 50; HTTP 400
+  marks "past the last page."
+- **Two Rivers Gallery**: `/wp-json/wp/v2/events` and `/programs`. Dates live in
+  `acf.{start_date,end_date}` ("yyyyMMdd") and `acf.{start_time,end_time}`
+  ("HH:mm:ss"). `?_embed=1` resolves the featured image.
+- **Modern Events Calendar** (`legion43pg`): `wp/v2/mec-events` lists posts but
+  omits start/end (they live in postmeta), so we parse each event page's MEC
+  markup (`.mec-start-date-label` + `.mec-events-abbr` time).
+- **Squarespace** (`northernlightswinery`): append `?format=json`; events are in
+  `upcoming[]` with `startDate`/`endDate` epoch ms, `location`, `assetUrl`, and
+  `sourceUrl` (the Eventbrite/shop ticket link).
+- **Google Calendar iCal** (`ominecaartscentre`): the Google Sites page embeds a
+  public calendar; `…/ical/<id>/public/basic.ics` is a clean VEVENT feed. The
+  module includes a focused iCal parser with basic RRULE expansion.
+- **Drupal** (`caledoniaramblers`, `cncentre`): server-rendered. Ramblers' meeting
+  time is serialized with a spurious `Z`; we strip it and read it as PG-local.
+  CN Centre's listing is AJAX, so we discover event URLs from `sitemap.xml`.
 
-## Build order
+## Reuse
 
-1. **Tier 1 (clean JSON APIs):** `caledonianordic_com` ✅, `tworiversgallery_com`,
-   `fraserfinds_ca` (garage sales).
-2. **Tier 2 (HTML/feed):** `cncentre_ca`, `caledoniaramblers_ca`,
-   `northernlightswinery_ca`, `legion43pg_ca`.
-3. **Tier 3 (browser/Cloudflare):** mostly backfilled by `fraserfinds.ca /api/events`;
-   build direct modules only if first-party data/attribution is required.
+`worker/src/lib/tribe-events.ts` is a shared client for any WordPress site
+running "The Events Calendar" plugin — drop in a new module with the site's base
+URL and an `organizer` default to add another such venue.
