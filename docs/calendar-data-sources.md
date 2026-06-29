@@ -45,20 +45,25 @@ This means the aggregator alone covers the JS-only website-builder venues
 | 7 | caledoniaramblers.ca | Drupal 11 | `/schedule` view table | `page-navigation` | `caledoniaramblers_ca` | ✅ Built |
 | 8 | cncentre.ca | Drupal 10 | sitemap.xml → detail pages (ISO `<time>`) | `page-navigation` | `cncentre_ca` | ✅ Built |
 | 9 | legion43pg.ca | WP + Modern Events Calendar | MEC REST (discovery) → event-page dates | `page-navigation` | `legion43pg_ca` | ✅ Built |
-| 10 | pgpride.com | GoDaddy Website Builder | JS calendar widget, no feed | — | via `fraserfinds_ca` | ◐ Aggregator² |
-| 11 | pgara.ca | Wix | Wix Events API absent (404); JS-only | — | via `fraserfinds_ca` | ◐ Aggregator² |
-| 12 | facebook.com/events/… | Facebook | Auth-walled + anti-bot | — | via `fraserfinds_ca` | ◐ Aggregator² |
+| 10 | pgpride.com | GoDaddy Website Builder | render + text-scan calendar widget | `page-navigation` | `pgpride_com` | ⚠️ Built (brittle)² |
+| 11 | pgara.ca | Wix | render + text-scan race schedule | `page-navigation` | `pgara_ca` | ⚠️ Built (brittle)² |
+| 12 | facebook.com/events/… | Facebook | Auth-walled + anti-bot | — | via `fraserfinds_ca` | ◐ Aggregator³ |
 
 ¹ The Exploration Place origin sits behind Cloudflare and returns HTTP 522 to
 datacenter IP ranges. The module uses the same shared Events Calendar client and
 runs from the worker's real browser; if Cloudflare still blocks it, Fraser Finds
 re-publishes 300+ Exploration Place events as the fallback.
 
-² No scrapable first-party feed (JS website builders / auth-walled). These are
-covered through the `fraserfinds_ca` aggregator, which keeps each event's
-original source attribution. A direct module would require a rendered-browser
-heuristic scraper and would be brittle — not worth it while the aggregator
-covers them.
+² BRITTLE. No scrapable first-party feed — the events are rendered client-side
+by a JS website builder (GoDaddy / Wix). These modules RENDER the page with the
+worker's real browser and text-scan for date-anchored events using heuristics,
+so they WILL need adjustment when the builder changes its markup. Their pure
+date-parsing logic is unit-tested against representative rendered fixtures, but
+the live DOM extraction is best-effort. The `fraserfinds_ca` aggregator remains
+the reliable fallback for both venues.
+
+³ Auth-walled + anti-bot; not scrapable directly. Covered through the
+`fraserfinds_ca` aggregator (36 Facebook events at time of probe).
 
 ## Notes on the API endpoints
 

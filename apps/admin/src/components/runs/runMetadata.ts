@@ -27,6 +27,8 @@ const integrationTagsMap: Record<string, string[]> = {
   'caledoniaramblers_ca': ['page-navigation'],
   'cncentre_ca': ['page-navigation'],
   'legion43pg_ca': ['page-navigation'],
+  'pgpride_com': ['page-navigation'],
+  'pgara_ca': ['page-navigation'],
   'ai_poster_import': ['csv'],
 }
 
