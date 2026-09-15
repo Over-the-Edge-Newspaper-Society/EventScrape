@@ -6,7 +6,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 
 # Copy root package.json and pnpm-workspace.yaml
 COPY package.json pnpm-workspace.yaml ./
@@ -26,7 +26,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

@@ -1,5 +1,6 @@
 {
   "name": "event-scraper-review-system",
+  "packageManager": "pnpm@9.15.9",
   "version": "1.0.0",
   "description": "Modular event scraping and review system with duplicate detection",
   "private": true,

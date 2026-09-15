@@ -334,6 +334,21 @@ WORDPRESS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 
 ## 🚀 Deployment
 
+### Kubernetes (K3s) — current production
+
+Runs on a single-node K3s cluster with a self-hosted Convex backend. Images are
+built on the cluster node and imported straight into containerd; no registry is
+involved. One command builds the admin SPA and worker from the working tree and
+rolls them out.
+
+The admin SPA calls Convex **from the browser**, so `VITE_CONVEX_URL` is baked
+into the bundle at build time and Convex needs its own public hostname —
+changing it means rebuilding the admin image.
+
+See **[docs/deploy-k8s.md](docs/deploy-k8s.md)** for the services, the data
+migration from the LXC deployment, and the build fixes (pinned pnpm, workspace
+`node_modules`) required to build with a current toolchain.
+
 ### Docker Production
 ```bash
 # Using production compose file

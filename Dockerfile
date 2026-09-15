@@ -11,7 +11,7 @@ WORKDIR /app
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 
 # Copy everything from the build context (may be incomplete in some environments)
 COPY . .
@@ -57,7 +57,7 @@ RUN apt-get update \
     && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 eventscrape
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 COPY --from=api-builder --chown=eventscrape:nodejs /app/package.json ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-workspace.yaml ./
 COPY --from=api-builder --chown=eventscrape:nodejs /app/pnpm-lock.yaml ./

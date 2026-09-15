@@ -2,8 +2,14 @@ packages:
   - 'apps/*'
   - 'worker'
   - 'packages/*'
-allowBuilds:
-  better-sqlite3: set this to true or false
-  es5-ext: set this to true or false
-  esbuild: set this to true or false
-  msgpackr-extract: set this to true or false
+# These packages have install scripts (native builds / binary downloads) and
+# must be allowed to run them. pnpm 10+ ERRORS on ignored build scripts rather
+# than warning, which fails the Docker build with ERR_PNPM_IGNORED_BUILDS.
+#
+# The previous `allowBuilds:` block here contained literal placeholder text
+# ("set this to true or false"), which configured nothing.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - es5-ext
+  - esbuild
+  - msgpackr-extract

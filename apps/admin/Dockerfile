@@ -6,7 +6,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 
 # Debug: List files in build context (v2)
 RUN ls -la / && echo "=== BUILD CONTEXT ROOT ===" && ls -la
@@ -29,7 +29,7 @@ FROM base AS builder
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.9
 
 # Accept build arguments. VITE_CONVEX_URL is the browser-facing Convex
 # deployment URL (the app talks to Convex directly). VITE_API_URL is legacy.
@@ -37,6 +37,12 @@ ARG VITE_API_URL=/api
 ARG VITE_CONVEX_URL=http://127.0.0.1:3210
 
 COPY --from=deps /app/node_modules ./node_modules
+# pnpm workspaces keep each package's dependencies in its OWN node_modules
+# (symlinks into the root .pnpm store), so the root copy alone is not enough.
+# Without this the admin build fails with:
+#   error TS2688: Cannot find type definition file for 'vite/client'
+# The worker Dockerfile sidesteps this by installing with --shamefully-hoist.
+COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
 COPY . .
 
 # Build the application with environment variables
