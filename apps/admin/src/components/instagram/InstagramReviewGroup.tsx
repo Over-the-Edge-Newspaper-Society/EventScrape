@@ -10,6 +10,7 @@ type InstagramReviewGroupProps = {
   postCount: number
   posts: InstagramEventWithSource[]
   filter: InstagramReviewFilter
+  busyPostIds?: string[]
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
@@ -29,6 +30,7 @@ export function InstagramReviewGroup({
   postCount,
   posts,
   isAiClassifyPending,
+  busyPostIds = [],
   isClassifyPending,
   isExtractPending,
   isDeletePending,
@@ -89,10 +91,10 @@ export function InstagramReviewGroup({
               accountLabel={accountLabel}
               dialogSubject={dialogSubject}
               filter={filter}
-              isAiClassifyPending={isAiClassifyPending}
+              isAiClassifyPending={isAiClassifyPending || busyPostIds.includes(item.event.id)}
               isClassifyPending={isClassifyPending}
               isExtractPending={isExtractPending}
-              isDeletePending={isDeletePending}
+              isDeletePending={isDeletePending || busyPostIds.includes(item.event.id)}
               onAiClassify={onAiClassify}
               onExtract={onExtract}
               onMarkAsEvent={onMarkAsEvent}

@@ -263,6 +263,7 @@ export default defineSchema({
     .index("by_content_hash", ["contentHash"])
     .index("by_series", ["seriesId"])
     .index("by_instagram_post", ["instagramPostId"])
+    .index("by_instagram_account", ["instagramAccountId"])
     .index("by_legacy_id", ["legacyId"]),
 
   matches: defineTable({
@@ -471,6 +472,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_queue_status_available", ["queue", "status", "availableAt"])
+    .index("by_queue_created_at", ["queue", "createdAt"])
     .index("by_run", ["runId"])
     .index("by_status", ["status"])
     .index("by_created_at", ["createdAt"]),

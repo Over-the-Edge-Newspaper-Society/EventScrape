@@ -47,7 +47,7 @@ test('review queue serializes pending classification as null and preserves false
     {_id:'pending',sourceId:'source',scrapedAt:2},
     {_id:'rejected',sourceId:'source',scrapedAt:1,isEventPoster:false},
   ]};
-  const ctx = {db:{query:(table:string)=>({collect:async()=>rows[table]})}};
+  const ctx = {db:{query:(table:string)=>({collect:async()=>rows[table],withIndex:()=>({collect:async()=>rows[table]})})}};
   const result = await (queue as any)._handler(ctx,{filter:'all'});
   assert.equal(result.posts[0].event.isEventPoster,null);
   assert.equal(result.posts[1].event.isEventPoster,false);

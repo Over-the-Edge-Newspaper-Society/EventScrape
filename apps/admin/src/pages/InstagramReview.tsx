@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { InstagramReviewFilterTabs } from '@/components/instagram/InstagramReviewFilterTabs'
 import { InstagramReviewQueue } from '@/components/instagram/InstagramReviewQueue'
@@ -17,14 +17,41 @@ export function InstagramReview() {
   const [accountId, setAccountId] = useState<string>('all')
   const queryClient = useQueryClient()
 
-  const { data: queue, isLoading } = useQuery({
+  const { data: progress, isError: progressError } = useQuery({
+    queryKey: ['instagram-review-progress'],
+    queryFn: () => instagramReviewApi.getJobProgress(),
+    staleTime: 0,
+    refetchInterval: (query) => query.state.data?.active.length || query.state.data?.ingestionActive ? 3000 : 10000,
+    refetchOnWindowFocus: true,
+  })
+  const aiBusy = !!progress?.active.length
+  const backgroundBusy = aiBusy || !!progress?.ingestionActive
+  const progressVersion = JSON.stringify(progress?.recent.map(job => [job.id, job.status, job.updatedAt]))
+  useEffect(() => {
+    if (!progressVersion) return
+    void queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
+    void queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
+  }, [progressVersion, queryClient])
+
+  const notifyQueued = (data: {message?: string; queued?: number}, fallback: string) => {
+    toast.info(data.message || fallback, { description: 'Progress appears below. Results refresh automatically when ready.' })
+    void queryClient.invalidateQueries({ queryKey: ['instagram-review-progress'] })
+  }
+
+  const { data: queue, isLoading, isError: queueError } = useQuery({
     queryKey: ['instagram-review-queue', page, filter, accountId],
     queryFn: () => instagramReviewApi.getQueue({ page, limit: 20, filter, accountId: accountId === 'all' ? undefined : accountId }),
+    staleTime: 5000,
+    refetchInterval: backgroundBusy ? 5000 : 15000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: stats } = useQuery({
     queryKey: ['instagram-review-stats'],
     queryFn: () => instagramReviewApi.getStats(),
+    staleTime: 5000,
+    refetchInterval: backgroundBusy ? 5000 : 15000,
+    refetchOnWindowFocus: true,
   })
 
   const { data: accountsData } = useQuery({
@@ -80,19 +107,14 @@ export function InstagramReview() {
   const extractMutation = useMutation({
     mutationFn: ({ id, overwrite }: { id: string; overwrite?: boolean }) =>
       instagramReviewApi.extractEvent(id, { overwrite, createEvents: true }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
-      toast.success(data.message, {
-        description: `Created ${data.eventsCreated} event record(s)`,
-      })
-    },
+    onSuccess: (data) => notifyQueued(data, 'Event extraction queued'),
     onError: (error: any) => {
       if (error.message?.includes('already has extracted')) {
         toast.error('Post already has extracted data', {
           description: 'Use "Re-extract" button to overwrite existing data',
         })
-      } else if (error.message?.includes('Gemini API key')) {
-        toast.error('Gemini API key not configured', {
+      } else if (error.message?.includes('API key')) {
+        toast.error('AI provider key not configured', {
           description: 'Configure in Instagram Settings',
         })
       } else if (error.message?.includes('local image')) {
@@ -112,21 +134,7 @@ export function InstagramReview() {
       instagramReviewApi.extractMissing({
         accountId: accountId === 'all' ? undefined : accountId,
       }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
-
-      const details: string[] = []
-      details.push(`${data.successful} succeeded`)
-      if (data.failed) {
-        details.push(`${data.failed} failed`)
-      }
-      details.push(`${data.remaining} remaining`)
-
-      toast.success(data.message, {
-        description: details.join(' • '),
-      })
-    },
+    onSuccess: (data) => notifyQueued(data, 'Event extractions queued'),
     onError: (error: any) => {
       toast.error('Failed to extract event data', {
         description: error?.message || 'Unknown error',
@@ -139,21 +147,7 @@ export function InstagramReview() {
       instagramReviewApi.aiClassifyPending({
         accountId: accountId === 'all' ? undefined : accountId,
       }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
-
-      const details: string[] = []
-      details.push(`${data.successful} succeeded`)
-      if (data.failed) {
-        details.push(`${data.failed} failed`)
-      }
-      details.push(`${data.remaining} remaining`)
-
-      toast.success(data.message, {
-        description: details.join(' • '),
-      })
-    },
+    onSuccess: (data) => notifyQueued(data, 'AI classifications queued'),
     onError: (error: any) => {
       toast.error('Failed to classify posts with AI', {
         description: error?.message || 'Unknown error',
@@ -163,23 +157,7 @@ export function InstagramReview() {
 
   const aiClassifyMutation = useMutation({
     mutationFn: (id: string) => instagramReviewApi.aiClassifyPost(id),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['instagram-review-stats'] })
-
-      const { classification } = data
-      const details: string[] = []
-      if (typeof classification.confidence === 'number') {
-        details.push(`Confidence ${(classification.confidence * 100).toFixed(0)}%`)
-      }
-      if (classification.reasoning) {
-        details.push(classification.reasoning)
-      }
-
-      toast.success(data.message, {
-        description: details.join(' • ') || undefined,
-      })
-    },
+    onSuccess: (data) => notifyQueued(data, 'AI classification queued'),
     onError: (error: any) => {
       toast.error('Failed to classify post with AI', {
         description: error?.message || 'Unknown error',
@@ -236,10 +214,10 @@ export function InstagramReview() {
   }
 
   const disableBulkExtractButton =
-    bulkExtractMutation.isPending || (!!stats && stats.needsExtraction === 0 && accountId === 'all')
+    aiBusy || bulkExtractMutation.isPending || (!!stats && stats.needsExtraction === 0 && accountId === 'all')
 
   const disableBulkAiClassifyButton =
-    bulkAiClassifyMutation.isPending || (!!stats && stats.unclassified === 0 && accountId === 'all')
+    aiBusy || bulkAiClassifyMutation.isPending || (!!stats && stats.unclassified === 0 && accountId === 'all')
 
   return (
     <div className="space-y-6">
@@ -311,6 +289,17 @@ export function InstagramReview() {
       </div>
 
       {stats && <InstagramReviewStatsCard stats={stats} />}
+      {(backgroundBusy || progress?.recent.length || progressError) ? (
+        <div role="status" aria-live="polite" className="rounded-lg border p-3 text-sm space-y-1">
+          {!!progress?.ingestionActive && <p>Instagram pull: {progress.ingestionActive} accounts queued or running. New posts appear automatically.</p>}
+          {aiBusy && <p>AI review: {progress?.active.filter(job => job.status === 'queued').length} queued, {progress?.active.filter(job => job.status === 'running').length} running. You can leave this page; processing continues.</p>}
+          {!!progress?.recent.filter(job => job.status === 'error').length && <p>{progress.recent.filter(job => job.status === 'error').length} of the latest {progress.recent.length} AI jobs failed. Review those posts before retrying.</p>}
+          {!aiBusy && !!progress?.recent.length && <p>Latest AI {progress.recent[0].mode === 'classify' ? 'classification' : 'extraction'}: {progress.recent[0].status === 'success' ? 'completed' : progress.recent[0].status === 'error' ? 'failed — review the post and retry' : progress.recent[0].status}.</p>}
+          {progressError && <p>Unable to refresh job progress. It will retry automatically.</p>}
+        </div>
+      ) : null}
+      {queueError && <div role="alert" className="rounded-lg border p-3 text-sm">Unable to load the review queue. Please refresh or try again shortly.</div>}
+
 
       {/* Desktop: AI action buttons */}
       {filter === 'pending' && (
@@ -381,8 +370,9 @@ export function InstagramReview() {
       </div>
 
       <div className="space-y-4">
-        <InstagramReviewQueue
+        {(!queueError || queue) && <InstagramReviewQueue
           posts={queue?.posts}
+          busyPostIds={progress?.active.flatMap(job => job.eventId ? [job.eventId] : [])}
           filter={filter}
           isLoading={isLoading}
           pagination={queue?.pagination}
@@ -397,7 +387,7 @@ export function InstagramReview() {
           isDeletePending={deleteMutation.isPending}
           onPrevPage={() => setPage((current) => Math.max(1, current - 1))}
           onNextPage={() => setPage((current) => current + 1)}
-        />
+        />}
       </div>
     </div>
   )

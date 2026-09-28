@@ -34,6 +34,7 @@ type InstagramReviewQueueProps = {
   onAiClassify: (postId: string) => void
   onExtract: (postId: string, overwrite?: boolean) => void
   onDelete: (postId: string) => void
+  busyPostIds?: string[]
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
@@ -52,6 +53,7 @@ export function InstagramReviewQueue({
   onAiClassify,
   onExtract,
   onDelete,
+  busyPostIds = [],
   isClassifyPending,
   isAiClassifyPending,
   isExtractPending,
@@ -167,6 +169,7 @@ export function InstagramReviewQueue({
           posts={posts}
           filter={filter}
           isClassifyPending={isClassifyPending}
+          busyPostIds={busyPostIds}
           isAiClassifyPending={isAiClassifyPending}
           isExtractPending={isExtractPending}
           isDeletePending={isDeletePending}
@@ -218,6 +221,7 @@ export function InstagramReviewQueue({
             postCount={postCount}
             filter={filter}
             isClassifyPending={isClassifyPending}
+            busyPostIds={busyPostIds}
             isAiClassifyPending={isAiClassifyPending}
             isExtractPending={isExtractPending}
             isDeletePending={isDeletePending}

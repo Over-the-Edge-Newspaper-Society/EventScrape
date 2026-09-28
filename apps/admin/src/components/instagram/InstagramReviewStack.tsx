@@ -9,6 +9,7 @@ import { deriveAccountDetails } from './InstagramReviewUtils'
 type InstagramReviewStackProps = {
   posts: InstagramEventWithSource[]
   filter: InstagramReviewFilter
+  busyPostIds?: string[]
   isClassifyPending: boolean
   isAiClassifyPending: boolean
   isExtractPending: boolean
@@ -23,6 +24,7 @@ type InstagramReviewStackProps = {
 export function InstagramReviewStack({
   posts,
   filter,
+  busyPostIds = [],
   isClassifyPending,
   isAiClassifyPending,
   isExtractPending,
@@ -127,9 +129,9 @@ export function InstagramReviewStack({
                 accountLabel={accountLabel}
                 filter={filter}
                 isClassifyPending={isClassifyPending}
-                isAiClassifyPending={isAiClassifyPending}
+                isAiClassifyPending={isAiClassifyPending || busyPostIds.includes(item.event.id)}
                 isExtractPending={isExtractPending}
-                isDeletePending={isDeletePending}
+                isDeletePending={isDeletePending || busyPostIds.includes(item.event.id)}
                 onMarkAsEvent={handleMarkAsEvent}
                 onMarkAsNotEvent={handleMarkAsNotEvent}
                 onAiClassify={handleAiClassify}

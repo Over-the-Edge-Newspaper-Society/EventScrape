@@ -56,8 +56,9 @@ function hasExtractedEvents(raw: unknown): boolean {
 
 // Collect all instagram eventsRaw rows (those whose source is sourceType
 // 'instagram'), decorated with source + account, matching the original joins.
-async function loadInstagramPosts(ctx: QueryCtx) {
-  const sources = await ctx.db.query("sources").collect();
+async function loadInstagramPosts(ctx: QueryCtx, accountId?: Id<"instagramAccounts">) {
+  const sources = await ctx.db.query("sources")
+    .withIndex("by_source_type", q => q.eq("sourceType", "instagram")).collect();
   const sourceById = new Map<string, Doc<"sources">>(
     sources.map((s) => [String(s._id), s]),
   );
@@ -70,7 +71,10 @@ async function loadInstagramPosts(ctx: QueryCtx) {
     accounts.map((a) => [String(a._id), a]),
   );
 
-  const rawEvents = await ctx.db.query("eventsRaw").collect();
+  const rawEvents = accountId
+    ? await ctx.db.query("eventsRaw").withIndex("by_instagram_account", q => q.eq("instagramAccountId", accountId)).collect()
+    : (await Promise.all(sources.map(source => ctx.db.query("eventsRaw")
+        .withIndex("by_source", q => q.eq("sourceId", source._id)).collect()))).flat();
   const posts = rawEvents
     .filter((e) => igSourceIds.has(String(e.sourceId)))
     .map((event) => {
@@ -117,7 +121,7 @@ export const queue = query({
     const limit = clampLimit(args.limit);
     const filter: QueueFilter = args.filter ?? "pending";
 
-    let posts = await loadInstagramPosts(ctx);
+    let posts = await loadInstagramPosts(ctx, args.accountId);
 
     if (args.accountId) {
       const accountId = String(args.accountId);
@@ -384,7 +388,7 @@ export const enqueueClassifyPending = mutation({
   },
   returns: v.object({ message: v.string(), queued: v.number() }),
   handler: async (ctx, args) => {
-    let posts = await loadInstagramPosts(ctx);
+    let posts = await loadInstagramPosts(ctx, args.accountId);
     if (args.accountId) {
       const accountId = String(args.accountId);
       posts = posts.filter((p) => String(p.event.instagramAccountId) === accountId);
@@ -422,7 +426,7 @@ export const enqueueExtractMissing = mutation({
   },
   returns: v.object({ message: v.string(), queued: v.number() }),
   handler: async (ctx, args) => {
-    let posts = await loadInstagramPosts(ctx);
+    let posts = await loadInstagramPosts(ctx, args.accountId);
     if (args.accountId) {
       const accountId = String(args.accountId);
       posts = posts.filter((p) => String(p.event.instagramAccountId) === accountId);
@@ -513,5 +517,25 @@ export const getPostForAi = query({
       },
       settings,
     };
+  },
+});
+
+// Small indexed progress response: no poster payloads or provider credentials.
+export const jobProgress = query({
+  args: {},
+  handler: async (ctx) => {
+    const activeFor = async (queue: "review" | "instagramScrape") => (await Promise.all(
+      (["queued", "running"] as const).map(status => ctx.db.query("jobs")
+        .withIndex("by_queue_status_available", q => q.eq("queue", queue).eq("status", status)).collect())
+    )).flat();
+    const [active, ingestion, recent] = await Promise.all([
+      activeFor("review"), activeFor("instagramScrape"),
+      ctx.db.query("jobs").withIndex("by_queue_created_at", q => q.eq("queue", "review"))
+        .order("desc").take(20),
+    ]);
+    const shape = (job: Doc<"jobs">) => ({id: job._id, status: job.status,
+      mode: job.payload?.mode === "classify" ? "classify" : "extract",
+      updatedAt: job.updatedAt, eventId: job.payload?.eventId ?? null});
+    return {active: active.map(shape), recent: recent.filter(job => job.updatedAt >= Date.now() - 24 * 60 * 60 * 1000).map(shape), ingestionActive: ingestion.length};
   },
 });

@@ -411,25 +411,32 @@ export const instagramApifyApi = {
     runMutation('instagramApifyQueue:enqueueImport', { runId, limit }),
 }
 
+export interface ReviewEnqueueResponse { jobId?: string; message?: string; queued?: number }
+
+export interface ReviewJobProgress {
+  id: string; status: string; mode: string; updatedAt: number; eventId: string | null
+}
+
 // Instagram Review API
 export const instagramReviewApi = {
   getQueue: (params?: { page?: number; limit?: number; filter?: 'pending' | 'event' | 'not-event' | 'needs-extraction' | 'all'; accountId?: string }) =>
     runQuery<InstagramReviewQueueResponse>('instagramReview:queue', { ...params }).then(normalizeIds),
   classifyPost: (id: string, data: { isEventPoster: boolean; classificationConfidence?: number }) =>
     runMutation<{ message: string; post: EventRaw }>('instagramReview:classify', { id, ...data }).then(normalizeIds),
-  // AI extract/classify now run as worker jobs (async). These enqueue the job
-  // and return { jobId }; the Review UI refetches the queue after a moment.
-  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }): Promise<any> =>
+  // AI actions enqueue background jobs; jobProgress drives completion updates.
+  getJobProgress: () => runQuery<{active: ReviewJobProgress[]; recent: ReviewJobProgress[]; ingestionActive: number}>(
+    'instagramReview:jobProgress'),
+  extractEvent: (id: string, options?: { overwrite?: boolean; createEvents?: boolean }): Promise<ReviewEnqueueResponse> =>
     runMutation('instagramReview:enqueueExtract', { id, ...options }),
-  aiClassifyPost: (id: string): Promise<any> =>
+  aiClassifyPost: (id: string): Promise<ReviewEnqueueResponse> =>
     runMutation('instagramReview:enqueueClassify', { id }),
-  aiClassifyPending: (options?: { accountId?: string; limit?: number }): Promise<any> =>
+  aiClassifyPending: (options?: { accountId?: string; limit?: number }): Promise<ReviewEnqueueResponse> =>
     runMutation('instagramReview:enqueueClassifyPending', { ...options }),
   getStats: () =>
     runQuery<InstagramReviewStats>('instagramReview:getStats').then(normalizeIds),
   getAccounts: () =>
     runQuery<{ accounts: InstagramAccount[] }>('instagramReview:getAccounts').then(normalizeIds),
-  extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }): Promise<any> =>
+  extractMissing: (options?: { accountId?: string; limit?: number; overwrite?: boolean }): Promise<ReviewEnqueueResponse> =>
     runMutation('instagramReview:enqueueExtractMissing', { ...options }),
 }
 

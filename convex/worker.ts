@@ -129,7 +129,7 @@ export const getKnownInstagramPostIds = query({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("eventsRaw")
-      .withIndex("by_source")
+      .withIndex("by_instagram_account", q => q.eq("instagramAccountId", args.accountId))
       .collect();
     const ids = new Set<string>();
     for (const r of rows) {

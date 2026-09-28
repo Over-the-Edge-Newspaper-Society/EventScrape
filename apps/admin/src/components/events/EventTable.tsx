@@ -41,8 +41,8 @@ export function EventTable({
         return newSet
       })
       queryClient.invalidateQueries({ queryKey: ['events', 'raw'] })
-      toast.success(data.message, {
-        description: `Created ${data.eventsCreated} event record(s)`,
+      toast.info(data.message || 'Event extraction queued', {
+        description: 'Follow progress in the Instagram review queue. Results appear when processing finishes.',
       })
     },
     onError: (error: any, variables) => {
@@ -51,8 +51,8 @@ export function EventTable({
         newSet.delete(variables.id)
         return newSet
       })
-      if (error.message?.includes('Gemini API key')) {
-        toast.error('Gemini API key not configured', {
+      if (error.message?.includes('API key')) {
+        toast.error('AI provider key not configured', {
           description: 'Configure in Instagram Settings',
         })
       } else if (error.message?.includes('local image')) {
