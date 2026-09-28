@@ -101,3 +101,64 @@ for (const outcome of ['skipped', 'failed'] as const) {
     } finally { globalThis.fetch = original; }
   });
 }
+
+for (const [label, fixture, expected] of [
+  ['second event from a shared poster', { ...event, sourceEventId: 'poster-event-1', raw: { events: [
+    { title: 'First', startDate: '2026-10-01', startTime: '09:00' },
+    { title: 'Second', startDate: '2026-10-06', startTime: '18:00', price: '$5' },
+  ] } }, { starts: ['2026-10-06 18:00'], cost: '$5' }],
+  ['nested extracted series', { ...event, raw: { events: [{ startDate: '2026-10-01', startTime: '18:00', seriesDates: [
+    { start: '2026-10-01T18:00:00-07:00', end: '2026-10-01T20:00:00-07:00' },
+    { start: '2026-10-08T18:00:00-07:00', end: '2026-10-08T20:00:00-07:00' },
+  ] }] }, timezone: 'America/Vancouver' }, { starts: ['2026-10-01 18:00:00', '2026-10-08 18:00:00'], type: 'recurring' }],
+  ['date-only multi-day trip', { ...event, raw: { events: [{ startDate: '2026-10-10', endDate: '2026-10-12', startTime: null, endTime: null }] } },
+    { starts: ['2026-10-10 00:00:00'], end: '2026-10-12 23:59:59', type: 'multi_day', allDay: true }],
+] as const) {
+  test(label, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)).event;
+      assert.deepEqual(body.occurrences.map((o: any) => o.start_datetime), expected.starts);
+      if ('cost' in expected) assert.equal(body.meta.cost, expected.cost);
+      if ('end' in expected) assert.equal(body.occurrences[0].end_datetime, expected.end);
+      if ('type' in expected) assert.equal(body.series_data.occurrence_type, expected.type);
+      if ('allDay' in expected) assert.equal(body.series_data.is_all_day, true);
+      return Response.json({ success: true, action: 'created', post_id: 45 });
+    };
+    try {
+      const fixtureCtx = { ...ctx, runQuery: async (ref: unknown, args: any) => args.ids ? [fixture] : ctx.runQuery(ref, args) };
+      await (uploadEvents as any)._handler(fixtureCtx, { settingsId: 'local', eventIds: ['event'], status: 'publish' });
+    } finally { globalThis.fetch = original; }
+  });
+}
+
+test('includeMedia=false omits both stored and remote images', async () => {
+  const original = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(JSON.parse(String(init?.body)).event.featured_media_url, undefined);
+    called = true;
+    return Response.json({ success: true, action: 'created', post_id: 46 });
+  };
+  try {
+    const fixtureCtx = { ...ctx, runQuery: async (ref: unknown, args: any) => args.ids ? [event] : { ...await ctx.runQuery(ref, args), includeMedia: false } };
+    await (uploadEvents as any)._handler(fixtureCtx, { settingsId: 'local', eventIds: ['event'] });
+    assert.equal(called, true);
+  } finally { globalThis.fetch = original; }
+});
+
+test('unbounded recurrence keeps its weekly metadata and warns about missing dates', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)).event;
+    assert.equal(body.series_data.recurrence_type, 'weekly');
+    assert.equal(body.occurrences.length, 1);
+    return Response.json({ success: true, action: 'created', post_id: 47 });
+  };
+  try {
+    const fixture = { ...event, raw: { events: [{ startDate: '2026-10-01', startTime: '17:30', recurrenceType: 'weekly' }] } };
+    const fixtureCtx = { ...ctx, runQuery: async (ref: unknown, args: any) => args.ids ? [fixture] : ctx.runQuery(ref, args) };
+    const response = await (uploadEvents as any)._handler(fixtureCtx, { settingsId: 'local', eventIds: ['event'] });
+    assert.match(response.results[0].result.warnings[0], /additional recurring dates were not supplied/);
+  } finally { globalThis.fetch = original; }
+});

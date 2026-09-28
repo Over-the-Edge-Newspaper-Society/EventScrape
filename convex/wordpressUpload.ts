@@ -342,6 +342,7 @@ class WordPressClient {
     events: Array<{
       id: string;
       rawEventId?: string;
+      sourceEventId?: string;
       title: string;
       descriptionHtml?: string;
       startDatetime: number | string | Date;
@@ -389,20 +390,29 @@ class WordPressClient {
 
       let localStart: { date: string; time: string };
       let localEnd: { date: string; time: string } | null = null;
+      const extracted = event.raw?.events;
+      const eventIndex = event.sourceEventId?.match(/-event-(\d+)$/)?.[1];
+      const rawEvent = Array.isArray(extracted)
+        ? (extracted.length === 1 ? extracted[0] :
+          eventIndex !== undefined ? extracted[Number(eventIndex)] :
+          extracted.find((candidate: any) => candidate.title === event.title &&
+            candidate.startDate === this.convertToLocalDateTime(new Date(event.startDatetime), event.timezone || "UTC").date))
+        : undefined;
+      const dateOnly = !!rawEvent?.startDate && !rawEvent.startTime;
 
-      if (event.raw?.events?.[0]) {
-        const rawEvent = event.raw.events[0];
+      if (rawEvent) {
         localStart = {
           date: rawEvent.startDate || new Date(event.startDatetime).toISOString().split("T")[0],
           time: rawEvent.startTime || "00:00:00",
         };
-        if (rawEvent.endDate && rawEvent.endTime) {
+        if (rawEvent.endDate && (rawEvent.endTime || dateOnly)) {
+          const endTime = rawEvent.endTime || "23:59:59";
           if (reliableEnd(
             new Date(`${localStart.date}T${localStart.time}Z`),
-            new Date(`${rawEvent.endDate}T${rawEvent.endTime}Z`),
+            new Date(`${rawEvent.endDate}T${endTime}Z`),
             "Event",
           )) {
-            localEnd = { date: rawEvent.endDate, time: rawEvent.endTime };
+            localEnd = { date: rawEvent.endDate, time: endTime };
           }
         }
       } else {
@@ -429,13 +439,15 @@ class WordPressClient {
           (event.sourceLegacyId ? mappings[event.sourceLegacyId] : undefined);
       }
 
-      const hasSeriesData =
-        event.raw?.seriesDates &&
-        Array.isArray(event.raw.seriesDates) &&
-        event.raw.seriesDates.length > 1;
+      const seriesDates = rawEvent?.seriesDates ?? event.raw?.seriesDates;
+      const hasSeriesData = Array.isArray(seriesDates) && seriesDates.length > 1;
+      const recurrenceType = ["daily", "weekly", "monthly", "yearly", "custom"].includes(rawEvent?.recurrenceType)
+        ? rawEvent.recurrenceType : "none";
+      if (!hasSeriesData && recurrenceType !== "none") {
+        dateWarnings.push("Only the dated occurrence was imported; additional recurring dates were not supplied.");
+      }
 
       if (hasSeriesData) {
-        const seriesDates = event.raw.seriesDates;
 
         const wpEvent: WordPressEvent = {
           title: event.title,
@@ -447,7 +459,7 @@ class WordPressClient {
             start_time: localStart.time,
             end_time: localEnd?.time || "",
             location: event.venueName || "",
-            cost: "",
+            cost: rawEvent?.price || "",
             organization: "",
             featured: false,
             website: event.url || "",
@@ -478,7 +490,7 @@ class WordPressClient {
 
         const result = await this.importEventWithOccurrences(
           wpEvent,
-          event.imageUrl,
+          options.includeMedia === false ? undefined : event.imageUrl,
           options.updateIfExists || false,
           clubData,
         );
@@ -494,13 +506,17 @@ class WordPressClient {
             start_time: localStart.time,
             end_time: localEnd?.time || "",
             location: event.venueName || "",
-            cost: "",
+            cost: rawEvent?.price || "",
             organization: "",
             featured: false,
             website: event.url || "",
           },
           categories: categoryId ? [categoryId] : undefined,
-          series_data: { occurrence_type: "single", recurrence_type: "none" },
+          series_data: {
+            occurrence_type: recurrenceType !== "none" ? "recurring" : dateOnly ? (localEnd && localEnd.date !== localStart.date ? "multi_day" : "all_day") : "single",
+            recurrence_type: recurrenceType,
+            is_all_day: dateOnly,
+          },
           occurrences: [
             {
               sequence: 1,
@@ -513,7 +529,7 @@ class WordPressClient {
 
         const result = await this.importEventWithOccurrences(
           wpEvent,
-          event.imageUrl,
+          options.includeMedia === false ? undefined : event.imageUrl,
           options.updateIfExists || false,
           clubData,
         );
@@ -574,6 +590,7 @@ export const uploadEvents = action({
         return {
           id: e.id,
           rawEventId: e.rawEventId,
+          sourceEventId: e.sourceEventId,
           title: e.title,
           descriptionHtml: e.descriptionHtml,
           startDatetime: e.startDatetime,

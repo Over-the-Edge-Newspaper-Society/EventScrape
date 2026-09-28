@@ -69,6 +69,7 @@ export const getEventsForUpload = internalQuery({
           out.push({
             id: e._id,
             rawEventId: e._id,
+            sourceEventId: e.sourceEventId,
             title: e.title,
             descriptionHtml: e.descriptionHtml ?? undefined,
             startDatetime: e.startDatetime, // epoch ms
