@@ -69,7 +69,9 @@ Stop the backend with `pnpm convex:docker:down`; its data persists in the Docker
 4. Configure a separate recurring schedule for each source that should run automatically.
 5. Review events and select the intended export destination and post status.
 
-The September 28 sweep ran all **17 active website sources**: 15 initially succeeded and 2 failed. Subsequent fixes and full reruns verified PG Pride (7 found), PGPL (41), and Tourism PG (166). Two Rivers returned zero events and still needs investigation. Instagram remained disabled; the demo and AI poster sources were not part of the website sweep. Only six website schedules were enabled at that verification; the eleven newer website sources were not automatically scheduled.
+The September 28 sweep ran all **17 active website sources**: 15 initially succeeded and 2 failed. Subsequent fixes and full reruns verified PG Pride (7 found), PGPL (41), and Tourism PG (166). Two Rivers returned zero events and still needs investigation. Instagram was disabled during that sweep; its separate pipeline was repaired and its existing schedule resumed later that day (see below). The demo and AI poster sources were not part of the website sweep. Only six website schedules were enabled at that verification; the eleven newer website sources were not automatically scheduled.
+
+Instagram now runs **Monday/Wednesday/Friday at 5 p.m. America/Vancouver**, fetching up to **four recent posts for each of 38 active accounts**. Manual mode saves posts and images to the review queue; it does not automatically create or publish events. Ingestion and review use the configured global AI provider (currently OpenRouter). See the [repair, pilot and verification report](docs/instagram-pipeline-2026-09-28.md).
 
 For new website runs, “found” includes unchanged events. Historical runs retain their older new/updated counts and are labelled accordingly. Run history separates active processing from total elapsed/waiting time. A schedule's `lastRunAt` records dispatch, so verify its associated run actually completed.
 

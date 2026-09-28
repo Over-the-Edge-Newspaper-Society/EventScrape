@@ -1,3 +1,4 @@
+import { resolveInstagramAiSettings } from "./lib/instagramAiSettings";
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
@@ -90,13 +91,12 @@ export const getInstagramConfig = query({
   handler: async (ctx) => {
     const settings = await ctx.db.query("instagramSettings").first();
     if (!settings) return null;
+    const global = await ctx.db.query("systemSettings").first();
     // Unmasked — the worker needs the real keys.
     return {
       apifyApiToken: settings.apifyApiToken ?? null,
       apifyActorId: settings.apifyActorId ?? null,
-      geminiApiKey: settings.geminiApiKey ?? null,
-      claudeApiKey: settings.claudeApiKey ?? null,
-      aiProvider: settings.aiProvider ?? null,
+      ...resolveInstagramAiSettings(settings, global),
       defaultScraperType: settings.defaultScraperType ?? "instagram-private-api",
       allowPerAccountOverride: settings.allowPerAccountOverride ?? true,
       autoClassifyWithAi: settings.autoClassifyWithAi ?? false,
@@ -784,11 +784,14 @@ export const refreshInstagramBatchRun = mutation({
       pagesTotal += c.pagesCrawled ?? 0;
     }
 
-    const nextStatus = pending > 0 ? "running" : failed > 0 ? "partial" : "success";
     const parent = await ctx.db.get(args.parentRunId);
     const meta = (parent?.metadata && typeof parent.metadata === "object"
       ? parent.metadata
       : {}) as Record<string, unknown>;
+    const expected = Number((meta.batch as any)?.total) || total;
+    pending += Math.max(0, expected - total);
+    total = Math.max(total, expected);
+    const nextStatus = pending > 0 ? "running" : failed > 0 ? "partial" : "success";
     meta.batch = { total, success, failed, pending };
 
     await ctx.db.patch(args.parentRunId, {

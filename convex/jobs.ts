@@ -194,6 +194,7 @@ export const fail = mutation({
     jobId: v.id("jobs"),
     error: v.string(),
     retryDelayMs: v.optional(v.number()),
+    retryable: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -203,7 +204,7 @@ export const fail = mutation({
       throw new ConvexError({ code: "NOT_FOUND", message: "Job not found" });
     }
 
-    const shouldRetry = job.attempts < job.maxAttempts && !job.cancelRequested;
+    const shouldRetry = args.retryable !== false && job.attempts < job.maxAttempts && !job.cancelRequested;
     const patch: {
       status: "queued" | "error";
       lastError: string;

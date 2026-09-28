@@ -13,11 +13,10 @@ export function InstagramInfoCard() {
           <div className="p-4 border rounded-lg">
             <h4 className="font-medium mb-2 flex items-center gap-2">
               <Upload className="h-4 w-4" />
-              1. Upload Instagram Session
+              1. Configure Scraper Access
             </h4>
             <p className="text-sm text-muted-foreground">
-              Export your Instagram session cookies and upload them using the &quot;Upload Session&quot; button.
-              This allows the scraper to access Instagram posts without logging in repeatedly.
+              Configure an Apify token in Settings, or upload an Instagram session when using the private API scraper.
             </p>
           </div>
 
@@ -27,8 +26,8 @@ export function InstagramInfoCard() {
               2. Configure Instagram Account
             </h4>
             <p className="text-sm text-muted-foreground">
-              Add the Instagram username you want to scrape. Choose between manual mode (scrape all posts) or auto mode
-              (AI classifies which posts contain events).
+              Add the Instagram username and choose manual review or automatic classification.
+              The post limit controls how many recent posts are fetched.
             </p>
           </div>
 
@@ -38,8 +37,8 @@ export function InstagramInfoCard() {
               3. Trigger Scraping
             </h4>
             <p className="text-sm text-muted-foreground">
-              Click &quot;Scrape Now&quot; to fetch recent posts. The system will download images and use Gemini AI to
-              extract event details from poster images.
+              Click &quot;Scrape Now&quot; or enable a schedule to fetch recent posts and store images.
+              AI actions use the provider and model selected in Settings.
             </p>
           </div>
         </div>
@@ -48,11 +47,11 @@ export function InstagramInfoCard() {
           <h4 className="font-medium mb-2">Classification Modes</h4>
           <ul className="text-sm text-muted-foreground space-y-2">
             <li>
-              <strong>Manual:</strong> Scrapes all posts and extracts events from each image (slower, more thorough)
+              <strong>Manual:</strong> Saves posts and images in the review queue. Classification and event extraction require a review action.
             </li>
             <li>
-              <strong>Auto:</strong> Uses keyword detection to identify event posts before extraction (faster, may miss
-              some events)
+              <strong>Auto:</strong> Classifies posts using the configured AI provider when enabled, otherwise keywords.
+              Automatic extraction runs only for posts classified as events when enabled.
             </li>
           </ul>
         </div>

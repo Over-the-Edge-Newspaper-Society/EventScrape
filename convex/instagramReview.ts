@@ -1,3 +1,4 @@
+import { resolveInstagramAiSettings } from "./lib/instagramAiSettings";
 import { ConvexError, v } from "convex/values";
 import { GenericQueryCtx } from "convex/server";
 import { mutation, query } from "./_generated/server";
@@ -152,7 +153,7 @@ export const queue = query({
         const localImageUrl = p.event.localImageStorageId
           ? await ctx.storage.getUrl(p.event.localImageStorageId)
           : null;
-        return { ...p, event: { ...p.event, localImageUrl } };
+        return { ...p, event: { ...p.event, isEventPoster: p.event.isEventPoster ?? null, localImageUrl } };
       }),
     );
 
@@ -475,15 +476,8 @@ export const getPostForAi = query({
     const igSettings = await ctx.db.query("instagramSettings").first();
     const sysSettings = await ctx.db.query("systemSettings").first();
 
-    const provider =
-      sysSettings?.aiProvider || igSettings?.aiProvider || "gemini";
-
     const settings = {
-      aiProvider: provider,
-      geminiApiKey: sysSettings?.geminiApiKey ?? igSettings?.geminiApiKey ?? null,
-      claudeApiKey: sysSettings?.claudeApiKey ?? igSettings?.claudeApiKey ?? null,
-      openrouterApiKey: sysSettings?.openrouterApiKey ?? null,
-      openrouterModel: sysSettings?.openrouterModel ?? null,
+      ...resolveInstagramAiSettings(igSettings, sysSettings),
       apifyApiToken: igSettings?.apifyApiToken ?? null,
     };
 

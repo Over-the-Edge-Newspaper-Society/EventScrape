@@ -1,3 +1,4 @@
+import { resolveInstagramAiSettings } from "./lib/instagramAiSettings";
 import { v } from "convex/values";
 import { GenericQueryCtx } from "convex/server";
 import { mutation, query } from "./_generated/server";
@@ -30,6 +31,7 @@ function shapeSettings(
   global: Doc<"systemSettings"> | null,
 ) {
   if (!settings) return null;
+  const ai = resolveInstagramAiSettings(settings, global);
   return {
     id: settings._id,
     apifyActorId: settings.apifyActorId,
@@ -37,14 +39,16 @@ function shapeSettings(
     fetchDelayMinutes: settings.fetchDelayMinutes,
     autoExtractNewPosts: settings.autoExtractNewPosts,
     autoClassifyWithAi: settings.autoClassifyWithAi,
-    aiProvider: global?.aiProvider ?? settings.aiProvider ?? "gemini",
+    aiProvider: ai.aiProvider,
+    openrouterModel: ai.openrouterModel,
     // geminiPrompt default-from-disk fallback handled outside Convex.
     geminiPrompt: settings.geminiPrompt ?? null,
     claudePrompt: settings.claudePrompt ?? null,
     // Mask secrets — only expose presence, mirroring the original `has*` fields.
     hasApifyToken: !!settings.apifyApiToken,
-    hasGeminiKey: !!(global?.geminiApiKey || settings.geminiApiKey),
-    hasClaudeKey: !!(global?.claudeApiKey || settings.claudeApiKey),
+    hasGeminiKey: !!ai.geminiApiKey,
+    hasClaudeKey: !!ai.claudeApiKey,
+    hasOpenrouterKey: !!ai.openrouterApiKey,
     defaultScraperType: settings.defaultScraperType,
     allowPerAccountOverride: settings.allowPerAccountOverride,
     createdAt: settings.createdAt,

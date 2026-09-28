@@ -12,6 +12,149 @@ import { cronMatches } from "./cronMatch";
 
 const DEFAULT_TIMEZONE = "America/Vancouver";
 
+// Migrated schedules may retain Postgres JSON as a string. Validate before any
+// writes or target selection so malformed limits cannot broaden a scrape.
+function normalizeScheduleConfig(type: Doc<"schedules">["scheduleType"], raw: unknown) {
+  const invalid = (message: string): never => {
+    throw new ConvexError({ code: "BAD_REQUEST", message: `Invalid schedule config: ${message}` });
+  };
+  let value = raw ?? {};
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); }
+    catch { invalid("expected valid JSON"); }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    invalid("expected an object");
+  }
+  const config = { ...value } as Record<string, any>;
+  const integer = (key: string, min: number, max = Number.MAX_SAFE_INTEGER) => {
+    if (config[key] !== undefined &&
+        (!Number.isSafeInteger(config[key]) || config[key] < min || config[key] > max)) {
+      invalid(`${key} must be an integer between ${min} and ${max}`);
+    }
+  };
+  const strings = (key: string) => {
+    if (config[key] !== undefined && (!Array.isArray(config[key]) ||
+        config[key].some((id: unknown) => typeof id !== "string" || !id.trim()))) {
+      invalid(`${key} must be an array of nonempty strings`);
+    }
+  };
+  if (type === "instagram_scrape") {
+    if (config.scope === undefined) config.scope = "all_active";
+    if (!["all_active", "all_inactive", "custom"].includes(config.scope)) {
+      invalid("unsupported Instagram scope");
+    }
+    strings("accountIds");
+    if (config.scope === "custom" && !config.accountIds?.length) {
+      invalid("custom Instagram schedules require at least one account");
+    }
+    integer("postLimit", 1, 100);
+    integer("batchSize", 1, 25);
+    integer("accountLimit", 1);
+  } else if (type === "scrape") {
+    if (config.scrapeMode !== undefined && !["full", "incremental"].includes(config.scrapeMode)) {
+      invalid("scrapeMode must be full or incremental");
+    }
+  } else if (type === "wordpress_export") {
+    strings("sourceIds");
+    for (const key of ["startDateOffset", "endDateOffset"]) {
+      if (config[key] !== undefined && (typeof config[key] !== "number" || !Number.isFinite(config[key]))) {
+        invalid(`${key} must be a finite number`);
+      }
+    }
+    if (config.startDateOffset !== undefined && config.endDateOffset !== undefined &&
+        config.endDateOffset < config.startDateOffset) invalid("end date precedes start date");
+    if (config.status !== undefined && !["publish", "draft", "pending"].includes(config.status)) {
+      invalid("unsupported WordPress status");
+    }
+    if (config.updateIfExists !== undefined && typeof config.updateIfExists !== "boolean") {
+      invalid("updateIfExists must be a boolean");
+    }
+    for (const key of ["city", "category", "wordpressSettingsId"]) {
+      if (config[key] !== undefined && typeof config[key] !== "string") invalid(`${key} must be a string`);
+    }
+  }
+  return config;
+}
+
+function isReviewedInstagramEvent(event: Doc<"eventsRaw">): boolean {
+  if (event.isEventPoster !== true || !Number.isFinite(event.startDatetime)) return false;
+  // Base posts use their publication timestamp, even after extraction is saved
+  // for review. Only a separately created event can enter scheduled exports.
+  if (!event.instagramPostId || !event.sourceEventId?.startsWith(`${event.instagramPostId}-`) ||
+      event.contentHash === `instagram-post-${event.instagramPostId}`) return false;
+  let raw = event.raw;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch { return false; }
+  }
+  if (!Array.isArray(raw?.events)) return false;
+  return raw.events.some((extracted: any) => {
+    if (!extracted || typeof extracted.startDate !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(extracted.startDate)) return false;
+    const date = new Date(`${extracted.startDate}T00:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== extracted.startDate) return false;
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: extracted.timezone || event.timezone || "America/Vancouver",
+        year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date(event.startDatetime));
+      const get = (type: string) => parts.find(p => p.type === type)?.value;
+      return `${get("year")}-${get("month")}-${get("day")}` === extracted.startDate;
+    } catch { return false; }
+  });
+}
+
+// Shared by the preview and actual export: explicit targets never fall back to
+// exporting every source. Older Instagram schedules store account IDs here.
+async function selectWordpressEvents(ctx: any, config: Record<string, any>, now: number) {
+  const allSources: Doc<"sources">[] = await ctx.db.query("sources").collect();
+  const targetSources = new Set<string>();
+  const targetAccounts = new Set<string>();
+  const sourceIds: string[] = config.sourceIds ?? [];
+  if (sourceIds.length) {
+    const accounts: Doc<"instagramAccounts">[] = await ctx.db.query("instagramAccounts").collect();
+    for (const id of sourceIds) {
+      const source = allSources.find(s => String(s._id) === id || s.legacyId === id);
+      if (source) { targetSources.add(String(source._id)); continue; }
+      const account = accounts.find(a => String(a._id) === id || a.legacyId === id);
+      if (account) { targetAccounts.add(String(account._id)); continue; }
+      throw new ConvexError({ code: "BAD_REQUEST", message: `WordPress schedule target no longer exists: ${id}` });
+    }
+  }
+  const queriedSources = new Set(targetSources);
+  if (targetAccounts.size) {
+    for (const source of allSources) {
+      if (source.sourceType === "instagram") queriedSources.add(String(source._id));
+    }
+  }
+  let rows: Doc<"eventsRaw">[] = [];
+  if (sourceIds.length) {
+    for (const sourceId of queriedSources) {
+      rows.push(...await ctx.db.query("eventsRaw")
+        .withIndex("by_source", (q: any) => q.eq("sourceId", sourceId)).collect());
+    }
+  } else {
+    rows = await ctx.db.query("eventsRaw").collect();
+  }
+  const DAY = 24 * 60 * 60 * 1000;
+  const startMs = config.startDateOffset === undefined ? undefined : now + config.startDateOffset * DAY;
+  const endMs = config.endDateOffset === undefined ? undefined : now + config.endDateOffset * DAY;
+  const sourcesById = new Map(allSources.map(s => [String(s._id), s]));
+  rows = rows.filter(event => {
+    if (sourceIds.length && !targetSources.has(String(event.sourceId)) &&
+        !targetAccounts.has(String(event.instagramAccountId))) return false;
+    const source = sourcesById.get(String(event.sourceId));
+    if (!source || event.isEventPoster === false) return false;
+    if (source.sourceType === "instagram" && !isReviewedInstagramEvent(event)) return false;
+    if (startMs !== undefined && event.startDatetime < startMs) return false;
+    if (endMs !== undefined && event.startDatetime > endMs) return false;
+    if (config.city && !(event.city ?? "").toLowerCase().includes(config.city.toLowerCase())) return false;
+    if (config.category && !(event.category ?? "").toLowerCase().includes(config.category.toLowerCase())) return false;
+    return true;
+  });
+  return { rows, allSources, startMs, endMs };
+}
+
 export const list = query({
   args: {},
   returns: v.object({ schedules: v.array(v.any()) }),
@@ -64,6 +207,7 @@ export const create = mutation({
     const now = Date.now();
     const timezone = args.timezone ?? DEFAULT_TIMEZONE;
     const active = args.active ?? true;
+    const config = normalizeScheduleConfig(args.scheduleType, args.config);
 
     const base = {
       scheduleType: args.scheduleType,
@@ -80,7 +224,7 @@ export const create = mutation({
       if (!args.sourceId) {
         throw new ConvexError({ code: "BAD_REQUEST", message: "sourceId is required for scrape schedules" });
       }
-      doc = { ...base, sourceId: args.sourceId };
+      doc = { ...base, sourceId: args.sourceId, config };
     } else if (args.scheduleType === "wordpress_export") {
       if (!args.wordpressSettingsId) {
         throw new ConvexError({
@@ -91,19 +235,11 @@ export const create = mutation({
       doc = {
         ...base,
         wordpressSettingsId: args.wordpressSettingsId,
-        config: args.config,
+        config,
       };
     } else {
       // instagram_scrape
-      const config = { ...(args.config ?? {}) };
-      const scope = config.scope ?? "all_active";
-      if (scope === "custom" && (!config.accountIds || config.accountIds.length === 0)) {
-        throw new ConvexError({
-          code: "BAD_REQUEST",
-          message: "Custom Instagram schedules require at least one account",
-        });
-      }
-      doc = { ...base, config: { ...config, scope } };
+      doc = { ...base, config };
     }
 
     const id = await ctx.db.insert("schedules", doc);
@@ -134,7 +270,9 @@ export const update = mutation({
       cron: args.cron ?? existing.cron,
       timezone: args.timezone ?? existing.timezone,
       active: args.active ?? existing.active,
-      config: args.config ?? existing.config,
+      // Always permit disabling a broken schedule without repairing its config.
+      config: args.active === false && args.config === undefined ? existing.config
+        : normalizeScheduleConfig(existing.scheduleType, args.config ?? existing.config),
       updatedAt: Date.now(),
     });
 
@@ -170,14 +308,13 @@ export const remove = mutation({
 // Payload shapes MUST match what the worker handlers read:
 //  - scrape: { sourceId, runId, testMode, scrapeMode } (see worker processScrapeJob)
 //  - instagramScrape: { accountId, postLimit, batchSize, parentRunId } (fan-out per account)
-//  - wordpress_export: gated — the WordPress export runs in the worker/actions
-//    phase, not yet wired, so it is skipped with no job.
+//  - wordpress: { settingsId, eventIds, status, scheduleId, exportId, updateIfExists }
 async function enqueueScheduleJobs(
   ctx: any,
   schedule: Doc<"schedules">,
 ): Promise<{ jobIds: Id<"jobs">[]; units: number }> {
   const now = Date.now();
-  const config = (schedule.config ?? {}) as Record<string, any>;
+  const config = normalizeScheduleConfig(schedule.scheduleType, schedule.config);
 
   if (schedule.scheduleType === "scrape") {
     if (!schedule.sourceId) return { jobIds: [], units: 0 };
@@ -234,9 +371,10 @@ async function enqueueScheduleJobs(
       .query("sources")
       .withIndex("by_source_type", (q: any) => q.eq("sourceType", "instagram"))
       .first();
-    let parentRunId: Id<"runs"> | undefined;
-    if (igSource) {
-      parentRunId = await ctx.db.insert("runs", {
+    if (!igSource) {
+      throw new ConvexError({ code: "NOT_FOUND", message: "Instagram source not found" });
+    }
+    const parentRunId = await ctx.db.insert("runs", {
         sourceId: igSource._id,
         startedAt: now,
         status: "queued",
@@ -244,20 +382,30 @@ async function enqueueScheduleJobs(
         eventsFound: 0,
         metadata: { triggeredBy: "schedule", scheduleId: schedule._id, batch: { total: accounts.length } },
       });
-    }
 
     const jobIds: Id<"jobs">[] = [];
     for (const acc of accounts) {
+      const runId = await ctx.db.insert("runs", {
+        sourceId: igSource._id,
+        parentRunId,
+        status: "queued",
+        startedAt: now,
+        pagesCrawled: 0,
+        eventsFound: 0,
+        metadata: { instagramAccountId: acc._id, instagramUsername: acc.instagramUsername, scheduleId: schedule._id },
+      });
       const jobId = await ctx.db.insert("jobs", {
         queue: "instagramScrape",
         name: `schedule:instagram`,
         status: "queued",
         payload: {
           accountId: acc._id,
+          runId,
           postLimit: config.postLimit ?? 10,
           batchSize: config.batchSize,
           parentRunId,
         },
+        runId,
         attempts: 0,
         maxAttempts: 3,
         availableAt: now,
@@ -277,57 +425,7 @@ async function enqueueScheduleJobs(
     const wp = await ctx.db.get(settingsId);
     if (!wp || !wp.active) return { jobIds: [], units: 0 };
 
-    // Date window from day offsets relative to now (mirrors the original).
-    const DAY = 24 * 60 * 60 * 1000;
-    const startMs =
-      typeof config.startDateOffset === "number" ? now + config.startDateOffset * DAY : undefined;
-    const endMs =
-      typeof config.endDateOffset === "number" ? now + config.endDateOffset * DAY : undefined;
-
-    // Resolve configured sourceIds — they may be old Postgres UUIDs (stored in
-    // the schedule config pre-migration), so match by Convex _id OR legacyId.
-    const targetSources = new Set<string>();
-    if (Array.isArray(config.sourceIds) && config.sourceIds.length > 0) {
-      const allSources = await ctx.db.query("sources").collect();
-      const byId = new Map<string, string>(
-        allSources.map((s: Doc<"sources">) => [String(s._id), String(s._id)] as [string, string]),
-      );
-      const byLegacy = new Map<string, string>(
-        allSources
-          .filter((s: Doc<"sources">) => s.legacyId)
-          .map((s: Doc<"sources">) => [s.legacyId as string, String(s._id)] as [string, string]),
-      );
-      for (const sid of config.sourceIds) {
-        const resolved = byId.get(String(sid)) || byLegacy.get(String(sid));
-        if (resolved) targetSources.add(resolved);
-      }
-    }
-
-    // Collect candidates, then filter the date window in JS. (The
-    // by_start_datetime index *range* proved unreliable here — it returned the
-    // whole table — so we filter dates in JS like events:listRaw does.) When
-    // sources are configured we narrow via the by_source index, which also keeps
-    // Instagram posts out of the WordPress export.
-    let rows: Doc<"eventsRaw">[] = [];
-    if (targetSources.size > 0) {
-      for (const srcId of targetSources) {
-        const part = await ctx.db
-          .query("eventsRaw")
-          .withIndex("by_source", (q: any) => q.eq("sourceId", srcId))
-          .collect();
-        rows.push(...part);
-      }
-    } else {
-      rows = await ctx.db.query("eventsRaw").collect();
-    }
-    rows = rows.filter((e: Doc<"eventsRaw">) => {
-      if (e.isEventPoster === false) return false;
-      if (startMs !== undefined && e.startDatetime < startMs) return false;
-      if (endMs !== undefined && e.startDatetime > endMs) return false;
-      if (config.city && !(e.city ?? "").toLowerCase().includes(String(config.city).toLowerCase())) return false;
-      if (config.category && !(e.category ?? "").toLowerCase().includes(String(config.category).toLowerCase())) return false;
-      return true;
-    });
+    const { rows } = await selectWordpressEvents(ctx, config, now);
 
     const eventIds = rows.map((e: Doc<"eventsRaw">) => String(e._id));
     if (eventIds.length === 0) return { jobIds: [], units: 0 };
@@ -401,52 +499,9 @@ export const previewWordpressExport = query({
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const DAY = 24 * 60 * 60 * 1000;
-    const startMs = typeof args.startDateOffset === "number" ? now + args.startDateOffset * DAY : undefined;
-    const endMs = typeof args.endDateOffset === "number" ? now + args.endDateOffset * DAY : undefined;
-
-    const allSources = await ctx.db.query("sources").collect();
-    const nameById = new Map<string, string>(
-      allSources.map((s: Doc<"sources">) => [String(s._id), s.name] as [string, string]),
-    );
-
-    // Resolve configured sourceIds (Convex _id OR legacy UUID) — same as the schedule.
-    const targetSources = new Set<string>();
-    if (Array.isArray(args.sourceIds) && args.sourceIds.length > 0) {
-      const byId = new Map<string, string>(
-        allSources.map((s: Doc<"sources">) => [String(s._id), String(s._id)] as [string, string]),
-      );
-      const byLegacy = new Map<string, string>(
-        allSources
-          .filter((s: Doc<"sources">) => s.legacyId)
-          .map((s: Doc<"sources">) => [s.legacyId as string, String(s._id)] as [string, string]),
-      );
-      for (const sid of args.sourceIds) {
-        const resolved = byId.get(String(sid)) || byLegacy.get(String(sid));
-        if (resolved) targetSources.add(resolved);
-      }
-    }
-
-    let rows: Doc<"eventsRaw">[] = [];
-    if (targetSources.size > 0) {
-      for (const srcId of targetSources) {
-        const part = await ctx.db
-          .query("eventsRaw")
-          .withIndex("by_source", (q: any) => q.eq("sourceId", srcId))
-          .collect();
-        rows.push(...part);
-      }
-    } else {
-      rows = await ctx.db.query("eventsRaw").collect();
-    }
-    rows = rows.filter((e: Doc<"eventsRaw">) => {
-      if (e.isEventPoster === false) return false;
-      if (startMs !== undefined && e.startDatetime < startMs) return false;
-      if (endMs !== undefined && e.startDatetime > endMs) return false;
-      if (args.city && !(e.city ?? "").toLowerCase().includes(String(args.city).toLowerCase())) return false;
-      if (args.category && !(e.category ?? "").toLowerCase().includes(String(args.category).toLowerCase())) return false;
-      return true;
-    });
+    const config = normalizeScheduleConfig("wordpress_export", args);
+    const { rows, allSources, startMs, endMs } = await selectWordpressEvents(ctx, config, now);
+    const nameById = new Map(allSources.map(source => [String(source._id), source.name]));
 
     const bySource = new Map<string, number>();
     for (const e of rows) {

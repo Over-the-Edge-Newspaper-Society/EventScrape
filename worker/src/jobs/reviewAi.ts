@@ -25,11 +25,7 @@ import {
 } from '../lib/convex.js';
 import { JobShim } from '../types.js';
 
-import * as geminiExtractor from '../modules/instagram/gemini-extractor.js';
-import * as claudeExtractor from '../modules/instagram/claude-extractor.js';
-import * as openrouterExtractor from '../modules/instagram/openrouter-extractor.js';
-
-type AiProvider = 'gemini' | 'claude' | 'openrouter';
+import { resolveProvider, type AiProvider } from '../modules/instagram/ai-provider.js';
 
 interface ReviewAiPayload {
   eventId: string;
@@ -72,48 +68,6 @@ interface PostForAi {
     openrouterModel: string | null;
     apifyApiToken: string | null;
   };
-}
-
-type ExtractorModule = {
-  extractEventFromImageFile: (
-    imagePath: string,
-    apiKey: string,
-    options?: { caption?: string | null; postTimestamp?: Date | null; model?: string },
-  ) => Promise<any>;
-  classifyEventFromImageFile: (
-    imagePath: string,
-    apiKey: string,
-    options?: { caption?: string | null; postTimestamp?: Date | null; model?: string },
-  ) => Promise<any>;
-};
-
-// Choose provider + key exactly like the API extraction-service did (and like
-// instagram-job picks gemini): systemSettings provider wins, default gemini.
-function resolveProvider(settings: PostForAi['settings']): {
-  provider: AiProvider;
-  apiKey: string;
-  model?: string;
-  module: ExtractorModule;
-} {
-  const provider = (settings.aiProvider || 'gemini') as AiProvider;
-
-  if (provider === 'claude') {
-    const apiKey = settings.claudeApiKey || process.env.CLAUDE_API_KEY || '';
-    if (!apiKey) throw new Error('Claude API key not configured');
-    return { provider, apiKey, module: claudeExtractor as unknown as ExtractorModule };
-  }
-
-  if (provider === 'openrouter') {
-    const apiKey = settings.openrouterApiKey || process.env.OPENROUTER_API_KEY || '';
-    const model = settings.openrouterModel || 'google/gemini-2.0-flash-exp';
-    if (!apiKey) throw new Error('OpenRouter API key not configured');
-    return { provider, apiKey, model, module: openrouterExtractor as unknown as ExtractorModule };
-  }
-
-  // gemini (default)
-  const apiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
-  if (!apiKey) throw new Error('Gemini API key not configured');
-  return { provider: 'gemini', apiKey, module: geminiExtractor as unknown as ExtractorModule };
 }
 
 // Mirrors instagram-review ai-classification.ts: pick the post timestamp from

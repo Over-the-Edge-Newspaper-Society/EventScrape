@@ -124,9 +124,10 @@ class EventScraperWorker {
       }
     }, 30_000);
     try {
+      let result: Awaited<ReturnType<typeof handleInstagramScrapeJob>> | undefined;
       if (job.queue === 'scrape') await this.processScrapeJob(job);
       else if (job.queue === 'match') await this.processMatchJob(job);
-      else if (job.queue === 'instagramScrape') await this.processInstagramScrapeJob(job);
+      else if (job.queue === 'instagramScrape') result = await this.processInstagramScrapeJob(job);
       else if (job.queue === 'review') await handleReviewAiJob(this.shim(job));
       else if (job.queue === 'posterImport') await handlePosterImportJob(this.shim(job));
       else if (job.queue === 'apifyImport') await handleApifyImportJob(this.shim(job));
@@ -134,7 +135,15 @@ class EventScraperWorker {
       else if (job.queue === 'moduleSync') await this.syncModules();
       else throw new Error(`Unknown queue ${job.queue}`);
 
-      await jobs.complete({ jobId: job._id });
+      if (result?.status === 'error') {
+        const message = result.error || 'Instagram import failed; inspect run warnings';
+        const retryable = !('retryable' in result) || result.retryable !== false;
+        await jobs.fail({ jobId: job._id, error: message, retryable });
+        if (job.runId) await appendRunLog(job.runId, 50, message, job.queue);
+        logger.error(`❌ ${job.queue} job ${job._id} failed: ${message}`);
+        return;
+      }
+      await jobs.complete({ jobId: job._id, result });
       logger.info(`✅ ${job.queue} job ${job._id} completed`);
     } catch (error) {
       const message = (error as Error).message || String(error);
@@ -348,8 +357,9 @@ class EventScraperWorker {
     };
   }
 
-  private async processInstagramScrapeJob(job: NonNullable<ClaimedJob>): Promise<void> {
+  private async processInstagramScrapeJob(job: NonNullable<ClaimedJob>) {
     const payload = job.payload as { runId?: string };
+    payload.runId ??= job.runId;
     const shim: JobShim = {
       id: job._id,
       data: job.payload,
@@ -360,7 +370,7 @@ class EventScraperWorker {
       },
       updateProgress: async () => {},
     };
-    await handleInstagramScrapeJob(shim);
+    return await handleInstagramScrapeJob(shim);
   }
 
   private async shutdown(signal: string): Promise<void> {

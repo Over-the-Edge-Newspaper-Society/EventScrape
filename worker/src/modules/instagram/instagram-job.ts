@@ -6,11 +6,11 @@
 import { workerApi, uploadToConvexStorage } from '../../lib/convex.js';
 import { JobShim } from '../../types.js';
 import { readFile } from 'fs/promises';
-import { InstagramScraper, RateLimitError, InstagramAuthError, createScraperWithSession } from './scraper.js';
-import { ApifyScraper, ApifyRateLimitError, ApifyAuthError, createApifyScraper } from './apify-scraper.js';
-import { createEnhancedApifyClient, ApifyClientError, ApifyRunTimeoutError } from './enhanced-apify-client.js';
+import { InstagramScraper, InstagramAuthError, createScraperWithSession } from './scraper.js';
+import { ApifyScraper, ApifyAuthError, createApifyScraper } from './apify-scraper.js';
+import { createEnhancedApifyClient, ApifyClientError } from './enhanced-apify-client.js';
 import { classify } from './classifier.js';
-import { extractEventFromImageFile, classifyEventFromImageFile } from './gemini-extractor.js';
+import { resolveProvider } from './ai-provider.js';
 import path from 'path';
 
 export interface InstagramScrapeJobData {
@@ -79,6 +79,8 @@ async function getInstagramSettings() {
     apifyActorId: null,
     geminiApiKey: null,
     claudeApiKey: null,
+    openrouterApiKey: null,
+    openrouterModel: null,
     aiProvider: null,
     defaultScraperType: 'instagram-private-api',
     allowPerAccountOverride: true,
@@ -101,6 +103,8 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
     runId = await workerApi.createInstagramRun({ parentRunId });
   }
 
+  job.data.runId = runId;
+
   if (parentRunId) {
     await workerApi.markRunRunning({ runId: parentRunId });
   }
@@ -117,7 +121,6 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
     // 0. Fetch Instagram settings from Convex
     const settings = await getInstagramSettings();
     const APIFY_API_TOKEN = settings.apifyApiToken || process.env.APIFY_API_TOKEN || '';
-    const GEMINI_API_KEY = settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
 
     // 1. Fetch account details
     const account = await workerApi.getInstagramAccount({ accountId });
@@ -125,6 +128,22 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
     if (!account) {
       throw new Error(`Instagram account ${accountId} not found`);
     }
+
+    // Manual accounts stage posts only. AI extraction remains an explicit review
+    // action and never silently turns a newly scraped post into an event.
+    const automatic = account.classificationMode === 'auto';
+    const ai = automatic && (settings.autoClassifyWithAi || settings.autoExtractNewPosts)
+      ? resolveProvider(settings) : null;
+    await mergeRunMetadata({
+      instagramAccountId: account._id,
+      instagramUsername: account.instagramUsername,
+      classificationMode: account.classificationMode,
+      aiProvider: settings.aiProvider || 'gemini',
+      aiModel: ai?.model ?? settings.openrouterModel ?? null,
+      aiPolicy: automatic ? 'automatic' : 'manual-review',
+      postLimit,
+      batchSize: batchSize ?? null,
+    });
 
     // Determine which scraper type to use:
     // 1. If per-account override is disabled, always use global setting
@@ -250,6 +269,15 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
     });
 
     let eventsCreated = 0;
+    const counters = { postsFetched: posts.length, postsStored: 0, imagesDownloaded: 0,
+      imagesStored: 0, postsClassified: 0, postsExtracted: 0, pendingReview: 0,
+      imageFailures: 0, storageFailures: 0, classificationFailures: 0,
+      extractionFailures: 0, postFailures: 0 };
+    const warnings: Array<{ postId: string; stage: string; message: string }> = [];
+    const warn = (postId: string, stage: string, message: string) => {
+      if (warnings.length < 100) warnings.push({ postId, stage, message });
+      job.log(`Warning [${stage}] post ${postId}: ${message}`);
+    };
 
     // 6. Process each post
     for (const post of posts) {
@@ -272,6 +300,7 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
               DOWNLOAD_DIR
             );
             localImagePath = downloadedPath;
+            counters.imagesDownloaded++;
             job.log(`Downloaded image for post ${post.id}`);
 
             // Upload to Convex storage so the admin can serve it (the local copy
@@ -285,13 +314,21 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
               const uploaded = await uploadToConvexStorage(bytes, localImageContentType);
               localImageStorageId = uploaded.storageId;
               localImageSize = uploaded.size;
+              counters.imagesStored++;
               job.log(`Uploaded image for post ${post.id} to Convex storage`);
             } catch (uploadErr: any) {
-              job.log(`Failed to upload image for post ${post.id} to storage: ${uploadErr.message}`);
+              counters.storageFailures++;
+              warn(post.id, 'image-storage', 'Image could not be stored for review.');
             }
           } catch (error: any) {
-            job.log(`Failed to download image for post ${post.id}: ${error.message}`);
+            counters.imageFailures++;
+            warn(post.id, 'image-download', 'Image could not be downloaded.');
           }
+        }
+
+        if (!post.imageUrl) {
+          counters.imageFailures++;
+          warn(post.id, 'image-missing', 'Provider returned no poster image.');
         }
 
         // 6b. Classify if mode is auto
@@ -302,28 +339,30 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
         if (account.classificationMode === 'auto') {
           if (
             settings.autoClassifyWithAi &&
-            GEMINI_API_KEY &&
+            ai &&
             localImagePath
           ) {
             try {
               const fullImagePath = path.join(DOWNLOAD_DIR, localImagePath);
-              aiClassification = await classifyEventFromImageFile(
+              aiClassification = await ai.module.classifyEventFromImageFile(
                 fullImagePath,
-                GEMINI_API_KEY,
+                ai.apiKey,
                 {
                   caption: post.caption,
                   postTimestamp: post.timestamp,
+                  model: ai.model,
                 }
               );
               isEventPoster = aiClassification.isEventPoster;
               confidence = aiClassification.confidence ?? null;
               job.log(`[AI] Classified post ${post.id}: isEvent=${aiClassification.isEventPoster}, confidence=${aiClassification.confidence ?? 'n/a'}`);
             } catch (error: any) {
-              job.log(`[AI] Failed to classify post ${post.id}: ${error.message}`);
+              counters.classificationFailures++;
+              warn(post.id, 'classification', 'Configured AI provider could not classify the post; left for review.');
             }
           }
 
-          if (isEventPoster === null) {
+          if (isEventPoster === null && !settings.autoClassifyWithAi) {
             const [isEvent, conf] = classify(post.caption);
             isEventPoster = isEvent;
             confidence = conf;
@@ -331,18 +370,21 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
           }
         }
 
+        if (isEventPoster !== null) counters.postsClassified++;
+        else counters.pendingReview++;
+
         const classificationTimestamp = aiClassification ? new Date().toISOString() : null;
         const classificationRecord = aiClassification
           ? {
-              gemini: {
+              [ai!.provider]: {
                 ...aiClassification,
                 decidedAt: classificationTimestamp,
-                method: 'gemini-auto',
+                method: `${ai!.provider}-auto`,
               }
             }
           : null;
 
-        const captionText = post.caption?.trim() ?? '';
+        const captionText: string = post.caption?.trim() ?? '';
         const baseTitle = captionText.split('\n').map((line) => line.trim()).find(Boolean) ?? `Instagram Post ${post.id}`;
         const descriptionHtml = captionText;
         const postUrl = post.permalink || `https://instagram.com/p/${post.id}/`;
@@ -382,39 +424,40 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
             isEventPoster: isEventPoster ?? undefined,
             raw: baseRawPayload,
           });
+          counters.postsStored++;
           job.log(`Successfully upserted base post ${post.id}`);
         } catch (error: any) {
-          job.log(`ERROR: Failed to upsert base post ${post.id}: ${error.message}`);
-          job.log(`ERROR: Post data - title: ${baseTitle}, url: ${postUrl}`);
-          job.log(`ERROR: Full error: ${JSON.stringify(error, null, 2)}`);
-          console.error(`Failed to upsert base post ${post.id}:`, error);
+          throw new Error('Post could not be saved for review');
         }
 
-        // 6c. Extract event data with Gemini if classified as event or mode is manual
-        const shouldExtract =
-          (account.classificationMode === 'auto' && isEventPoster && settings.autoExtractNewPosts && (aiClassification?.shouldExtractEvents ?? true)) ||
-          account.classificationMode === 'manual';
+        // 6c. Only approved automatic classifications may create extracted events.
+        // Manual accounts use the explicit review extraction job instead.
+        const shouldExtract = automatic && isEventPoster === true && settings.autoExtractNewPosts
+          && (aiClassification?.shouldExtractEvents ?? true);
 
-        let extractedData: any = null;
-
-        if (shouldExtract && localImagePath && GEMINI_API_KEY) {
+        if (shouldExtract && !localImagePath) {
+          counters.extractionFailures++;
+          warn(post.id, 'extraction', 'No downloaded image is available for extraction.');
+        }
+        if (shouldExtract && localImagePath && ai) {
           try {
             const fullImagePath = path.join(DOWNLOAD_DIR, localImagePath);
-            const geminiResult = await extractEventFromImageFile(
+            const extractionResult = await ai.module.extractEventFromImageFile(
               fullImagePath,
-              GEMINI_API_KEY,
+              ai.apiKey,
               {
                 caption: post.caption,
                 postTimestamp: post.timestamp,
+                model: ai.model,
               }
             );
 
-            extractedData = geminiResult;
+            counters.postsExtracted++;
             job.log(`Extracted event data for post ${post.id}`);
 
             // 6d. Create event_raw records for each event in the extraction
-            if (geminiResult.events && geminiResult.events.length > 0) {
-              for (const [eventIndex, event] of geminiResult.events.entries()) {
+            if (extractionResult.events && extractionResult.events.length > 0) {
+              for (const [eventIndex, event] of extractionResult.events.entries()) {
                 // Parse date/time with proper timezone handling
                 const timezone = event.timezone || account.defaultTimezone || 'America/Vancouver';
 
@@ -439,18 +482,18 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
                   return new Date(endLocalDate.getTime() + endTzOffset);
                 })() : null;
 
-                // Combine Instagram post data with Gemini extraction result
+                // Combine Instagram post data with provider extraction results
                 const classificationEnvelope = classificationRecord
                   ? {
                       classification: {
-                        ...(geminiResult?.classification || {}),
+                        ...(extractionResult?.classification || {}),
                         ...classificationRecord,
                       }
                     }
                   : {};
 
                 const rawData = {
-                  ...geminiResult,
+                  ...extractionResult,
                   ...classificationEnvelope,
                   instagram: {
                     timestamp: post.timestamp.toISOString(),
@@ -497,11 +540,13 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
               }
             }
           } catch (error: any) {
-            job.log(`Failed to extract event for post ${post.id}: ${error.message}`);
+            counters.extractionFailures++;
+            warn(post.id, 'extraction', 'Event extraction or persistence failed; review this post.');
           }
         }
       } catch (error: any) {
-        job.log(`Error processing post ${post.id}: ${error.message}`);
+        counters.postFailures++;
+        warn(post.id, 'post-storage', 'Post could not be saved or processed.');
       }
     }
 
@@ -509,13 +554,16 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
 
     // 7. Update run status
     await mergeRunMetadata({
-      postsFetched: posts.length,
+      ...counters,
       eventsCreated,
+      warnings,
     });
 
+    const status = warnings.length ? (counters.postsStored ? 'partial' : 'error') : 'success';
     await workerApi.finishRun({
       runId,
-      status: 'success',
+      status,
+      errors: warnings.length ? { error: `${warnings.length} processing warnings; inspect run metadata`, warnings } : undefined,
       eventsFound: eventsCreated,
       pagesCrawled,
       metadata: runMetadata,
@@ -524,63 +572,30 @@ export async function handleInstagramScrapeJob(job: JobShim<InstagramScrapeJobDa
     // 8. Update account last_checked timestamp
     await workerApi.touchInstagramAccount({ accountId });
 
-    job.log(`Instagram scrape completed: ${eventsCreated} events created`);
+    job.log(`Instagram scrape ${status}: ${counters.postsStored} posts stored, ${eventsCreated} events created, ${counters.pendingReview} pending review, ${warnings.length} warnings`);
 
     if (parentRunId) {
       await refreshInstagramBatchRun(parentRunId);
     }
 
     return {
-      success: true,
+      success: status === 'success',
+      status,
+      counters,
+      warnings,
       postsProcessed: posts.length,
       eventsCreated,
       runId,
     };
   } catch (error: any) {
-    // Handle rate limit errors from all scrapers
-    if (error instanceof RateLimitError || error instanceof ApifyRateLimitError) {
-      job.log(`Rate limit hit: ${error.message}`);
-      throw error; // Will retry later
-    }
-
-    // Handle auth errors from all scrapers
-    if (error instanceof InstagramAuthError || error instanceof ApifyAuthError) {
-      job.log(`Authentication error: ${error.message}`);
-      throw error;
-    }
-
-    // Handle enhanced client errors
-    if (error instanceof ApifyClientError || error instanceof ApifyRunTimeoutError) {
-      job.log(`Apify client error: ${error.message}`);
-
-      if (isApifyQuotaExceededError(error)) {
-        const quotaMessage = 'Apify usage hard limit exceeded';
-        job.log('Apify monthly usage limit reached — marking run as error without retry.');
-        if (runId) {
-          await mergeRunMetadata({ error: quotaMessage });
-          await workerApi.finishRun({ runId, status: 'error', metadata: runMetadata });
-        }
-        if (parentRunId) {
-          await refreshInstagramBatchRun(parentRunId);
-        }
-        return;
-      }
-
-      throw error;
-    }
-
-    job.log(`Instagram scrape failed: ${error.message}`);
-
-    const errorMessage = String(error?.message || error || 'Unknown error');
-
-    if (runId) {
-      await mergeRunMetadata({ error: errorMessage });
-      await workerApi.finishRun({ runId, status: 'error', metadata: runMetadata });
-    }
-
-    if (parentRunId) {
-      await refreshInstagramBatchRun(parentRunId);
-    }
+    const quotaExceeded = error instanceof ApifyClientError && isApifyQuotaExceededError(error);
+    const errorMessage = quotaExceeded ? 'Apify usage hard limit exceeded'
+      : `Instagram scrape failed (${error instanceof Error ? error.name : 'unknown error'}); inspect worker logs`;
+    job.log(errorMessage);
+    await mergeRunMetadata({ error: errorMessage });
+    await workerApi.finishRun({ runId, status: 'error', errors: { error: errorMessage }, metadata: runMetadata });
+    if (parentRunId) await refreshInstagramBatchRun(parentRunId);
+    if (quotaExceeded) return { success: false, status: 'error' as const, retryable: false, error: errorMessage, runId };
 
     throw error;
   }
