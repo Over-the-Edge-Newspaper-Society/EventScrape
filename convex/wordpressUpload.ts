@@ -368,6 +368,20 @@ class WordPressClient {
     const results: Array<{ event: any; result: WordPressUploadResult }> = [];
 
     for (const event of events) {
+      const dateWarnings: string[] = [];
+      const reliableEnd = (start: Date, end: Date | null, label: string): Date | null => {
+        if (end && (!Number.isFinite(end.getTime()) || end.getTime() < start.getTime())) {
+          dateWarnings.push(`${label}: the scraped end time was invalid or earlier than the start; the event was saved with an unknown end time.`);
+          return null;
+        }
+        return end;
+      };
+      const recordResult = (result: WordPressUploadResult) => {
+        if (result.success && result.action !== "skipped" && dateWarnings.length) {
+          result.warnings = [...getUploadWarnings(result), ...dateWarnings];
+        }
+        results.push({ event, result });
+      };
       let clubData: ClubData | undefined;
       if (event.raw?.massPosterMeta?.club) {
         clubData = event.raw.massPosterMeta.club;
@@ -383,11 +397,17 @@ class WordPressClient {
           time: rawEvent.startTime || "00:00:00",
         };
         if (rawEvent.endDate && rawEvent.endTime) {
-          localEnd = { date: rawEvent.endDate, time: rawEvent.endTime };
+          if (reliableEnd(
+            new Date(`${localStart.date}T${localStart.time}Z`),
+            new Date(`${rawEvent.endDate}T${rawEvent.endTime}Z`),
+            "Event",
+          )) {
+            localEnd = { date: rawEvent.endDate, time: rawEvent.endTime };
+          }
         }
       } else {
         const startDate = new Date(event.startDatetime);
-        const endDate = event.endDatetime ? new Date(event.endDatetime) : null;
+        const endDate = reliableEnd(startDate, event.endDatetime != null ? new Date(event.endDatetime) : null, "Event");
 
         localStart = this.convertToLocalDateTime(startDate, event.timezone || "UTC");
         localEnd = endDate
@@ -436,7 +456,7 @@ class WordPressClient {
           series_data: { occurrence_type: "recurring", recurrence_type: "custom" },
           occurrences: seriesDates.map((dateInfo: any, index: number) => {
             const occStart = new Date(dateInfo.start);
-            const occEnd = dateInfo.end ? new Date(dateInfo.end) : null;
+            const occEnd = reliableEnd(occStart, dateInfo.end ? new Date(dateInfo.end) : null, `Occurrence ${index + 1}`);
             const localOccStart = this.convertToLocalDateTime(
               occStart,
               event.timezone || "UTC",
@@ -462,7 +482,7 @@ class WordPressClient {
           options.updateIfExists || false,
           clubData,
         );
-        results.push({ event, result });
+        recordResult(result);
       } else {
         const wpEvent: WordPressEvent = {
           title: event.title,
@@ -497,7 +517,7 @@ class WordPressClient {
           options.updateIfExists || false,
           clubData,
         );
-        results.push({ event, result });
+        recordResult(result);
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));

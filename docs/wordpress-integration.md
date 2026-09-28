@@ -58,3 +58,9 @@ Result: **14 updated/published, 0 failed, 0 skipped, 5 image warnings**. Existin
 This operation published the existing local sample, not the entire scraped catalogue or a production-site export. Manual upload still defaults to Draft; select Publish for future manual uploads. No scheduled export destination or status was changed. The September 28 selected-day panel can remain empty because none of these imported occurrences is dated September 28. The five image warnings remain expected under the local-copy outbound protection.
 
 The pre-publication REST snapshot and upload/read-back results are retained under `/tmp/cm-publish-local-2026-09-28/` on the operator's machine.
+
+## Full upcoming catalogue follow-up
+
+The later [catalogue audit and recovery](upcoming-publication-2026-09-28.md) published **1,145 additional events** to the local clone and appended **80 dates to 42 existing events**, preserving their history. Public REST and calendar verification covered **1,258 valid event groups**; one malformed placeholder was excluded. The earlier 14-event sample is historical evidence, not the current local catalogue size.
+
+The operation also deployed invalid-end warnings in EventScrape and concurrency/error safeguards in Campus Manager. There were 84 unknown-end warnings and 130 image warnings, with no unresolved valid-event imports after recovery. The plugin safeguards and calendar contrast patch are newer than the stable 2.3.1 release ZIP. The local site still has no recurring export schedule.

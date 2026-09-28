@@ -8,7 +8,7 @@ Production runs on Kubernetes (K3s). The old Fastify/PostgreSQL/Redis API is [re
 
 Scraper retries/readiness, scheduler isolation, run counts/timing, and WordPress upload warnings are committed to `main`. Deployment and live-test evidence are recorded in the guides below. Campus Manager [2.3.1 is a full stable release](https://github.com/Over-the-Edge-Newspaper-Society/campusmanager/releases/tag/v2.3.1).
 
-The local WordPress compatibility replay updated **14 events, with 0 failures, 0 skips, and 5 image warnings**, preserving all 18 occurrences. Correct application-password credentials worked; deliberately invalid credentials returned HTTP 401 as expected. See [WordPress integration](docs/wordpress-integration.md) for drafts, permissions, warnings, and remaining limitations.
+The local WordPress compatibility replay updated **14 events, with 0 failures, 0 skips, and 5 image warnings**, preserving all 18 occurrences. Correct application-password credentials worked; deliberately invalid credentials returned HTTP 401 as expected. See [WordPress integration](docs/wordpress-integration.md) for drafts, permissions, warnings, and remaining limitations. A later [upcoming-catalogue publication](docs/upcoming-publication-2026-09-28.md) added 1,145 local events and 80 dates to existing events; all 1,258 valid event groups were verified through public REST/calendar reads.
 
 ## Architecture
 

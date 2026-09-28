@@ -58,3 +58,46 @@ test('HTTP import failure stays a failure, not a saved event', async () => {
     assert.equal(summarizeWordPressUpload(response.results).failed, 1);
   } finally { globalThis.fetch = original; }
 });
+
+for (const [label, fixture, expectedEnds, warningCount] of [
+  ['bad end', { ...event, endDatetime: event.startDatetime - 3600000 }, [undefined], 1],
+  ['overnight end', { ...event, endDatetime: event.startDatetime + 30 * 3600000 }, ['2026-10-02 06:00:00'], 0],
+  ['recurring bad end', { ...event, raw: { seriesDates: [
+    { start: '2026-10-01T10:00:00Z', end: '2026-10-01T09:00:00Z' },
+    { start: '2026-10-02T10:00:00Z', end: '2026-10-02T12:00:00Z' },
+  ] } }, [undefined, '2026-10-02 12:00:00'], 1],
+  ['raw bad end', { ...event, raw: { events: [{ startDate: '2026-10-01', startTime: '10:00:00', endDate: '2026-10-01', endTime: '09:00:00' }] } }, [undefined], 1],
+] as const) {
+  test(`${label}: omits only unreliable ends and reports saved-event warnings`, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.event.occurrences.map((o: any) => o.end_datetime), expectedEnds);
+      assert.equal(body.event.status, 'publish');
+      return Response.json({ success: true, action: 'created', post_id: 44, warnings: [warning] });
+    };
+    try {
+      const fixtureCtx = { ...ctx, runQuery: async (ref: unknown, args: any) => args.ids ? [fixture] : ctx.runQuery(ref, args) };
+      const result = await (uploadEvents as any)._handler(fixtureCtx, { settingsId: 'local', eventIds: ['event'], status: 'publish' });
+      assert.equal(result.results[0].result.warnings.length, 1 + warningCount);
+      assert.equal(result.results[0].result.warnings[0], warning);
+      if (warningCount) assert.match(result.results[0].result.warnings[1], /unknown end time/);
+      assert.equal(summarizeWordPressUpload(result.results).saved, 1);
+    } finally { globalThis.fetch = original; }
+  });
+}
+
+for (const outcome of ['skipped', 'failed'] as const) {
+  test(`bad end does not claim a save when import is ${outcome}`, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => outcome === 'skipped'
+      ? Response.json({ success: true, action: 'skipped', post_id: 44 })
+      : new Response('Forbidden', { status: 403 });
+    try {
+      const fixtureCtx = { ...ctx, runQuery: async (ref: unknown, args: any) => args.ids ? [{ ...event, endDatetime: event.startDatetime - 1 }] : ctx.runQuery(ref, args) };
+      const result = await (uploadEvents as any)._handler(fixtureCtx, { settingsId: 'local', eventIds: ['event'] });
+      assert.deepEqual(getUploadWarnings(result.results[0].result), []);
+      assert.equal(summarizeWordPressUpload(result.results).saved, 0);
+    } finally { globalThis.fetch = original; }
+  });
+}
