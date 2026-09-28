@@ -1,477 +1,110 @@
-# Event Scraper Review System
+# EventScrape
 
-A modular event scraping and review system with duplicate detection, built with TypeScript, PostgreSQL, and Docker.
+EventScrape collects events from website and Instagram sources, supports review and duplicate matching, and exports events to files or WordPress. The current runtime uses a React admin app, a self-hosted Convex backend, and a TypeScript/Playwright worker.
 
-## 🚀 Quick Start
+Production runs on Kubernetes (K3s). The old Fastify/PostgreSQL/Redis API is [retired](apps/api/RETIRED.md); its source remains for historical reference.
 
-### Option 1: Docker (Recommended)
-```bash
-# Development with hot reload
-docker-compose -f docker-compose.dev.yml up
+## Current status — September 28, 2026
 
-# Production
-docker-compose up -d
+Scraper retries/readiness, scheduler isolation, run counts/timing, and WordPress upload warnings are committed to `main`. Deployment and live-test evidence are recorded in the guides below. Campus Manager [2.3.1 is a full stable release](https://github.com/Over-the-Edge-Newspaper-Society/campusmanager/releases/tag/v2.3.1).
+
+The local WordPress compatibility replay updated **14 events, with 0 failures, 0 skips, and 5 image warnings**, preserving all 18 occurrences. Correct application-password credentials worked; deliberately invalid credentials returned HTTP 401 as expected. See [WordPress integration](docs/wordpress-integration.md) for drafts, permissions, warnings, and remaining limitations.
+
+## Architecture
+
+| Component | Location | Responsibility |
+| --- | --- | --- |
+| Admin | `apps/admin` | Review, sources, runs, schedules, exports, and WordPress settings; calls Convex directly from the browser |
+| Backend | `convex` | Data, file storage, job queue, schedule dispatch, and bounded external actions |
+| Worker | `worker` | Claims Convex jobs; runs Playwright scrapers and longer background work |
+| Retired API | `apps/api` | Historical Fastify/Drizzle/BullMQ implementation; excluded from current dev/build commands |
+
+WordPress imports run through `wordpressUpload:uploadEvents`. Scheduled upload jobs call that action. Scrape source activation and recurring scheduling are separate: discovering or syncing a source does not create a schedule.
+
+## Local development
+
+Use Node.js compatible with the repository packages, pinned **pnpm 9.15.9**, and Docker with Compose for the local Convex backend. The package declares Node.js 18 or newer; deployment images and lockfile are the reference for runtime dependencies.
+
+```sh
+corepack enable
+corepack prepare pnpm@9.15.9 --activate
+pnpm install --frozen-lockfile
+pnpm convex:docker:up
+pnpm convex:docker:key
 ```
 
-### Option 2: Local Development
-```bash
-# Start database services
-pnpm docker:up
+Save the generated local admin key in an untracked root `.env.local`:
 
-# Install dependencies and start
-pnpm install
-pnpm dev
+```dotenv
+CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210
+CONVEX_SELF_HOSTED_ADMIN_KEY=<generated local admin key>
 ```
 
-**Access:**
-- Admin Dashboard: http://localhost:3000
-- API: http://localhost:3001
-- Database: localhost:5432 (user: `eventscrape`, password: `eventscrape_dev`)
+Deploy functions, install the browser used by the worker, and start the applications:
 
-## 📋 Table of Contents
-
-- [Architecture](#architecture)
-- [Features](#features)
-- [Docker Setup](#docker-setup)
-- [Local Development](#local-development)
-- [API Documentation](#api-documentation)
-- [Database](#database)
-- [Configuration](#configuration)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
-
-## 🏗️ Architecture
-
-### Components
-- **API Server** (`apps/api`): Fastify-based REST API
-- **Admin UI** (`apps/admin`): React + Vite dashboard
-- **Worker** (`worker`): Background job processor with Playwright
-- **Database**: PostgreSQL with automatic migrations
-- **Cache/Queue**: Redis for job queues and caching
-
-### Tech Stack
-- **Backend**: TypeScript, Fastify, Drizzle ORM
-- **Frontend**: React, TypeScript, TailwindCSS, Radix UI
-- **Database**: PostgreSQL 15
-- **Queue**: BullMQ + Redis
-- **Scraping**: Playwright
-- **Deployment**: Docker + Docker Compose
-
-## ✨ Features
-
-### Core Functionality
-- 🔍 **Multi-source event scraping** with configurable modules
-- 🔄 **Duplicate detection** using fuzzy matching algorithms
-- 📊 **Manual review interface** for potential matches
-- 📤 **Multiple export formats** (CSV, JSON, ICS, WordPress)
-- 🚦 **Rate limiting** and respectful scraping
-- 📈 **Real-time monitoring** and health checks
-
-### Data Pipeline
-1. **Scrape** events from configured sources
-2. **Store** raw events with metadata
-3. **Detect** potential duplicates using ML algorithms
-4. **Review** matches through admin interface
-5. **Export** canonical events to various formats
-
-## 🐳 Docker Setup
-
-### Development Environment
-```bash
-# Start with hot reload (recommended for development)
-docker-compose -f docker-compose.dev.yml up
-
-# Features:
-# - Volume mounts for live code reloading
-# - Automatic dependency installation
-# - Database migrations and seeding
+```sh
+pnpm convex:deploy
+pnpm --filter @eventscrape/worker exec playwright install chromium
+pnpm --filter @eventscrape/admin --filter @eventscrape/worker --parallel -r dev
 ```
 
-### Production Environment
-```bash
-# Build and start production containers
-docker-compose build
-docker-compose up -d
+On Linux, Playwright may also require its system dependencies. For continuous Convex development, run `pnpm convex:dev` in another terminal.
 
-# Features:
-# - Optimized builds
-# - Health checks and restart policies
-# - Persistent volumes
+| Local service | Address |
+| --- | --- |
+| Admin | http://localhost:3000 |
+| Convex backend | http://127.0.0.1:3210 |
+| Convex HTTP actions | http://127.0.0.1:3211 |
+| Convex dashboard | http://localhost:6791 |
+
+The admin defaults to the local backend. Set `VITE_CONVEX_URL` in `apps/admin/.env.local` when using another browser-reachable backend; it is baked into production builds. The worker reads `CONVEX_URL`, then `CONVEX_SELF_HOSTED_URL`, and defaults to `http://127.0.0.1:3210`. Export worker overrides in its process environment or put them in `worker/.env`. Deployment admin keys belong only in trusted CLI/server configuration, never in `VITE_*` values.
+
+Stop the backend with `pnpm convex:docker:down`; its data persists in the Docker volume. The old root `.env.example` describes the retired API and is not the current Convex setup template.
+
+## Scraping and run results
+
+1. Start the worker to discover and sync scraper modules, or request a source sync in the admin.
+2. Activate the intended sources and queue a manual scrape.
+3. Check Runs for completion, failures, retries, and found/new/updated/unchanged/failed counts.
+4. Configure a separate recurring schedule for each source that should run automatically.
+5. Review events and select the intended export destination and post status.
+
+The September 28 sweep ran all **17 active website sources**: 15 initially succeeded and 2 failed. Subsequent fixes and full reruns verified PG Pride (7 found), PGPL (41), and Tourism PG (166). Two Rivers returned zero events and still needs investigation. Instagram remained disabled; the demo and AI poster sources were not part of the website sweep. Only six website schedules were enabled at that verification; the eleven newer website sources were not automatically scheduled.
+
+For new website runs, “found” includes unchanged events. Historical runs retain their older new/updated counts and are labelled accordingly. Run history separates active processing from total elapsed/waiting time. A schedule's `lastRunAt` records dispatch, so verify its associated run actually completed.
+
+## Verification commands
+
+These focused checks passed before the September 28 push:
+
+```sh
+pnpm exec tsx --test scripts/tests/*.test.ts
+pnpm exec tsc -p convex/tsconfig.json --noEmit
+pnpm --filter @eventscrape/worker exec vitest run \
+  src/lib/navigation.test.ts \
+  src/modules/pgpl_ca/pgpl_ca.test.ts \
+  src/modules/pgpride_com/pgpride_com.test.ts \
+  src/modules/tourismpg_com/tourismpg_com.test.ts
+pnpm build
 ```
 
-### Available Commands
-```bash
-# Development
-pnpm docker:dev          # Start dev environment
-pnpm docker:dev:build    # Rebuild and start dev
+Results: 16 script regressions and 16 targeted worker tests passed, Convex type checking passed, and both admin and worker production builds passed. These are focused checks, not a claim that every scraper has full automated coverage. The repository currently has no GitHub Actions workflow; Campus Manager has its own release CI.
 
-# Production  
-pnpm docker:prod         # Start production
-pnpm docker:prod:build   # Build and start production
+## Deployment and backups
 
-# Management
-pnpm docker:logs         # View logs
-pnpm docker:stop         # Stop services
-pnpm docker:clean        # Remove everything including volumes
-```
+Use [the Kubernetes deployment guide](docs/deploy-k8s.md) for the current production cluster. Admin/worker image rollout and Convex function deployment are separate operations. A Git push alone does not deploy either.
 
-### Service Configuration
+The admin needs a public Convex URL because the browser calls it directly; the worker can use the cluster's internal service address. Kubernetes data lives on the cluster node's disk and needs backups. `pnpm backup:export` exports a Convex snapshot with file storage. `pnpm backup:import` wraps replacement import; use it only for an intentional restore to the selected backend.
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **admin** | 3000 | React admin dashboard |
-| **api** | 3001 | REST API server |
-| **postgres** | 5432 | PostgreSQL database |
-| **redis** | 6379 | Redis cache/queue |
-| **worker** | - | Background job processor |
+## Documentation
 
-## 💻 Local Development
+- [WordPress integration and troubleshooting](docs/wordpress-integration.md)
+- [Kubernetes deployment and scheduler fix](docs/deploy-k8s.md)
+- [Scraper fixes and final full-run results](docs/run-fixes-2026-09-28.md)
+- [Initial scrape sweep and local import record](docs/verification-2026-09-28.md)
+- [Upload-warning UI verification](docs/wordpress-upload-warnings-2026-09-28.md)
+- [Scraper development guide](worker/docs/scraper-development-guide.md)
+- [Script reference](scripts/README.md)
+- [Convex migration history](docs/convex-migration.md)
 
-### Prerequisites
-- Node.js 18+
-- pnpm 8+
-- Docker & Docker Compose
-- PostgreSQL 15+ (if not using Docker)
-- Redis 7+ (if not using Docker)
-
-### Setup
-```bash
-# Clone repository
-git clone <repository-url>
-cd EventScrape
-
-# Install dependencies
-pnpm install
-
-# Copy environment files
-cp .env.example .env
-
-# Start database services
-pnpm docker:up
-
-# Run migrations and seed data
-pnpm db:migrate
-pnpm db:seed
-
-# Start development servers
-pnpm dev
-```
-
-### Development Scripts
-```bash
-# Development
-pnpm dev              # Start all services
-pnpm dev:seed         # Start with fresh database seed
-
-# Building
-pnpm build            # Build all packages
-pnpm typecheck        # Type checking
-pnpm lint             # Linting
-
-# Database
-pnpm db:migrate       # Run migrations
-pnpm db:seed          # Seed database
-pnpm db:studio        # Open Drizzle Studio
-
-# Testing
-```bash
-pnpm test             # Run tests
-```
-
-### Playwright Docker Runner
-A Playwright-specific compose file (`docker-compose.playwright.yml`) lets you run scraper tests inside Microsoft’s official Playwright image so the browsers and dependencies match CI exactly.
-
-```bash
-# Runs the Prince George Vitest suite inside the container
-./scripts/playwright-test.sh
-
-# Pass any PNPM/Vitest command after installing deps in the container
-./scripts/playwright-test.sh "pnpm --filter @eventscrape/worker exec vitest run path/to/other.test.ts"
-```
-
-Under the hood this script runs:
-
-```bash
-docker compose -f docker-compose.playwright.yml run --rm playwright "<your command>"
-```
-
-The compose service mounts the repo, reuses cached Playwright browsers (`playwright-cache` volume), and persists the PNPM store (`pnpm-store` volume) so subsequent runs are much faster. Override the command to run UI mode, Playwright CLI checks, or any other worker-specific tests without touching the host environment.
-```
-
-## 🔌 API Documentation
-
-### Base URL
-- Development: `http://localhost:3001/api`
-- Production: Configure `VITE_API_URL`
-
-### Key Endpoints
-
-#### Sources
-```bash
-GET    /api/sources           # List event sources
-POST   /api/sources           # Create new source
-PUT    /api/sources/:id       # Update source
-DELETE /api/sources/:id       # Delete source
-```
-
-#### Scraping
-```bash
-GET    /api/runs              # List scrape runs
-POST   /api/runs/scrape/:key  # Start scrape job
-GET    /api/runs/:id          # Get run details
-```
-
-#### Events
-```bash
-GET    /api/events/raw        # List raw scraped events
-GET    /api/events/canonical  # List canonical events
-POST   /api/events/merge      # Merge duplicate events
-```
-
-#### Matching
-```bash
-GET    /api/matches           # List potential matches
-POST   /api/matches/:id/confirm # Confirm match
-POST   /api/matches/:id/reject  # Reject match
-```
-
-#### Export
-```bash
-POST   /api/exports           # Create export job
-GET    /api/exports           # List export history
-GET    /api/exports/:id       # Download export file
-```
-
-### Response Format
-```json
-{
-  "data": { ... },
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": "100",
-    "totalPages": 5,
-    "hasNext": true,
-    "hasPrev": false
-  }
-}
-```
-
-## 🗄️ Database
-
-### Schema Overview
-- **sources**: Event source configurations
-- **runs**: Scraping job execution records  
-- **events_raw**: Original scraped event data
-- **events_canonical**: Deduplicated canonical events
-- **matches**: Potential duplicate pairs for review
-- **exports**: Export job history
-
-### Migrations
-```bash
-# Run migrations
-pnpm db:migrate
-
-# Create new migration
-cd apps/api
-pnpm drizzle-kit generate:pg
-```
-
-### Seeding
-```bash
-# Seed with sample data
-pnpm db:seed
-
-# Includes:
-# - Sample event sources
-# - Test scraping modules
-# - Demo events (optional)
-```
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-#### Database
-```bash
-DATABASE_URL=postgres://eventscrape:password@localhost:5432/eventscrape
-```
-
-#### Redis
-```bash  
-REDIS_URL=redis://localhost:6379
-```
-
-#### API Configuration
-```bash
-NODE_ENV=development
-PORT=3001
-```
-
-#### Worker Settings
-```bash
-PLAYWRIGHT_HEADLESS=true
-EXPORT_DIR=./exports
-RATE_LIMIT_PER_MIN=60
-```
-
-#### Admin UI
-```bash
-VITE_API_URL=http://localhost:3001/api
-```
-
-#### Optional: WordPress Integration
-```bash
-WORDPRESS_BASE_URL=https://your-site.com
-WORDPRESS_USERNAME=admin
-WORDPRESS_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-```
-
-### Docker Environment Files
-- `.env.docker` - Template for Docker deployments
-- `.env.example` - Template for local development
-- Copy and customize as needed
-
-## 🚀 Deployment
-
-### Kubernetes (K3s) — current production
-
-Runs on a single-node K3s cluster with a self-hosted Convex backend. Images are
-built on the cluster node and imported straight into containerd; no registry is
-involved. One command builds the admin SPA and worker from the working tree and
-rolls them out.
-
-The admin SPA calls Convex **from the browser**, so `VITE_CONVEX_URL` is baked
-into the bundle at build time and Convex needs its own public hostname —
-changing it means rebuilding the admin image.
-
-See **[docs/deploy-k8s.md](docs/deploy-k8s.md)** for the services, the data
-migration from the LXC deployment, and the build fixes (pinned pnpm, workspace
-`node_modules`) required to build with a current toolchain.
-
-### Docker Production
-```bash
-# Using production compose file
-docker-compose -f docker-compose.prod.yml build
-docker-compose -f docker-compose.prod.yml up -d
-
-# With custom environment
-cp .env.docker .env
-# Edit .env with production values
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-### Environment Setup
-1. Set strong database passwords
-2. Configure proper CORS origins
-3. Set up SSL certificates (if using nginx profile)
-4. Configure backup strategies
-5. Set up monitoring and logging
-
-### Health Checks
-- API: `GET /health`
-- Database connectivity
-- Redis connectivity
-- Worker status monitoring
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-#### Database Connection Errors
-```bash
-# Check if database is running
-docker ps | grep postgres
-
-# Reset database
-docker-compose down -v
-docker-compose up -d postgres
-pnpm db:migrate
-```
-
-#### Permission Errors
-```bash
-# Grant database permissions
-psql -d eventscrape -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO eventscrape;"
-```
-
-#### API Not Connecting
-```bash
-# Check API logs
-docker logs eventscrape-api
-
-# Verify environment variables
-docker exec eventscrape-api env | grep DATABASE_URL
-```
-
-#### Worker Issues
-```bash
-# Check worker logs
-docker logs eventscrape-worker
-
-# Restart worker
-docker restart eventscrape-worker
-```
-
-#### Build Failures
-```bash
-# Clean rebuild
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Debug Commands
-```bash
-# Container status
-docker-compose ps
-
-# View logs
-docker-compose logs -f [service]
-
-# Execute commands in container
-docker exec -it eventscrape-api sh
-
-# Database access
-docker exec -it eventscrape-postgres psql -U eventscrape
-
-# Reset everything
-docker-compose down -v && docker-compose up -d
-```
-
-### Performance Tuning
-- Adjust `RATE_LIMIT_PER_MIN` for scraping speed
-- Configure PostgreSQL connection pooling
-- Optimize Redis memory usage
-- Scale worker processes as needed
-
-## 📚 Additional Resources
-
-### Documentation
-- [Docker Setup Guide](./DOCKER.md) - Detailed Docker instructions
-- [API Reference](./apps/api/README.md) - Complete API documentation  
-- [Admin UI Guide](./apps/admin/README.md) - Dashboard user guide
-- [Worker Documentation](./worker/README.md) - Scraping configuration
-
-### Development
-- [Contributing Guidelines](./CONTRIBUTING.md)
-- [Code Style Guide](./STYLE.md)
-- [Testing Guide](./TESTING.md)
-
-## 📄 License
-
-[Your License Here]
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-For major changes, please open an issue first to discuss proposed changes.
-
----
-
-**Need Help?** Check the [troubleshooting section](#troubleshooting) or open an issue on GitHub.
+Older REST API, PostgreSQL/Redis, nginx quick-start, and LXC documents describe previous deployments; prefer this README and the Kubernetes guide for the current runtime.

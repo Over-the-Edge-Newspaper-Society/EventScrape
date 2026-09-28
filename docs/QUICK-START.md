@@ -1,4 +1,6 @@
-# EventScrape Quick Start Guide
+# EventScrape Quick Start Guide — historical stack
+
+> This guide describes the retired Fastify/PostgreSQL/Redis deployment. For the current Convex runtime, use [local development in the README](../README.md#local-development) or [Kubernetes deployment](deploy-k8s.md). The commands below are retained as historical reference.
 
 Get EventScrape running with nginx on a single unified domain in 5 minutes.
 

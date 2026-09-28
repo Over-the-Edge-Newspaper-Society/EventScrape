@@ -18,3 +18,9 @@ The action's message includes warnings and skips. Scheduled workers retain compa
 Screenshot: [Upload warnings](verification/2026-09-28-upload-warnings.png).
 
 The panel remains visible until dismissed, replaced by another result, or the page is left/reloaded. Image downloading remains blocked by the local-copy guard; these changes report that outcome rather than bypassing the guard.
+
+## Stable release and final compatibility replay
+
+Campus Manager [2.3.1](https://github.com/Over-the-Edge-Newspaper-Society/campusmanager/releases/tag/v2.3.1) is now a full stable release. EventScrape's warning changes are pushed to `main`. The later replay against its beta.2 candidate updated all **14 local-test events, with 0 failures, 0 skips, and 5 image warnings**, preserving all 18 occurrences and draft statuses. Correct application-password credentials succeeded; deliberately wrong credentials returned HTTP 401, which is the expected security check.
+
+The release workflow passed and the published ZIP/stable manifest were verified. The replay used the local candidate; release publication did not update production WordPress. See [the integration guide](wordpress-integration.md) for current setup, permissions, and the still-open remote-image `includeMedia: false` limitation.

@@ -1,6 +1,8 @@
 # Live scrape and local WordPress verification — 2026-09-28
 
-All 17 active website modules were manually queued on the Kubernetes EventScrape worker. 15 runs completed successfully, 2 exhausted their three retries. Completed runs processed **1,411 events**, inserted **1,209**, and left **202 unchanged**. These totals count source records, not unique events across sources. The runs UI's `eventsFound` is inserts/updates; zero does not necessarily mean no events were extracted.
+> Initial verification record, retained for traceability. Later scraper reruns and WordPress fixes are summarized below. For current behavior, see [WordPress integration](wordpress-integration.md) and [final scraper verification](run-fixes-2026-09-28.md).
+
+All 17 active website modules were manually queued on the Kubernetes EventScrape worker. 15 runs completed successfully, 2 exhausted their three retries. Completed runs processed **1,411 events**, inserted **1,209**, and left **202 unchanged**. These totals count source records, not unique events across sources. At the time of this initial sweep, the runs UI's `eventsFound` counted inserts/updates. New runs now record found/new/updated/unchanged/failed separately; historical counts were not rewritten.
 
 Instagram remains disabled and was not enabled for this website sweep. The demo source and AI poster upload source are not website scrapers. This manual sweep does not add recurring schedules for the 11 newly registered sources; six website schedules remain enabled.
 
@@ -38,12 +40,15 @@ Target: https://over-the-edge-local-393fed40.wp.k8s.overtheedgepaper.ca/
 - Repeating the identical 14-event push returned `skipped` for every event with the same post IDs: no duplicates.
 - WordPress admin visibly shows Drafts (14). Screenshot: `verification/2026-09-28-local-drafts.png`.
 
-## Remaining improvements
+## Follow-up status after fixes and stable release
 
-1. **Campus Manager:** surface failed featured-image downloads as response warnings. Five samples requested images; none stored a featured image because the Zoer local-copy MU plugin deliberately blocks outbound HTTP. The importer ignores the failed sideload result and still returns success. Keep the copy guard; do not enable arbitrary outbound traffic merely for the test. A controlled media upload path or a deliberately scoped import exception can be designed separately.
-2. **EventScrape uploader:** honor `includeMedia: false` when passing `event.imageUrl` to the importer, and preserve plugin warnings in `WordPressUploadResult`. Current code always passes the URL and discards response warnings. These are identified follow-ups, not deployed changes in this verification.
-3. **Zoer UI:** a read-only Test REST connection action should report site reachability, authentication, required event permissions, import endpoint availability, and the local-copy media restriction separately. It should not publish a probe or display credentials.
-4. **Scrapers:** PG Pride needs bounded DOM/widget readiness instead of networkidle; Tourism PG needs to open its Calendar tab; Two Rivers requires investigation of why REST records produce no parsed events.
+- **Completed — Campus Manager image reporting:** blocked/failed downloads now return `warnings` and structured `media` results. The local-copy guard remains enabled and existing featured images are preserved. These changes are included in [stable 2.3.1](https://github.com/Over-the-Edge-Newspaper-Society/campusmanager/releases/tag/v2.3.1).
+- **Completed — EventScrape warning display:** the action preserves warnings/media and the manual upload panel displays saved, skipped, failed, and warned results. See [browser verification](wordpress-upload-warnings-2026-09-28.md).
+- **Completed — local compatibility replay:** all 14 existing events updated with 0 failures, 0 skips, and 5 image warnings; all 18 occurrences survived read-back. The valid application password worked, and deliberately invalid credentials returned HTTP 401 as expected. This replay used the beta.2 candidate subsequently promoted to stable 2.3.1.
+- **Completed — scraper fixes:** PG Pride, Tourism PG, and PGPL full reruns passed with 7, 166, and 41 events respectively. The final Tourism fix addressed browser identity/HTTP readiness and date extraction; the initial Calendar-tab diagnosis above was preliminary. See [final run evidence](run-fixes-2026-09-28.md).
+- **Open — media opt-out:** `includeMedia: false` still does not suppress a remote `event.imageUrl` passed to the importer. Warning propagation is fixed, but this separate media-option behavior remains unresolved.
+- **Open — source coverage:** Two Rivers' empty extraction needs investigation. The eleven newer website sources still lacked schedules at verification, and Instagram remained disabled.
+- **Proposed — Zoer connection diagnostics:** a read-only action should distinguish reachability, authentication, event permissions, import endpoint availability, and local-copy image restrictions without publishing a probe or exposing credentials.
 
 ## Deployment and rollback
 
@@ -51,4 +56,4 @@ Zoer backend image: `docker.io/zoer-local/backend:dev-1790608802-7a11bd2-dirty`,
 
 The cluster has no Flux resources, so Zoer's upstream server-dev activation helper cannot run here. Used the Proxmox cluster's local-image path, with an explicit compare-before-update and no active plugin runs/workers before rollout. Deployment annotation `zoer.previous-image` records the prior backend. Updated only the backend tag in Proxmox-Playbook's existing overlay, preserving its other changes. The new backend image is pinned in containerd.
 
-DDEV bridge source backup: `/opt/zoer-ddev-bridge/src/http-proxy.ts.before-dev-1790608802-7a11bd2-dirty` on the Kubernetes node. Restoring it and restarting `zoer-ddev-bridge` reverts that transport change. Roll back the backend image as a paired operation if needed. No Campus Manager PHP code or distributed plugin ZIP was modified.
+DDEV bridge source backup: `/opt/zoer-ddev-bridge/src/http-proxy.ts.before-dev-1790608802-7a11bd2-dirty` on the Kubernetes node. Restoring it and restarting `zoer-ddev-bridge` reverts that transport change. Roll back the backend image as a paired operation if needed. That initial proxy/bridge deployment did not modify Campus Manager PHP or a distributed plugin ZIP. Subsequent plugin fixes and the stable release are recorded in the follow-up status above.

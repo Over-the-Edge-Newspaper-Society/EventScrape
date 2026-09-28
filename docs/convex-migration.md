@@ -1,21 +1,8 @@
 # Convex Migration Plan
 
-> **Status (2026-06-04): migration complete for all DB-backed flows.** Postgres
-> and Redis are retired from the run path. The stack is now: self-hosted Convex
-> (`docker-compose.convex.yml`) + admin UI (Convex adapter) + worker (claims jobs
-> from Convex). The Fastify API is retired (`apps/api/RETIRED.md`). Remaining work
-> is the **actions phase**: re-home external-I/O features (WordPress upload, AI
-> extraction triggers, export file generation, poster import, backups, Instagram
-> image serving, OpenRouter model list) — currently gated in the UI. See
-> `docs/convex-actions-tradeoffs.md`.
->
-> What was built: full Convex schema + query/mutation layer (`convex/*.ts`),
-> atomic job queue with stalled-job reclaim (`jobs.ts`), worker data layer
-> (`worker.ts`), cron dispatcher replacing BullMQ repeatables (`crons.ts` +
-> `cronMatch.ts` + `schedules.runDue`), and the admin Convex adapter
-> (`apps/admin/src/lib/convexClient.ts` + `api.ts`).
+> **Current status (September 28, 2026):** the runtime uses self-hosted Convex, the admin UI, and the worker. PostgreSQL, Redis, and the Fastify API are retired from the run path. WordPress upload/connection/category actions, export generation, poster/review queues, backups, and storage-backed images have implementations in the current code. See [the README](../README.md) for current setup and [WordPress verification](wordpress-upload-warnings-2026-09-28.md) for tested import behavior.
 
-This repository can move to Convex incrementally. The current Postgres and Redis stack stays in place until each slice is switched over and verified.
+The remainder of this document records the migration design and one-time import procedure. Its migration order is historical, not an outstanding deployment checklist.
 
 ## Target Architecture
 

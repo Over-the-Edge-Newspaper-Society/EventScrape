@@ -7,8 +7,7 @@ which describes the Docker-in-LXC deployment.
 Images are built on the cluster node and imported directly into containerd —
 nothing is pushed to a registry.
 
-Last verified: 2026-09-15, migrating 2,973 events and 5,745 runs from the LXC
-deployment.
+Migration verified September 15, 2026, with 2,973 events and 5,745 runs from the LXC deployment. Subsequent September 28 deployments verified scheduler isolation, scraper/run reporting fixes, and the WordPress warning UI; see [scraper verification](run-fixes-2026-09-28.md) and [upload verification](wordpress-upload-warnings-2026-09-28.md). Both sets of application changes are now on `main`. Pushing Git changes alone does not deploy images or Convex functions.
 
 ## Services
 

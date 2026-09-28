@@ -39,13 +39,10 @@ historical reference for the original implementations; nothing here runs.
   scrape time, queries resolve storage URLs, and existing images were backfilled
   from the backup bundle via `scripts/backfill-instagram-images-from-dir.ts`.
 
-These are currently **gated in the admin UI** with clear "requires the actions
-phase" messages. When porting them, move the logic into either the worker (for
-long/heavy I/O) or Convex actions (for short, bounded calls) — see
-`docs/convex-actions-tradeoffs.md`.
+Current setup and verification instructions are in the [root README](../../README.md). The list above records implemented replacements; verification scope for WordPress imports is documented in [the integration guide](../../docs/wordpress-integration.md).
 
 ## To permanently delete
 
-Once every feature above is ported and verified, this directory and its
+After confirming replacement coverage for the features above, this directory and its
 Postgres/Redis dependencies can be removed, and `apps/*` in `pnpm-workspace.yaml`
 narrowed accordingly.
