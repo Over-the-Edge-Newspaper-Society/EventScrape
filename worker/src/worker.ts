@@ -111,6 +111,18 @@ class EventScraperWorker {
 
   private async runJob(job: NonNullable<ClaimedJob>): Promise<void> {
     logger.info(`▶️  Claimed ${job.queue} job ${job._id}`);
+    let heartbeating = false;
+    const heartbeat = setInterval(async () => {
+      if (heartbeating) return;
+      heartbeating = true;
+      try {
+        await jobs.heartbeat({ jobId: job._id, workerId: WORKER_ID, attempt: job.attempts });
+      } catch (error) {
+        logger.warn(`Job heartbeat failed: ${(error as Error).message}`);
+      } finally {
+        heartbeating = false;
+      }
+    }, 30_000);
     try {
       if (job.queue === 'scrape') await this.processScrapeJob(job);
       else if (job.queue === 'match') await this.processMatchJob(job);
@@ -127,10 +139,16 @@ class EventScraperWorker {
     } catch (error) {
       const message = (error as Error).message || String(error);
       logger.error(`❌ ${job.queue} job ${job._id} failed: ${message}`);
+      if (job.runId) {
+        const retry = job.attempts < job.maxAttempts && !job.cancelRequested;
+        await appendRunLog(job.runId, 50, `Attempt ${job.attempts}/${job.maxAttempts} failed: ${message}. ${retry ? 'Queued for retry.' : 'No retries remaining.'}`, job.queue);
+      }
       // jobs.fail handles retry vs final-error (and marks the run on final failure).
       await jobs.fail({ jobId: job._id, error: message }).catch((e) =>
         logger.error(`Failed to mark job failed: ${(e as Error).message}`),
       );
+    } finally {
+      clearInterval(heartbeat);
     }
   }
 
@@ -145,16 +163,18 @@ class EventScraperWorker {
     const module = this.moduleLoader.getModule(source.moduleKey);
     if (!module) throw new Error(`Scraper module '${source.moduleKey}' not found`);
 
-    await workerApi.markRunRunning({ runId });
+    await workerApi.markRunRunning({ runId, attempt: job.attempts, maxAttempts: job.maxAttempts });
+    const attemptStartedAt = Date.now();
 
     const rateLimiter = new RateLimiter(source.rateLimitPerMin);
     const { browser, page, release } = await this.browserPool.getPage();
 
+    let logChain = Promise.resolve();
     const mkLog = (level: number) => (msg: string) => {
       if (level >= 50) logger.error(msg);
       else if (level >= 40) logger.warn(msg);
       else logger.info(msg);
-      void appendRunLog(runId, level, msg, source.moduleKey);
+      logChain = logChain.then(() => appendRunLog(runId, level, msg, source.moduleKey));
     };
     const contextLogger = {
       info: mkLog(30),
@@ -163,6 +183,15 @@ class EventScraperWorker {
       debug: mkLog(20),
     };
 
+    const stats = { pagesCrawled: 0, detailFailures: 0 };
+    let found = 0;
+    const counters = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
+    let recorded = false;
+    const recordAttempt = async () => {
+      if (recorded) return;
+      await workerApi.recordScrapeAttempt({ runId, attempt: job.attempts, activeMs: Date.now() - attemptStartedAt, ...stats, found, ...counters });
+      recorded = true;
+    };
     try {
       const ctx: RunContext = {
         browser,
@@ -186,13 +215,14 @@ class EventScraperWorker {
           sourceId: jobData.sourceId,
           runId,
         },
-        stats: { pagesCrawled: 0 },
+        stats,
       };
 
-      contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name}`);
+      contextLogger.info(`🚀 Starting ${jobData.testMode ? 'test' : 'full'} scrape for ${source.name} (attempt ${job.attempts}/${job.maxAttempts})`);
       await rateLimiter.waitForToken();
       contextLogger.info('📝 Running scraper module...');
       const rawEvents = await module.run(ctx);
+      found = rawEvents.length;
       contextLogger.info(`📊 Found ${rawEvents.length} raw events`);
 
       const processedEvents = rawEvents.map((event) =>
@@ -202,7 +232,6 @@ class EventScraperWorker {
 
       contextLogger.info('💾 Saving events to Convex (series + occurrences)...');
       let savedCount = 0;
-      const counters = { processed: 0, inserted: 0, updated: 0, unchanged: 0, failed: 0 };
       for (const event of processedEvents) {
         try {
           counters.processed++;
@@ -221,12 +250,15 @@ class EventScraperWorker {
         }
       }
 
-      const pagesCrawled = ctx.stats?.pagesCrawled || 0;
+      await recordAttempt();
+      if (counters.failed > 0 && counters.failed === counters.processed) {
+        throw new Error(`Failed to save all ${counters.failed} scraped events`);
+      }
+      const failures = counters.failed + stats.detailFailures;
       await workerApi.finishRun({
         runId,
-        status: 'success',
-        eventsFound: savedCount,
-        pagesCrawled,
+        status: failures ? 'partial' : 'success',
+        ...(failures ? { errors: { error: `${counters.failed} event saves and ${stats.detailFailures} page fetches failed; see run logs` } } : {}),
       });
 
       contextLogger.info(`🎉 Scrape completed: ${savedCount}/${rawEvents.length} inserts/updates`);
@@ -250,7 +282,12 @@ class EventScraperWorker {
         contextLogger.info('✅ Duplicate detection job queued');
       }
     } finally {
-      await release();
+      try {
+        await logChain;
+        await recordAttempt();
+      } finally {
+        await release();
+      }
     }
   }
 

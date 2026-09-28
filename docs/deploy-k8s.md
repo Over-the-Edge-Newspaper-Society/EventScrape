@@ -45,6 +45,59 @@ Builds both images on the node from the current working tree — uncommitted
 changes included — rolls them out together, records the previous images for
 `--rollback`, and prunes old dev images so the node disk does not fill.
 
+### Deploying Convex functions
+
+The image deployment script does **not** deploy `convex/` functions. Backend-only
+changes must be pushed to the existing Convex service separately; they do not
+require rebuilding images or restarting pods.
+
+From the EventScrape repository, run the backend checks:
+
+```sh
+pnpm exec tsc --noEmit -p convex/tsconfig.json
+pnpm exec tsx --test scripts/tests/schedules.test.ts
+```
+
+Then deploy using the existing instance credentials, keeping the key out of
+command output and files:
+
+```sh
+(
+  export CONVEX_SELF_HOSTED_URL=https://convex-events.k8s.overtheedgepaper.ca
+  export CONVEX_SELF_HOSTED_ADMIN_KEY="$(
+    kubectl --kubeconfig "$HOME/.kube/ote-k3s.yaml" -n eventscrape \
+      exec deploy/eventscrape-convex -- ./generate_admin_key.sh
+  )"
+  pnpm exec convex deploy -y --typecheck enable --codegen disable
+)
+```
+
+Add `--dry-run` to inspect a deployment before applying it.
+
+### Scheduler read-limit incident (2026-09-28)
+
+The dispatcher continued ticking, but daily runs stopped after September 17.
+Two WordPress export selections together read approximately 16.9 MB in a single
+`schedules.runDue` transaction, exceeding Convex's 16 MiB read limit. The failure
+rolled back the exports and all six website scrape jobs in the same transaction.
+Healthy pods and an idle worker queue did not reveal this failure.
+
+`runDue` now only schedules independent `runScheduled` mutations and records
+`lastRunAt` atomically with that dispatch. Each schedule has its own read budget
+and transaction. A failing export cannot roll back another schedule's scraping
+jobs. `lastRunAt` records dispatch, not successful scraping; inspect run history
+and Convex scheduled-function failures to confirm completion. Each individual
+export must still fit within Convex's limits.
+
+Deployed and verified on September 28: a real cron tick dispatched the library
+source, `runScheduled` created its worker job, and the scrape completed
+successfully in 54 seconds (3 events reported). The library's temporary test
+cadence was restored to `0 6 * * *` in `America/Vancouver`.
+
+Source activation and scheduling are separate: syncing a new source does not
+create a schedule. Restoring the dispatcher does not schedule the eleven newer
+website sources or enable the disabled Instagram schedule.
+
 ## Build fixes required for the k8s build
 
 Three problems had to be fixed before the images would build at all. All three

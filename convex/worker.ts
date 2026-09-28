@@ -159,7 +159,7 @@ export const getInstagramSourceId = query({
 // ---------------------------------------------------------------------------
 
 export const markRunRunning = mutation({
-  args: { runId: v.id("runs") },
+  args: { runId: v.id("runs"), attempt: v.optional(v.number()), maxAttempts: v.optional(v.number()) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
@@ -167,6 +167,50 @@ export const markRunRunning = mutation({
     await ctx.db.patch(args.runId, {
       status: "running",
       startedAt: run.startedAt ?? Date.now(),
+      finishedAt: undefined,
+      errors: undefined,
+      ...(args.attempt !== undefined ? { metadata: {
+        ...run.metadata,
+        scrape: {
+          ...run.metadata?.scrape,
+          version: 1,
+          firstStartedAt: run.metadata?.scrape?.firstStartedAt ?? Date.now(),
+          attemptStartedAt: Date.now(),
+          attempt: args.attempt,
+          maxAttempts: args.maxAttempts,
+        },
+      } } : {}),
+    });
+    return null;
+  },
+});
+
+// Record an attempt even when the scraper throws. Counters describe the latest
+// attempt; page requests and active execution time accumulate across retries.
+export const recordScrapeAttempt = mutation({
+  args: {
+    runId: v.id("runs"), attempt: v.number(), activeMs: v.number(),
+    pagesCrawled: v.number(), found: v.number(), processed: v.number(),
+    inserted: v.number(), updated: v.number(), unchanged: v.number(),
+    failed: v.number(), detailFailures: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) throw new ConvexError({ code: "NOT_FOUND", message: "Run not found" });
+    const previous = run.metadata?.scrape ?? {};
+    if ((previous.completedAttempt ?? 0) >= args.attempt) return null;
+    const { runId, attempt, activeMs, pagesCrawled, ...counts } = args;
+    const scrape = {
+      ...previous, ...counts, version: 1,
+      completedAttempt: attempt,
+      activeMs: (previous.activeMs ?? 0) + activeMs,
+      pagesCrawled: (previous.pagesCrawled ?? 0) + pagesCrawled,
+    };
+    await ctx.db.patch(runId, {
+      eventsFound: args.found,
+      pagesCrawled: scrape.pagesCrawled,
+      metadata: { ...run.metadata, scrape },
     });
     return null;
   },
@@ -396,6 +440,7 @@ export const saveScrapedEvent = mutation({
           scrapedAt: now,
           lastSeenAt: now,
         });
+        if (action === "unchanged") action = "updated";
       }
     }
 
@@ -437,7 +482,8 @@ export const saveScrapedEvent = mutation({
       : null;
 
     if (existingRaw) {
-      if (existingRaw.contentHash !== rawEvent.contentHash) {
+      if (existingRaw.contentHash !== rawEvent.contentHash || action === "updated") {
+        if (action === "unchanged") action = "updated";
         await ctx.db.patch(existingRaw._id, {
           ...rawDoc,
           lastUpdatedByRunId: runId,
@@ -452,6 +498,7 @@ export const saveScrapedEvent = mutation({
         scrapedAt: rawEvent.scrapedAt,
         lastSeenAt: now,
       });
+      if (action === "unchanged") action = "updated";
     }
 
     return { action, seriesId };

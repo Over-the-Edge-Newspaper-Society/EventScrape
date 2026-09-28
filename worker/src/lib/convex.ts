@@ -50,6 +50,7 @@ export type ClaimedJob = {
 export const jobs = {
   claimNext: m<ClaimedJob>('jobs:claimNext'),
   complete: m('jobs:complete'),
+  heartbeat: m('jobs:heartbeat'),
   fail: m('jobs:fail'),
   enqueue: m<string>('jobs:enqueue'),
   reclaimStalled: m<{ requeued: number; failed: number }>('jobs:reclaimStalled'),
@@ -75,6 +76,7 @@ export const workerApi = {
   syncFromModules: m<{ message: string; stats: any; availableModules: any[] }>('sources:syncFromModules'),
   // run lifecycle
   markRunRunning: m('worker:markRunRunning'),
+  recordScrapeAttempt: m('worker:recordScrapeAttempt'),
   finishRun: m('worker:finishRun'),
   mergeRunMetadata: m('worker:mergeRunMetadata'),
   // scrape persistence

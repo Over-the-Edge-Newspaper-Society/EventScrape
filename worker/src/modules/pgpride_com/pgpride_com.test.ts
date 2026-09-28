@@ -1,75 +1,39 @@
-import { describe, it, expect } from 'vitest';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { JSDOM } from 'jsdom';
-import pgPrideModule, {
-  parseDateText,
-  parseTimeText,
-  buildStartIso,
-  extractEventsFromDocument,
-  mapScrapedEvent,
-} from './index.js';
+import { describe, it, expect, vi } from 'vitest';
+import module, { mapCalendarEvent } from './index.js';
 
-const fixturePath = (file: string) =>
-  join(process.cwd(), 'src/modules/pgpride_com/fixtures', file);
+const calendarEvent = { title: 'Queer Youth Hangout', start: '2026-11-08T17:00:00-08:00', end: '2026-11-08T20:00:00-08:00', location: '2640 Goheen St', desc: 'Community <dinner>\nAll welcome' };
 
-describe('PG Pride module (brittle GoDaddy scraper)', () => {
-  it('has the correct metadata', () => {
-    expect(pgPrideModule.key).toBe('pgpride_com');
-    expect(pgPrideModule.integrationTags).toContain('page-navigation');
+describe('Pride calendar feed', () => {
+  it('preserves exact year, DST offset, end time and location; escapes description', () => {
+    const event = mapCalendarEvent(calendarEvent);
+    expect(event.start).toBe(calendarEvent.start);
+    expect(event.end).toBe(calendarEvent.end);
+    expect(event.venueAddress).toBe(calendarEvent.location);
+    expect(event.descriptionHtml).toBe('Community &lt;dinner&gt;<br>All welcome');
+    expect(event.sourceEventId).toContain('2026-11-09T01:00:00.000Z');
+    expect(mapCalendarEvent({ ...calendarEvent, allDay: true }).raw.isAllDay).toBe(true);
   });
-
-  describe('parseDateText', () => {
-    it('parses long, short, and year-less month formats', () => {
-      expect(parseDateText('February 20, 2026', 2026)!.toISODate()).toBe('2026-02-20');
-      expect(parseDateText('Feb 20 2026', 2026)!.toISODate()).toBe('2026-02-20');
-      expect(parseDateText('March 8', 2026)!.toISODate()).toBe('2026-03-08'); // uses fallback year
-      expect(parseDateText('2026-02-20', 2026)!.toISODate()).toBe('2026-02-20');
-    });
-    it('returns null for junk', () => {
-      expect(parseDateText('see you soon', 2026)).toBeNull();
-      expect(parseDateText(null, 2026)).toBeNull();
-    });
+  it('uses distinct identities for recurring dates and rejects malformed dates', () => {
+    expect(mapCalendarEvent(calendarEvent).sourceEventId).not.toBe(mapCalendarEvent({ ...calendarEvent, start: '2026-12-13T17:00:00-08:00' }).sourceEventId);
+    expect(() => mapCalendarEvent({ ...calendarEvent, start: 'invalid' })).toThrow(/valid title\/start/);
+    expect(mapCalendarEvent({ ...calendarEvent, end: calendarEvent.start }).end).toBeUndefined();
   });
-
-  describe('parseTimeText', () => {
-    it('parses 12h and 24h times', () => {
-      expect(parseTimeText('7:00 PM')).toEqual({ hour: 19, minute: 0 });
-      expect(parseTimeText('11:00 AM')).toEqual({ hour: 11, minute: 0 });
-      expect(parseTimeText('12:00 AM')).toEqual({ hour: 0, minute: 0 });
-      expect(parseTimeText('19:30')).toEqual({ hour: 19, minute: 30 });
-    });
+  it('reads all feed events without waiting for networkidle or only reading five visible cards', async () => {
+    const feed = Array.from({ length: 7 }, (_, i) => ({ ...calendarEvent, title: `Event ${i}` }));
+    const page = {
+      waitForResponse: vi.fn().mockResolvedValue({ ok: () => true, json: async () => ({ events: feed }) }),
+      goto: vi.fn().mockResolvedValue({ ok: () => true }),
+    };
+    const stats = { pagesCrawled: 0 };
+    const events = await module.run({ page, stats, logger: { info: vi.fn() } } as any);
+    expect(events).toHaveLength(7);
+    expect(stats.pagesCrawled).toBe(2);
+    expect(page.goto).toHaveBeenCalledWith(module.startUrls[0], expect.objectContaining({ waitUntil: 'domcontentloaded' }));
   });
-
-  describe('buildStartIso', () => {
-    it('combines date and time into ISO with PG offset', () => {
-      expect(buildStartIso('February 20, 2026', '7:00 PM', 2026)).toBe('2026-02-20T19:00:00.000-08:00');
-    });
-  });
-
-  describe('extractEventsFromDocument (representative render)', () => {
-    it('pulls event cards out of the rendered calendar section', async () => {
-      const html = await readFile(fixturePath('rendered-calendar.html'), 'utf-8');
-      const doc = new JSDOM(html).window.document;
-      const events = extractEventsFromDocument(doc);
-
-      expect(events.length).toBe(2);
-      const movie = events.find(e => e.title === 'Pride Movie Night')!;
-      expect(movie).toBeTruthy();
-      expect(movie.dateText).toMatch(/February 20/);
-      expect(movie.timeText).toMatch(/7:00 PM/);
-      expect(movie.url).toBe('/event-calendar/pride-movie-night');
-    });
-
-    it('maps a scraped card into a RawEvent', async () => {
-      const html = await readFile(fixturePath('rendered-calendar.html'), 'utf-8');
-      const doc = new JSDOM(html).window.document;
-      const [first] = extractEventsFromDocument(doc);
-      const mapped = mapScrapedEvent(first, 2026)!;
-      expect(mapped.title).toBe('Pride Movie Night');
-      expect(mapped.start).toBe('2026-02-20T19:00:00.000-08:00');
-      expect(mapped.url).toBe('https://pgpride.com/event-calendar/pride-movie-night');
-      expect(mapped.organizer).toBe('Prince George Pride Society');
-    });
+  it('does not report missing or failed feeds as empty success', async () => {
+    const page = { waitForResponse: vi.fn().mockResolvedValue(null), goto: vi.fn().mockResolvedValue({ ok: () => true }) };
+    await expect(module.run({ page, logger: { info: vi.fn() } } as any)).rejects.toThrow(/did not load/);
+    page.waitForResponse.mockResolvedValue({ ok: () => false, status: () => 503 } as any);
+    await expect(module.run({ page, logger: { info: vi.fn() } } as any)).rejects.toThrow(/503/);
   });
 });

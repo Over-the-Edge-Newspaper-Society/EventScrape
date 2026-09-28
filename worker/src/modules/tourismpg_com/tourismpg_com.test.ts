@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import tourismPgModule from './index.js';
+import tourismPgModule, { calendarFallbackStart } from './index.js';
 
 describe('Tourism Prince George Scraper', () => {
 
@@ -275,4 +275,9 @@ describe('Tourism Prince George Scraper', () => {
     expect(eventData.description).toContain('Village Shoppes');
     expect(eventData.venueWebsite).toBe('https://www.cncentre.ca/');
   });
+});
+it('uses the known calendar occurrence date when a market detail has no date', () => {
+  expect(calendarFallbackStart('September 12, 2026', '8:30am')).toBe('2026-09-12 08:30');
+  expect(calendarFallbackStart('November 7, 2026')).toBe('2026-11-07 09:00');
+  expect(() => calendarFallbackStart('not a date')).toThrow('Invalid calendar date');
 });

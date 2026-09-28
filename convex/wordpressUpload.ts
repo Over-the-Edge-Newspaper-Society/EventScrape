@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { getUploadWarnings, summarizeWordPressUpload, type WordPressUploadResult, type WordPressMediaResult } from "./lib/wordpressUploadResults";
 
 // Node-runtime port of apps/api/src/services/wordpress-client.ts (uploadEvents)
 // and apps/api/src/routes/wordpress.ts (POST /upload). Runs in Convex's Node
@@ -47,15 +48,6 @@ interface WordPressEvent {
     end_datetime?: string;
     is_provisional?: boolean;
   }>;
-}
-
-interface WordPressUploadResult {
-  success: boolean;
-  postId?: number;
-  postUrl?: string;
-  error?: string;
-  action?: "created" | "updated" | "skipped";
-  occurrencesCreated?: number;
 }
 
 interface ClubData {
@@ -323,15 +315,19 @@ class WordPressClient {
 
       const result = (await response.json()) as {
         success: boolean;
-        action: "created" | "updated";
+        action: "created" | "updated" | "skipped";
         post_id: number;
         post_url: string;
         series_created: boolean;
         occurrences_created: number;
+        warnings?: string[];
+        media?: WordPressMediaResult;
       };
 
       return {
-        success: true,
+        success: result.success,
+        warnings: getUploadWarnings(result),
+        ...(result.media ? { media: result.media } : {}),
         postId: result.post_id,
         postUrl: result.post_url,
         action: result.action,
@@ -591,11 +587,10 @@ export const uploadEvents = action({
       includeMedia,
     });
 
-    const successCount = results.filter((r) => r.result.success).length;
-    const failureCount = results.length - successCount;
+    const summary = summarizeWordPressUpload(results);
 
     return {
-      message: `Uploaded ${successCount} events, ${failureCount} failed`,
+      message: summary.message,
       results,
     };
   },

@@ -56,6 +56,7 @@ export interface RunContext {
   };
   stats?: {
     pagesCrawled: number;
+    detailFailures?: number;
   };
 }
 

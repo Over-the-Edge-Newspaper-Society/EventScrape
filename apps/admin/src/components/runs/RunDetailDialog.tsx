@@ -1,3 +1,4 @@
+import { getScrapeMetrics } from './runMetadata'
 import { useQuery } from '@tanstack/react-query'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
     queryKey: ['run', runId],
     queryFn: () => runsApi.getById(runId!),
     enabled: !!runId,
+    refetchInterval: (query) => ['queued', 'running'].includes(query.state.data?.run.run.status ?? '') ? 2000 : false,
   })
 
   if (!runId) return null
@@ -52,6 +54,8 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
   const finishDate = run.finishedAt ? new Date(run.finishedAt) : null
   const childrenRuns = data.run.children ?? []
   const isBatchRun = childrenRuns.length > 0
+  const scrape = getScrapeMetrics(run)
+  const runErrors = run.errors ?? run.errorsJsonb
   const runMetadata = (run.metadata ?? {}) as Record<string, any>
   const batchOptions = runMetadata.options as { postLimit?: number; batchSize?: number } | undefined
   const batchSummary = runMetadata.batch as { total?: number; success?: number; failed?: number; pending?: number } | undefined
@@ -124,17 +128,24 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                 </Badge>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Duration:</span>
+                <span className="text-muted-foreground">Total elapsed:</span>
                 <span>{durationFormatted}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Events Found:</span>
+                <span className="text-muted-foreground">{scrape ? 'Events found:' : 'Events saved:'}</span>
                 <span className="font-medium">{run.eventsFound}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{summaryPagesLabel}:</span>
                 <span>{run.pagesCrawled}</span>
               </div>
+              {scrape && (
+                <div className="space-y-2 text-sm">
+                  <p>{scrape.inserted ?? 0} new · {scrape.updated ?? 0} updated · {scrape.unchanged ?? 0} unchanged · {scrape.failed ?? 0} failed saves</p>
+                  <p>{Math.floor(scrape.activeMs / 1000)}s active · {Math.floor(scrape.waitMs / 1000)}s queued / between attempts</p>
+                  <p>Attempt {scrape.attempt}/{scrape.maxAttempts} · {scrape.detailFailures ?? 0} page failures</p>
+                </div>
+              )}
               {isBatchRun && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Accounts:</span>
@@ -166,9 +177,10 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                 </Badge>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Started:</span>
+                <span className="text-muted-foreground">Created:</span>
                 <span>{!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}</span>
               </div>
+              {scrape?.firstStartedAt && <p className="text-sm"><strong>Execution started:</strong> {new Date(scrape.firstStartedAt).toLocaleString()}</p>}
               {run.finishedAt && finishDate && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Finished:</span>
@@ -180,7 +192,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
         </div>
 
         {/* Errors */}
-        {run.status === 'error' && run.errorsJsonb && (
+        {(run.status === 'error' || run.status === 'partial') && runErrors && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg text-destructive flex items-center gap-2">
@@ -191,9 +203,9 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
             <CardContent>
               <div className="bg-destructive/10 border border-destructive/20 rounded p-4">
                 <pre className="text-sm text-destructive whitespace-pre-wrap">
-                  {typeof run.errorsJsonb === 'string' 
-                    ? run.errorsJsonb 
-                    : JSON.stringify(run.errorsJsonb, null, 2)}
+                  {typeof runErrors === 'string'
+                    ? runErrors
+                    : JSON.stringify(runErrors, null, 2)}
                 </pre>
               </div>
             </CardContent>
@@ -210,7 +222,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 bg-blue-500 dark:bg-blue-400 rounded-full"></div>
                 <span className="text-sm">
-                  <strong>Started:</strong> {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
+                  <strong>Created:</strong> {!isNaN(startDate.getTime()) ? startDate.toLocaleString() : 'Invalid date'}
                 </span>
               </div>
               {run.finishedAt && finishDate && !isNaN(finishDate.getTime()) && (
@@ -304,9 +316,9 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
         {/* Extracted Events */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Extracted Events</CardTitle>
+            <CardTitle className="text-lg">New or Updated Events</CardTitle>
             <CardDescription>
-              {runEvents.length ? `${runEvents.length} event${runEvents.length === 1 ? '' : 's'} saved for this run` : 'No events were saved during this run'}
+              {runEvents.length ? `${runEvents.length} event${runEvents.length === 1 ? '' : 's'} saved for this run` : 'Unchanged events remain in the event catalogue and are not repeated here'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -377,7 +389,7 @@ function RunDetails({ runId, onClose }: Omit<RunDetailsProps, 'children'>) {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No events were captured for this run.</p>
+              <p className="text-sm text-muted-foreground">No new or updated events are attached to this run.</p>
             )}
           </CardContent>
         </Card>

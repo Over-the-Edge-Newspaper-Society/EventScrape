@@ -118,7 +118,7 @@ export const reclaimStalled = mutation({
     let requeued = 0;
     let failed = 0;
     for (const job of running) {
-      if ((job.startedAt ?? job.updatedAt) > threshold) continue;
+      if (job.updatedAt > threshold) continue;
       if (job.cancelRequested) {
         await ctx.db.patch(job._id, { status: "cancelled", finishedAt: now, updatedAt: now });
         continue;
@@ -149,6 +149,19 @@ export const reclaimStalled = mutation({
       }
     }
     return { requeued, failed };
+  },
+});
+
+// Long calendar crawls are healthy while their owning attempt keeps renewing.
+export const heartbeat = mutation({
+  args: { jobId: v.id("jobs"), workerId: v.string(), attempt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (job?.status === "running" && job.claimedBy === args.workerId && job.attempts === args.attempt) {
+      await ctx.db.patch(args.jobId, { updatedAt: Date.now() });
+    }
+    return null;
   },
 });
 
@@ -210,6 +223,10 @@ export const fail = mutation({
     }
 
     await ctx.db.patch(args.jobId, patch);
+
+    if (shouldRetry && job.runId) {
+      await ctx.db.patch(job.runId, { status: "queued", finishedAt: undefined });
+    }
 
     if (!shouldRetry && job.runId) {
       await ctx.db.patch("runs", job.runId, {

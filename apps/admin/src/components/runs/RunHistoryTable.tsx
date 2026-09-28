@@ -1,3 +1,4 @@
+import { getScrapeMetrics } from './runMetadata'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -106,8 +107,8 @@ export function RunHistoryTable({
               <TableRow>
                 <TableHead>Status</TableHead>
                 <TableHead>Source</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Duration</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Total elapsed</TableHead>
                 <TableHead>Results</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -134,6 +135,7 @@ export function RunHistoryTable({
                   queued: 0,
                 }
                 const queuedCount = Math.max(summaryData.pending - summaryData.running, 0)
+                const scrape = getScrapeMetrics(run)
                 const metadata = (run.metadata ?? {}) as Record<string, any>
                 const options = metadata.options as { postLimit?: number; batchSize?: number } | undefined
                 const pagesLabel = source?.moduleKey === 'instagram' ? 'posts' : 'pages'
@@ -165,20 +167,34 @@ export function RunHistoryTable({
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-sm">{durationFormatted}</span>
+                        <div>
+                          <span className="text-sm">{durationFormatted}</span>
+                          {scrape && (
+                            <div className="text-xs text-muted-foreground">
+                              {Math.floor(scrape.activeMs / 1000)}s active · {Math.floor(scrape.waitMs / 1000)}s waiting
+                              <br />Attempt {scrape.attempt}/{scrape.maxAttempts}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
                         <div className="flex items-center gap-1">
                           <span className="text-sm font-medium">{run.eventsFound}</span>
-                          <span className="text-xs text-muted-foreground">events</span>
+                          <span className="text-xs text-muted-foreground">{scrape ? 'found' : source?.moduleKey === 'instagram' ? 'events' : 'new/updated'}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-muted-foreground">
                             {run.pagesCrawled} {pagesLabel}
                           </span>
                         </div>
+                        {scrape && scrape.completedAttempt > 0 && (
+                          <div className="text-xs text-muted-foreground">
+                            {scrape.inserted} new · {scrape.updated} updated · {scrape.unchanged} unchanged
+                            {scrape.failed > 0 ? ` · ${scrape.failed} failed saves` : ''}
+                          </div>
+                        )}
                         {summaryData.total > 0 && (
                           <div className="text-xs text-muted-foreground space-y-0.5">
                             <div>

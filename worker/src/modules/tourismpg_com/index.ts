@@ -1,5 +1,14 @@
+import { parseLooseDate, parseClockTime } from '../../lib/dates.js';
+import { navigateToPage } from '../../lib/navigation.js';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
+
+export function calendarFallbackStart(calendarDate: string, time?: string): string {
+  const date = parseLooseDate(calendarDate, 0);
+  if (!date || !/\b\d{4}\b/.test(calendarDate)) throw new Error(`Invalid calendar date: ${calendarDate}`);
+  const clock = parseClockTime(time || null) ?? { hour: 9, minute: 0 };
+  return date.set(clock).toFormat('yyyy-MM-dd HH:mm');
+}
 
 const tourismPgModule: ScraperModule = {
   key: 'tourismpg_com',
@@ -25,11 +34,7 @@ const tourismPgModule: ScraperModule = {
 
     try {
       // Navigate to the events page
-      await page.goto(this.startUrls[0], { 
-        waitUntil: 'networkidle',
-        timeout: 30000 
-      });
-      if (ctx.stats) ctx.stats.pagesCrawled++;
+      await navigateToPage(page, this.startUrls[0], ctx.stats);
 
       logger.info('Page loaded, waiting for calendar to render...');
 
@@ -187,6 +192,7 @@ const tourismPgModule: ScraperModule = {
                 
               } catch (waitError) {
                 logger.warn(`Month didn't change after click, trying alternative approach: ${waitError}`);
+                if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
                 
                 // Try alternative: force reload with next month URL if possible
                 const nextMonthData = await page.evaluate(() => {
@@ -204,10 +210,12 @@ const tourismPgModule: ScraperModule = {
               }
             } else {
               logger.warn('Next month button not found or not clickable, stopping navigation');
+              if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
               break;
             }
           } catch (navError) {
             logger.warn(`Navigation to next month failed: ${navError}`);
+            if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
             break;
           }
         }
@@ -232,7 +240,7 @@ const tourismPgModule: ScraperModule = {
         filteredEventLinks = allEventLinks.filter(eventLink => {
           try {
             // Parse the event date from the calendar
-            const eventDate = new Date(eventLink.date + ' ' + new Date().getFullYear());
+            const eventDate = new Date(eventLink.date);
             
             if (targetStartDate && eventDate < targetStartDate) {
               return false;
@@ -274,11 +282,7 @@ const tourismPgModule: ScraperModule = {
           // reach 'networkidle' within the timeout, which would throw and force this
           // event down the degraded fallback path. Wait for DOM + the start-date field
           // (which is what we actually parse) instead.
-          await page.goto(eventLink.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000,
-          });
-          if (ctx.stats) ctx.stats.pagesCrawled++;
+          await navigateToPage(page, eventLink.url, ctx.stats);
 
           // Ensure the JetEngine dynamic fields we parse have rendered.
           try {
@@ -526,11 +530,8 @@ const tourismPgModule: ScraperModule = {
 
             // Fallback if date parsing failed
             if (!eventStart) {
-              // Use current date in timezone-neutral format
-              const now = new Date();
-              const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} 09:00`;
-              eventStart = fallbackDate;
-              logger.warn(`Date parsing failed for ${eventLink.title}, using current date`);
+              eventStart = calendarFallbackStart(eventLink.date, eventDetails.startTime);
+              logger.info(`Using calendar date for ${eventLink.title}: ${eventLink.date}`);
             }
             
             // Handle multi-day events (parse endDateText like "- September 1, 2025")
@@ -575,11 +576,8 @@ const tourismPgModule: ScraperModule = {
               }
             }
           } catch (dateError) {
-            // Use current date in timezone-neutral format
-            const now = new Date();
-            const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} 09:00`;
-            eventStart = fallbackDate;
-            logger.warn(`Date parsing error for ${eventLink.title}: ${dateError}`);
+            eventStart = calendarFallbackStart(eventLink.date, eventDetails.startTime);
+            logger.warn(`Detail date parsing failed for ${eventLink.title}; using calendar date ${eventLink.date}: ${dateError}`);
           }
 
           // Process location information
@@ -761,19 +759,16 @@ const tourismPgModule: ScraperModule = {
 
         } catch (eventError) {
           logger.warn(`Failed to process event ${eventLink.title}: ${eventError}`);
+          if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
 
           // Derive a sane start from the calendar date (e.g. "June 6, 2026") so a failed
           // detail page keeps the correct event date instead of the scrape timestamp.
-          let fallbackStart = new Date().toISOString();
-          const fbParts = eventLink.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
-          if (fbParts) {
-            const [, fbMonth, fbDay, fbYear] = fbParts;
-            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-                              'July', 'August', 'September', 'October', 'November', 'December'];
-            const fbMonthIndex = monthNames.indexOf(fbMonth);
-            if (fbMonthIndex !== -1) {
-              fallbackStart = `${fbYear}-${String(fbMonthIndex + 1).padStart(2, '0')}-${String(fbDay).padStart(2, '0')} 09:00`;
-            }
+          let fallbackStart: string;
+          try {
+            fallbackStart = calendarFallbackStart(eventLink.date);
+          } catch {
+            logger.error(`Skipping ${eventLink.title}: no valid calendar or detail date`);
+            continue;
           }
 
           // Create minimal fallback event

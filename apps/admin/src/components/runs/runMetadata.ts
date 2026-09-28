@@ -27,7 +27,7 @@ const integrationTagsMap: Record<string, string[]> = {
   'caledoniaramblers_ca': ['page-navigation'],
   'cncentre_ca': ['page-navigation'],
   'legion43pg_ca': ['page-navigation'],
-  'pgpride_com': ['page-navigation'],
+  'pgpride_com': ['api'],
   'pgara_ca': ['page-navigation'],
   'ai_poster_import': ['csv'],
 }
@@ -65,4 +65,16 @@ export const moduleSupportsUpload = (moduleKey: string): boolean => {
 
 export const getUploadInstructions = (moduleKey: string): string => {
   return uploadInstructionsMap[moduleKey] || 'Upload instructions not available'
+}
+
+// New website runs record what was found separately from persistence outcomes.
+// Older runs only stored inserts/updates in eventsFound; do not relabel them.
+export function getScrapeMetrics(run: { metadata?: any; startedAt: string; finishedAt?: string; status: string }, now = Date.now()) {
+  const scrape = run.metadata?.scrape
+  if (scrape?.version !== 1) return null
+  const totalMs = Math.max(0, (run.finishedAt ? new Date(run.finishedAt).getTime() : now) - new Date(run.startedAt).getTime())
+  const currentMs = run.status === 'running' && (scrape.completedAttempt ?? 0) < scrape.attempt
+    ? Math.max(0, now - scrape.attemptStartedAt) : 0
+  const activeMs = Math.min(totalMs, (scrape.activeMs ?? 0) + currentMs)
+  return { ...scrape, activeMs, waitMs: Math.max(0, totalMs - activeMs) }
 }

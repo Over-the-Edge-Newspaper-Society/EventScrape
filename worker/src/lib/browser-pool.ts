@@ -89,7 +89,8 @@ export class BrowserPool {
     const browser = await this.getBrowser();
     
     const page = await browser.newPage({
-      userAgent: this.getRandomUserAgent(),
+      // Match the actual Chromium engine; random Firefox identities caused 403s.
+      userAgent: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${browser.version()} Safari/537.36`,
       viewport: { width: 1920, height: 1080 },
     });
 
@@ -130,18 +131,6 @@ export class BrowserPool {
     this.availableBrowsers.length = 0;
     
     console.log('✅ All browsers closed');
-  }
-
-  private getRandomUserAgent(): string {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0',
-    ];
-    
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
   }
 
   getStatus() {

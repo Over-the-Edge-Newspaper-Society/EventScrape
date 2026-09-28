@@ -1,3 +1,4 @@
+import type { WordPressUploadResponse } from "../../../../convex/lib/wordpressUploadResults"
 import { runQuery, runMutation, runAction, normalizeIds } from './convexClient'
 
 // Convert an ISO date string (or undefined) into epoch-ms number for Convex.
@@ -359,8 +360,8 @@ export const wordpressApi = {
     runMutation<{ message: string }>('wordpress:deleteSettings', { id }).then(normalizeIds),
   testConnection: (id: string): Promise<{ success: boolean; error?: string }> =>
     runAction<{ success: boolean; error?: string }>('wordpress:testConnection', { id }),
-  uploadEvents: (data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<{ message: string; results: any[] }> =>
-    runAction<{ message: string; results: any[] }>('wordpressUpload:uploadEvents', {
+  uploadEvents: (data: { settingsId: string; eventIds: string[]; status?: 'publish' | 'draft' | 'pending' }): Promise<WordPressUploadResponse> =>
+    runAction<WordPressUploadResponse>('wordpressUpload:uploadEvents', {
       settingsId: data.settingsId,
       eventIds: data.eventIds,
       status: data.status,
@@ -467,6 +468,7 @@ export interface Run {
   status: 'queued' | 'running' | 'success' | 'partial' | 'error'
   pagesCrawled: number
   eventsFound: number
+  errors?: any
   errorsJsonb?: any
   parentRunId?: string | null
   metadata?: any

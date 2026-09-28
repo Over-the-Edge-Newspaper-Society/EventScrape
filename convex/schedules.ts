@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Doc, Id } from "./_generated/dataModel";
 import { scheduleType } from "./schema";
 import { cronMatches } from "./cronMatch";
@@ -503,9 +504,24 @@ export const trigger = mutation({
   },
 });
 
-// Cron dispatcher — run every minute by convex/crons.ts. Fires each active
-// schedule whose cron expression matches the current minute in its timezone.
-// Deduplicated via lastRunAt so a schedule fires at most once per minute.
+// Each schedule gets its own transaction and read budget. In particular, two
+// WordPress exports must not combine their event scans in the cron transaction:
+// exceeding Convex's read limit would roll back every scrape queued that minute.
+export const runScheduled = internalMutation({
+  args: { scheduleId: v.id("schedules") },
+  returns: v.object({ jobsEnqueued: v.number() }),
+  handler: async (ctx, { scheduleId }) => {
+    const schedule = await ctx.db.get(scheduleId);
+    if (!schedule || !schedule.active) return { jobsEnqueued: 0 };
+    const { units } = await enqueueScheduleJobs(ctx, schedule);
+    return { jobsEnqueued: units };
+  },
+});
+
+// Cron dispatcher — run every minute by convex/crons.ts. Only dispatch here;
+// event selection and worker job creation happen in independent runScheduled
+// mutations. Recording lastRunAt atomically with runAfter prevents duplicates.
+// `jobs` counts scheduled callbacks, not the eventual worker jobs they create.
 export const runDue = internalMutation({
   args: {},
   returns: v.object({ fired: v.number(), jobs: v.number() }),
@@ -526,17 +542,18 @@ export const runDue = internalMutation({
       let matches = false;
       try {
         matches = cronMatches(schedule.cron, now, tz);
-      } catch {
+      } catch (error) {
+        console.warn("Invalid schedule cron/timezone", schedule._id, String(error));
         matches = false;
       }
       if (!matches) continue;
 
-      const { units } = await enqueueScheduleJobs(ctx, schedule);
+      await ctx.scheduler.runAfter(0, internal.schedules.runScheduled, {
+        scheduleId: schedule._id,
+      });
       await ctx.db.patch(schedule._id, { lastRunAt: now });
-      if (units > 0) {
-        fired++;
-        jobs += units;
-      }
+      fired++;
+      jobs++;
     }
     return { fired, jobs };
   },

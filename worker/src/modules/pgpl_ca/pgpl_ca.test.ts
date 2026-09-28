@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { JSDOM } from 'jsdom';
@@ -57,4 +57,20 @@ describe('PGPL Module', () => {
     expect(new Set(starts).size).toBe(starts.length);
     expect([...starts].sort()).toEqual(starts);
   });
+});
+
+vi.mock('../../lib/utils.js', () => ({ delay: async () => {}, addJitter: (n: number) => n }));
+
+it('counts listing and detail fetches in addition to the initial navigation', async () => {
+  const page = {
+    goto: vi.fn().mockResolvedValue({ ok: () => true }),
+    evaluate: vi.fn()
+      .mockResolvedValueOnce({ success: true, events: [{ title: 'Test event', relativeUrl: '/events/test' }] })
+      .mockResolvedValueOnce({ success: true, data: { title: 'Test event', nodeId: '1', dates: [{ start: '2026-10-01T12:00:00-07:00' }] } })
+      .mockResolvedValueOnce({ success: true, events: [] }),
+  };
+  const stats = { pagesCrawled: 0 };
+  const events = await pgplModule.run({ page, stats, logger: { info: vi.fn(), warn: vi.fn() } } as any);
+  expect(events).toHaveLength(1);
+  expect(stats.pagesCrawled).toBe(4);
 });

@@ -1,3 +1,4 @@
+import { navigateToPage } from '../../lib/navigation.js';
 import type { ScraperModule, RunContext, RawEvent } from '../../types.js';
 import { delay, addJitter } from '../../lib/utils.js';
 
@@ -158,11 +159,7 @@ const pgplModule: ScraperModule = {
 
     logger.info(`Starting ${isTestMode ? 'test ' : ''}scrape of ${this.label}`);
 
-    await page.goto(this.startUrls[0], {
-      waitUntil: 'networkidle',
-      timeout: 30000,
-    });
-    if (ctx.stats) ctx.stats.pagesCrawled++;
+    await navigateToPage(page, this.startUrls[0], ctx.stats);
 
     const totalPages = isTestMode ? Math.min(1, maxPages) : maxPages;
 
@@ -170,7 +167,9 @@ const pgplModule: ScraperModule = {
       logger.info(`Fetching events page ${pageIndex + 1}`);
 
       const listingResult = await fetchListingPage(page, pageIndex);
+      if (ctx.stats) ctx.stats.pagesCrawled++;
       if (!listingResult.success) {
+        if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
         logger.warn(`Failed to fetch events page ${pageIndex + 1}: ${listingResult.status || listingResult.error}`);
         break;
       }
@@ -188,7 +187,9 @@ const pgplModule: ScraperModule = {
         logger.info(`Fetching detail for ${listing.title}`);
 
         const detailResult = await fetchDetailData(page, absoluteUrl);
+        if (ctx.stats) ctx.stats.pagesCrawled++;
         if (!detailResult.success || !detailResult.data) {
+          if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
           logger.warn(`Failed to load detail page for ${absoluteUrl}: ${detailResult.status || detailResult.error}`);
           continue;
         }
@@ -198,6 +199,7 @@ const pgplModule: ScraperModule = {
           events.push(rawEvent);
         } else {
           logger.warn(`Skipping event ${listing.title} due to missing date information`);
+          if (ctx.stats) ctx.stats.detailFailures = (ctx.stats.detailFailures || 0) + 1;
         }
 
         await delay(addJitter(DEFAULT_DETAIL_DELAY_MS));

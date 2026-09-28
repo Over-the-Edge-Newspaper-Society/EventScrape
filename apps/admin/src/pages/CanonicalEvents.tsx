@@ -12,6 +12,8 @@ import { eventsApi, wordpressApi, EventsQueryParams } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 import { Search, Filter, Calendar, MapPin, ExternalLink, Package, Eye, FileText, Trash2, Globe } from 'lucide-react'
 import { toast } from 'sonner'
+import { WordPressUploadSummary } from '@/components/wordpress/WordPressUploadSummary'
+import { summarizeWordPressUpload, type WordPressUploadResponse } from '../../../../convex/lib/wordpressUploadResults'
 
 export function CanonicalEvents() {
   const queryClient = useQueryClient()
@@ -21,6 +23,7 @@ export function CanonicalEvents() {
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<Set<string>>(new Set())
+  const [wpUploadResult, setWpUploadResult] = useState<WordPressUploadResponse | null>(null)
   const [showWpUploadDialog, setShowWpUploadDialog] = useState(false)
   const [selectedWpSite, setSelectedWpSite] = useState('')
   const [wpPostStatus, setWpPostStatus] = useState<'publish' | 'draft' | 'pending'>('draft')
@@ -46,8 +49,12 @@ export function CanonicalEvents() {
   const uploadToWordPressMutation = useMutation({
     mutationFn: (data: { settingsId: string; eventIds: string[]; status: 'publish' | 'draft' | 'pending' }) =>
       wordpressApi.uploadEvents(data),
-    onSuccess: () => {
-      toast.success(`Successfully uploaded ${selectedEvents.size} events to WordPress!`)
+    onSuccess: (response) => {
+      setWpUploadResult(response)
+      const summary = summarizeWordPressUpload(response.results)
+      if (summary.failed) toast.error(summary.message)
+      else if (summary.warned) toast.warning(summary.message)
+      else toast.success(summary.message)
       setShowWpUploadDialog(false)
       setSelectedEvents(new Set())
       queryClient.invalidateQueries({ queryKey: ['events', 'canonical'] })
@@ -247,6 +254,8 @@ export function CanonicalEvents() {
           </div>
         </CardContent>
       </Card>
+
+      {wpUploadResult && <WordPressUploadSummary response={wpUploadResult} onDismiss={() => setWpUploadResult(null)} />}
 
       {/* Filters */}
       <Card>
